@@ -49,7 +49,7 @@ runs:
           .cudaq_version
       run: |
         hash=${{ hashFiles(format('{0}', env.to_hash)) }}
-        echo "main=cudaq-wheels-${{ matrix.platform }}-${{ inputs.ref }}-$hash" >> $GITHUB_OUTPUT
+        echo "main=cudaq-wheels-${{ inputs.platform }}-${{ inputs.ref }}-$hash" >> $GITHUB_OUTPUT
         if [[ -n "${{ inputs.pr-number }}" ]]; then
           echo "pr=-pr${{ inputs.pr-number }}" >> $GITHUB_OUTPUT
         fi
@@ -110,8 +110,7 @@ runs:
         endpoint: builder_context
         driver-opts: network=host
 
-    # FIXME handle multiple versions (search for 3.10)
-    - name: Build wheel
+    - name: Build 3.10 wheel
       id: wheel_build
       uses: docker/build-push-action@v5
       with:
@@ -119,14 +118,38 @@ runs:
         file: ./cudaq/docker/release/cudaq.wheel.Dockerfile
         build-args: |
           base_image=ghcr.io/nvidia/cuda-quantum-devdeps:manylinux-${{ inputs.platform }}-cu12.0-gcc11-main
-          release_version=0.0.0
+          release_version=0.99.99
           python_version=3.10
+        outputs: /cudaq-wheels
+
+    - name: Build 3.11 wheel
+      id: wheel_build
+      uses: docker/build-push-action@v5
+      with:
+        context: cudaq
+        file: ./cudaq/docker/release/cudaq.wheel.Dockerfile
+        build-args: |
+          base_image=ghcr.io/nvidia/cuda-quantum-devdeps:manylinux-${{ inputs.platform }}-cu12.0-gcc11-main
+          release_version=0.99.99
+          python_version=3.11
+        outputs: /cudaq-wheels
+
+    - name: Build 3.12 wheel
+      id: wheel_build
+      uses: docker/build-push-action@v5
+      with:
+        context: cudaq
+        file: ./cudaq/docker/release/cudaq.wheel.Dockerfile
+        build-args: |
+          base_image=ghcr.io/nvidia/cuda-quantum-devdeps:manylinux-${{ inputs.platform }}-cu12.0-gcc11-main
+          release_version=0.99.99
+          python_version=3.12
         outputs: /cudaq-wheels
 
     - name: Upload wheel
       uses: actions/upload-artifact@v4
       with:
-        name: pycudaq-${{ inputs.platform }}-3.10
+        name: pycudaq-${{ inputs.platform }}
         path: /cudaq-wheels
         retention-days: 1
         if-no-files-found: error
