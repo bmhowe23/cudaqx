@@ -111,7 +111,6 @@ runs:
         driver-opts: network=host
 
     - name: Build 3.10 wheel
-      id: wheel_build
       uses: docker/build-push-action@v5
       with:
         context: cudaq
@@ -123,7 +122,6 @@ runs:
         outputs: /cudaq-wheels
 
     - name: Build 3.11 wheel
-      id: wheel_build
       uses: docker/build-push-action@v5
       with:
         context: cudaq
@@ -135,7 +133,6 @@ runs:
         outputs: /cudaq-wheels
 
     - name: Build 3.12 wheel
-      id: wheel_build
       uses: docker/build-push-action@v5
       with:
         context: cudaq
