@@ -28,6 +28,10 @@ inputs:
     description: 'Check if a cache entry exists without downloading the cache'
     default: 'false'
     required: false
+  platform:
+    description: 'Platform (amd64 or arm64)'
+    default: ''
+    required: true
 outputs:
   found-cache:
     description: 'A boolean value to indicate that a cache entry was found.'
@@ -49,7 +53,7 @@ runs:
           .cudaq_version
       run: |
         hash=${{ hashFiles(format('{0}', env.to_hash)) }}
-        echo "main=cudaq-${{ inputs.ref }}-$hash" >> $GITHUB_OUTPUT
+        echo "main=cudaq-${{ matrix.platform }}-${{ inputs.ref }}-$hash" >> $GITHUB_OUTPUT
         if [[ -n "${{ inputs.pr-number }}" ]]; then
           echo "pr=-pr${{ inputs.pr-number }}" >> $GITHUB_OUTPUT
         fi
