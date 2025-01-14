@@ -53,6 +53,7 @@ runs:
         if [[ -n "${{ inputs.pr-number }}" ]]; then
           echo "pr=-pr${{ inputs.pr-number }}" >> $GITHUB_OUTPUT
         fi
+        mkdir /cudaq-wheels
       shell: bash --noprofile --norc -euo pipefail {0}
 
     - name: Try to restoring CUDAQ wheels from cache
