@@ -120,6 +120,7 @@ jobs:
           pr-number: ${{ fromJSON(steps.get-pr-info.outputs.pr-info).number }}
           save-build: true
           save-ccache: false
+          platform: ${{ matrix.platform }}
 
   build-docs:
     name: Docs

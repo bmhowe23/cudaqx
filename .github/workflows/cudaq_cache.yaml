@@ -48,4 +48,5 @@ jobs:
           token: ${{ secrets.CUDAQ_ACCESS_TOKEN }}
           save-build: true
           save-ccache: true
+          platform: ${{ matrix.platform }}
 
