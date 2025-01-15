@@ -11,6 +11,7 @@ on:
     paths:
       - '.github/workflows/cudaq_cache.yaml'
       - '.github/actions/get-cudaq-build/**'
+      - '.github/actions/get-cudaq-wheels/**'
       - '.cudaq_version'
 
 concurrency:
@@ -48,5 +49,38 @@ jobs:
           token: ${{ secrets.CUDAQ_ACCESS_TOKEN }}
           save-build: true
           save-ccache: true
+          platform: ${{ matrix.platform }}
+
+  # This is similar to build-cudaq, but it builds the CUDA-Q wheels. It uses a
+  # CUDA-Q docker file to perform the build and therefore cannot run in a
+  # container context, so it cannot be done in the same build-cudaq job.
+  build-cudaq-wheels:
+    name: Build CUDAQ wheels
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: ['amd64', 'arm64']
+    runs-on: ${{ startsWith(github.repository, 'NVIDIA/cudaqx') && format('linux-{0}-cpu32', matrix.platform) || 'ubuntu-latest' }}
+    permissions:
+      actions: write
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Get code
+        uses: actions/checkout@v4
+        with:
+          set-safe-directory: true
+
+      - name: Get required CUDAQ version
+        id: get-cudaq-version
+        uses: ./.github/actions/get-cudaq-version
+
+      - name: Get CUDAQ wheels
+        uses: ./.github/actions/get-cudaq-wheels
+        with:
+          repo: ${{ steps.get-cudaq-version.outputs.repo }}
+          ref: ${{ steps.get-cudaq-version.outputs.ref }}
+          token: ${{ secrets.CUDAQ_ACCESS_TOKEN }}
+          save-build: true
           platform: ${{ matrix.platform }}
 
