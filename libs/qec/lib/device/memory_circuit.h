@@ -13,17 +13,6 @@
 
 namespace cudaq::qec {
 
-/// @brief Get a reference to the raw measurements from the memory circuit
-/// execution
-/// @return Reference to the vector of integers storing syndrome information
-std::vector<uint8_t> &getMemoryCircuitMeasurements();
-
-std::vector<uint8_t> &getMemoryCircuitAncillaMeasurements();
-
-std::vector<uint8_t> &getMemoryCircuitDataMeasurements();
-
-void clearRawMeasurements();
-
 /// \entry_point_kernel
 ///
 /// @brief Execute a memory circuit for quantum error correction, mz on data

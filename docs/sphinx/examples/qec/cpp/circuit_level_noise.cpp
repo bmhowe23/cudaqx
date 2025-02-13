@@ -10,6 +10,11 @@
 // nvq++ --enable-mlir --target=stim -lcudaq-qec circuit_level_noise.cpp
 // ./a.out
 
+// BMH
+// nvq++ --enable-mlir -L lib -lcudaq-qec --target stim -I ../libs/core/include ../docs/sphinx/examples/qec/cpp/circuit_level_noise.cpp
+// LD_LIBRARY_PATH=lib:$LD_LIBRARY_PATH CUDAQ_LOG_LEVEL=info ./a.out
+
+#include <chrono>
 #include "cudaq.h"
 #include "cudaq/qec/decoder.h"
 #include "cudaq/qec/experiments.h"
@@ -37,7 +42,7 @@ int main() {
   observables.dump();
 
   // How many shots to run the experiment
-  int nShots = 3;
+  int nShots = 30000;
   // For each shot, how many rounds of stabilizer measurements
   int nRounds = 4;
 
@@ -51,8 +56,13 @@ int main() {
       /*numControls*/ 1);
 
   // Perform a noisy z-basis memory circuit experiment
+  auto t0 = std::chrono::high_resolution_clock::now();
   auto [syndromes, data] = cudaq::qec::sample_memory_circuit(
       *steane, cudaq::qec::operation::prep0, nShots, nRounds, noise);
+  auto t1 = std::chrono::high_resolution_clock::now();
+  std::chrono::duration<double> diff = t1 - t0;
+  printf("sample_memory_circuit time is %.3f seconds for %d shots\n",
+         diff.count(), nShots);
 
   // With noise, many syndromes will flip each QEC cycle, these are the
   // syndrome differences from the previous cycle.
