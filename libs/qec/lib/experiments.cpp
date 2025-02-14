@@ -95,7 +95,7 @@ cudaqx::tensor<uint8_t> get_pcm(cudaq::noise_model &noise,
   ctx_pcm_size.noiseModel = &noise;
   auto &platform = cudaq::get_platform();
   platform.set_exec_ctx(&ctx_pcm_size);
-  std::invoke(std::forward<QuantumKernel>(kernel), std::forward<Args>(args)...);
+  kernel(std::forward<Args>(args)...);
   platform.reset_exec_ctx();
 
   // No noise is affecting this circuit, so no PCM can be generated.
@@ -108,7 +108,7 @@ cudaqx::tensor<uint8_t> get_pcm(cudaq::noise_model &noise,
   ctx_pcm.noiseModel = &noise;
   ctx_pcm.pcm_dimensions = ctx_pcm_size.pcm_dimensions;
   platform.set_exec_ctx(&ctx_pcm);
-  std::invoke(std::forward<QuantumKernel>(kernel), std::forward<Args>(args)...);
+  kernel(std::forward<Args>(args)...);
   platform.reset_exec_ctx();
   
   // FIXME - strip out the data qubits from the syndrome qubits.
@@ -235,6 +235,17 @@ sample_memory_circuit(const code &code, operation statePrep,
   for (std::size_t shot = 0; shot < numShots; shot++)
     for (std::size_t d = 0; d < numData; d++)
       dataResults.at({shot, d}) = bitstrings[shot][numColsBeforeData + d] - '0';
+
+  cudaqx::tensor<uint8_t> unrolled({bitstrings[0].size(), numShots});
+  for (std::size_t i = 0; i < unrolled.shape()[0]; i++)
+    for (std::size_t shot = 0; shot < unrolled.shape()[1]; shot++)
+      unrolled.at({i, shot}) = bitstrings[shot][i] == '1' ? 1 : 0;
+  printf("unrolled in circuit:\n");
+  for (std::size_t i = 0; i < unrolled.shape()[0]; i++) {
+    for (std::size_t j = 0; j < unrolled.shape()[1]; j++)
+      printf("%c", unrolled.at({i, j}) > 0 ? '1' : '.');
+    printf("\n");
+  }
 
   // First round, store bare syndrome measurement
   for (std::size_t shot = 0; shot < numShots; ++shot) {

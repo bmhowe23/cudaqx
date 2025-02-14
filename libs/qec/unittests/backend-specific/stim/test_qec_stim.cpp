@@ -296,7 +296,9 @@ TEST(QECCodeTester, checkSampleMemoryCircuitStim) {
     {
       cudaq::set_random_seed(13);
       cudaq::noise_model noise;
-      noise.add_all_qubit_channel("x", cudaq::qec::two_qubit_bitflip(0.1), 1);
+      // noise.add_all_qubit_channel("x", cudaq::qec::two_qubit_bitflip(0.1), 1);
+      // noise.add_all_qubit_channel("x", cudaq::qec::two_qubit_depolarization(0.1), 1);
+      noise.add_all_qubit_channel("x", cudaq::qec::two_qubit_depolarization(0.0), 1);
 
       nShots = 10;
       nRounds = 4;
@@ -305,6 +307,53 @@ TEST(QECCodeTester, checkSampleMemoryCircuitStim) {
           *steane, cudaq::qec::operation::prep0, nShots, nRounds, noise);
       printf("syndromes:\n");
       syndromes.dump();
+
+      // Unroll the syndromes
+      auto syndromes_per_shot = syndromes.size() / nShots;
+      auto data_per_shot = d.size() / nShots;
+      auto mz_per_shot = syndromes_per_shot + data_per_shot;
+      auto syndromes_per_round = syndromes_per_shot / nRounds;
+
+      cudaqx::tensor<uint8_t> unrolled(
+          {mz_per_shot, static_cast<size_t>(nShots)});
+
+      // Populate the syndromes (rows [0, syndromes_per_shot))
+      for (size_t s = 0; s < nShots; s++) {
+        size_t syn_row_offset = nRounds * s;
+        size_t out_row = 0;
+        for (size_t r = 0; r < nRounds; r++) {
+          if (r == 0) {
+            for (size_t syn = 0; syn < syndromes_per_round; syn++) {
+              unrolled.at({out_row, s}) = syndromes.at({syn_row_offset + r, syn});
+              out_row++;
+            }
+          } else {
+            for (size_t syn = 0; syn < syndromes_per_round; syn++) {
+              unrolled.at({out_row, s}) =
+                  syndromes.at({syn_row_offset + r, syn}) ^
+                  unrolled.at({out_row - syndromes_per_round, s});
+              out_row++;
+            }
+          }
+        }
+      }
+
+      // Populate the data measurements (rows [syndromes_per_shot, mz_per_shot))
+      for (size_t s = 0; s < nShots; s++) {
+        size_t row_offset = nRounds * s;
+        size_t out_row = syndromes_per_shot;
+        for (size_t di = 0; di < data_per_shot; di++) {
+          unrolled.at({out_row, s}) = d.at({s, di});
+          out_row++;
+        }
+      }
+
+      printf("unrolled:\n");
+      for (std::size_t i = 0; i < unrolled.shape()[0]; i++) {
+        for (std::size_t j = 0; j < unrolled.shape()[1]; j++)
+          printf("%c", unrolled.at({i, j}) > 0 ? '1' : '.');
+        printf("\n");
+      }
 
       // Noise here, expect a nonzero
       int sum = 0;
