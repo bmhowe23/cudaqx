@@ -221,7 +221,7 @@ TEST(QECCodeTester, checkSteaneNoiseStim) {
   }
 }
 
-TEST(QECCodeTester, checkSampleMemoryCircuit) {
+TEST(QECCodeTester, checkSampleMemoryCircuitStim) {
   {
     // Steane tests
     auto steane = cudaq::qec::get_code("steane");
