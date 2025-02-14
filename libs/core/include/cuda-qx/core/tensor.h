@@ -43,8 +43,9 @@ public:
   /// @brief Construct an empty tensor
   tensor()
       : pimpl(std::shared_ptr<details::tensor_impl<Scalar>>(
-            details::tensor_impl<Scalar>::get(
-                std::string("xtensor") + std::string(ScalarAsString), {})
+            details::tensor_impl<Scalar>::get(std::string("xtensor") +
+                                                  std::string(ScalarAsString),
+                                              std::vector<std::size_t>())
                 .release())) {}
 
   /// @brief Construct a tensor with the given shape
@@ -63,6 +64,16 @@ public:
             details::tensor_impl<Scalar>::get(std::string("xtensor") +
                                                   std::string(ScalarAsString),
                                               data, shape)
+                .release())) {}
+
+  /// @brief Construct a tensor with the given bitstrings
+  /// @param data Bitstrings from which to construct tensor
+  template <typename T, typename = std::enable_if_t<
+                            std::is_convertible<T, std::string>::value>>
+  tensor(const std::vector<T> &data)
+      : pimpl(std::shared_ptr<details::tensor_impl<Scalar>>(
+            details::tensor_impl<Scalar>::get(
+                std::string("xtensor") + std::string(ScalarAsString), data)
                 .release())) {}
 
   /// @brief Get the rank of the tensor
