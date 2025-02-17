@@ -1,12 +1,12 @@
-/****************************************************************-*- C++ -*-****
- * Copyright (c) 2024 NVIDIA Corporation & Affiliates.                         *
+/*******************************************************************************
+ * Copyright (c) 2024 - 2025 NVIDIA Corporation & Affiliates.                  *
  * All rights reserved.                                                        *
  *                                                                             *
  * This source code and the accompanying materials are made available under    *
  * the terms of the Apache License 2.0 which accompanies this distribution.    *
  ******************************************************************************/
-#include "cudaq/qec/experiments.h"
 
+#include "cudaq/qec/experiments.h"
 #include "device/memory_circuit.h"
 
 using namespace cudaqx;
@@ -231,6 +231,12 @@ sample_memory_circuit(const code &code, operation statePrep,
   }
 
   const auto bitstrings = result.sequential_data();
+  cudaqx::tensor<uint8_t> mzTable(bitstrings);
+  auto mzTableT = mzTable.transpose();
+  printf("Dumping mzTable\n");
+  mzTable.dump_bits();
+  printf("Dumping mzTableT");
+  mzTableT.dump_bits();
   const auto numColsBeforeData = numCols * numRounds;
   for (std::size_t shot = 0; shot < numShots; shot++)
     for (std::size_t d = 0; d < numData; d++)
