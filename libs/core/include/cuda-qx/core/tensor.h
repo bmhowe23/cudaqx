@@ -182,6 +182,73 @@ public:
     return result;
   }
 
+  tensor<Scalar> slice(const std::vector<std::size_t> &v_begin,
+                       const std::vector<std::size_t> &v_end) {
+    Scalar __restrict__ *dst = nullptr;
+    std::size_t new_size = 0;
+    std::vector<std::size_t> new_shape(rank());
+    for (std::size_t r = 0; r < rank(); r++) {
+      new_shape[r] = v_end[r] - v_begin[r] + 1;
+      if (r == 0)
+        new_size = new_shape[r];
+      else
+        new_size *= new_shape[r];
+    }
+    dst = new Scalar[new_size];
+    size_t ix = 0;
+    if (rank() == 1) {
+      const Scalar __restrict__ *src = data();
+      for (size_t a = v_begin[0]; a <= v_end[0]; a++)
+        dst[ix++] = src[a];
+    } else if (rank() == 2) {
+      for (size_t a = v_begin[0]; a <= v_end[0]; a++) {
+        const Scalar __restrict__ *src = &at({a, 0});
+        for (size_t b = v_begin[1]; b <= v_end[1]; b++)
+          dst[ix++] = src[b];
+      }
+    } else if (rank() == 3) {
+      for (size_t a = v_begin[0]; a <= v_end[0]; a++)
+        for (size_t b = v_begin[1]; b <= v_end[1]; b++) {
+          const Scalar __restrict__ *src = &at({a, b, 0});
+          for (size_t c = v_begin[2]; c <= v_end[2]; c++)
+            dst[ix++] = src[c];
+        }
+    } else if (rank() == 4) {
+      for (size_t a = v_begin[0]; a <= v_end[0]; a++)
+        for (size_t b = v_begin[1]; b <= v_end[1]; b++)
+          for (size_t c = v_begin[2]; c <= v_end[2]; c++) {
+            const Scalar __restrict__ *src = &at({a, b, c, 0});
+            for (size_t d = v_begin[3]; d <= v_end[3]; d++)
+              dst[ix++] = src[d];
+          }
+    } else if (rank() == 5) {
+      for (size_t a = v_begin[0]; a <= v_end[0]; a++)
+        for (size_t b = v_begin[1]; b <= v_end[1]; b++)
+          for (size_t c = v_begin[2]; c <= v_end[2]; c++)
+            for (size_t d = v_begin[3]; d <= v_end[3]; d++) {
+              const Scalar __restrict__ *src = &at({a, b, c, d, 0});
+              for (size_t e = v_begin[4]; e <= v_end[4]; e++)
+                dst[ix++] = src[e];
+            }
+    } else {
+      // Throw error (TODO)
+    }
+    return cudaqx::tensor<Scalar>(dst, new_shape);
+  }
+
+  tensor<Scalar> slice(size_t dim, std::size_t begin, std::size_t end) {
+    std::vector<std::size_t> v_begin(rank());
+    std::vector<std::size_t> v_end(rank());
+    assert(dim < rank());
+    for (std::size_t d = 0; d < rank(); d++) {
+      v_begin[d] = 0;
+      v_end[d] = shape()[d] - 1;
+    }
+    v_begin[dim] = begin;
+    v_end[dim] = end;
+    return slice(v_begin, v_end);
+  }
+
   // Matrix operations (rank-2 specific)
   tensor<Scalar> dot(const tensor<Scalar> &other) const {
 

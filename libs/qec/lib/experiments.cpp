@@ -235,12 +235,22 @@ sample_memory_circuit(const code &code, operation statePrep,
   auto mzTableT = mzTable.transpose();
   printf("Dumping mzTable\n");
   mzTable.dump_bits();
-  printf("Dumping mzTableT");
+  printf("Dumping mzTableT\n");
   mzTableT.dump_bits();
   const auto numColsBeforeData = numCols * numRounds;
-  for (std::size_t shot = 0; shot < numShots; shot++)
+  for (std::size_t shot = 0; shot < numShots; shot++) {
+    uint8_t __restrict__ *dataResultsRow = &dataResults.at({shot, 0});
+    uint8_t __restrict__ *mzTableRow = &mzTable.at({shot, 0});
     for (std::size_t d = 0; d < numData; d++)
-      dataResults.at({shot, d}) = bitstrings[shot][numColsBeforeData + d] - '0';
+      dataResultsRow[d] = mzTableRow[numColsBeforeData + d];
+  }
+
+  auto stabs = mzTable.slice(1, 0, numCols * numRounds - 1);
+  printf("stabs = \n");
+  stabs.dump_bits();
+  auto dataQubits = mzTable.slice(1, numCols * numRounds, mzTable.shape()[1]);
+  printf("dataQubits = \n");
+  dataQubits.dump_bits();
 
   cudaqx::tensor<uint8_t> unrolled({bitstrings[0].size(), numShots});
   for (std::size_t i = 0; i < unrolled.shape()[0]; i++)
