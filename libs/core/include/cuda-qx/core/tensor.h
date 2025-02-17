@@ -1,5 +1,5 @@
 /****************************************************************-*- C++ -*-****
- * Copyright (c) 2024 NVIDIA Corporation & Affiliates.                         *
+ * Copyright (c) 2024 - 2025 NVIDIA Corporation & Affiliates.                  *
  * All rights reserved.                                                        *
  *                                                                             *
  * This source code and the accompanying materials are made available under    *
@@ -239,6 +239,10 @@ public:
   const scalar_type *data() const { return pimpl->data(); }
 
   void dump() const { pimpl->dump(); }
+
+  /// @brief Dump tensor as bits, where non-zero elements are shown as '1' and
+  /// zero-elements are shown as '.'.
+  void dump_bits() const { pimpl->dump_bits(); }
 };
 
 } // namespace cudaqx

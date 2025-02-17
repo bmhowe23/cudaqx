@@ -1,5 +1,5 @@
 /****************************************************************-*- C++ -*-****
- * Copyright (c) 2024 NVIDIA Corporation & Affiliates.                         *
+ * Copyright (c) 2024 - 2025 NVIDIA Corporation & Affiliates.                  *
  * All rights reserved.                                                        *
  *                                                                             *
  * This source code and the accompanying materials are made available under    *
@@ -181,6 +181,10 @@ public:
   virtual const scalar_type *data() const = 0;
 
   virtual void dump() const = 0;
+
+  /// @brief Dump tensor as bits, where non-zero elements are shown as '1' and
+  /// zero-elements are shown as '.'.
+  virtual void dump_bits() const = 0;
 
   virtual ~tensor_impl() = default;
 };
