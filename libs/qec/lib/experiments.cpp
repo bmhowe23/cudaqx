@@ -83,94 +83,94 @@ sample_code_capacity(const code &code, std::size_t nShots,
                               seed);
 }
 
-// Get the PCM
-template <
-    typename QuantumKernel, typename... Args,
-    typename = std::enable_if_t<std::is_invocable_v<QuantumKernel, Args...>>>
-cudaqx::tensor<uint8_t> get_pcm(cudaq::noise_model &noise,
-                                QuantumKernel &&kernel,
-                                Args &&...args) {
+// // Get the PCM
+// template <
+//     typename QuantumKernel, typename... Args,
+//     typename = std::enable_if_t<std::is_invocable_v<QuantumKernel, Args...>>>
+// cudaqx::tensor<uint8_t> get_pcm(cudaq::noise_model &noise,
+//                                 QuantumKernel &&kernel,
+//                                 Args &&...args) {
 
-  cudaq::ExecutionContext ctx_pcm_size("pcm_size");
-  ctx_pcm_size.noiseModel = &noise;
-  auto &platform = cudaq::get_platform();
-  platform.set_exec_ctx(&ctx_pcm_size);
-  kernel(std::forward<Args>(args)...);
-  platform.reset_exec_ctx();
+//   cudaq::ExecutionContext ctx_pcm_size("pcm_size");
+//   ctx_pcm_size.noiseModel = &noise;
+//   auto &platform = cudaq::get_platform();
+//   platform.set_exec_ctx(&ctx_pcm_size);
+//   kernel(std::forward<Args>(args)...);
+//   platform.reset_exec_ctx();
 
-  // No noise is affecting this circuit, so no PCM can be generated.
-  if (!ctx_pcm_size.pcm_dimensions ||
-      ctx_pcm_size.pcm_dimensions.value().first == 0 ||
-      ctx_pcm_size.pcm_dimensions.value().second == 0)
-    return cudaqx::tensor<uint8_t>();
+//   // No noise is affecting this circuit, so no PCM can be generated.
+//   if (!ctx_pcm_size.pcm_dimensions ||
+//       ctx_pcm_size.pcm_dimensions.value().first == 0 ||
+//       ctx_pcm_size.pcm_dimensions.value().second == 0)
+//     return cudaqx::tensor<uint8_t>();
 
-  cudaq::ExecutionContext ctx_pcm("pcm");
-  ctx_pcm.noiseModel = &noise;
-  ctx_pcm.pcm_dimensions = ctx_pcm_size.pcm_dimensions;
-  platform.set_exec_ctx(&ctx_pcm);
-  kernel(std::forward<Args>(args)...);
-  platform.reset_exec_ctx();
+//   cudaq::ExecutionContext ctx_pcm("pcm");
+//   ctx_pcm.noiseModel = &noise;
+//   ctx_pcm.pcm_dimensions = ctx_pcm_size.pcm_dimensions;
+//   platform.set_exec_ctx(&ctx_pcm);
+//   kernel(std::forward<Args>(args)...);
+//   platform.reset_exec_ctx();
   
-  // FIXME - strip out the data qubits from the syndrome qubits.
-  // Also, do we need to XOR syndromes together?
+//   // FIXME - strip out the data qubits from the syndrome qubits.
+//   // Also, do we need to XOR syndromes together?
 
-  // Also FIXME, do we need to strip out rows that are all 0's?
+//   // Also FIXME, do we need to strip out rows that are all 0's?
 
-  // Look for duplicate columns
-  const auto pcm_as_strings = ctx_pcm.result.sequential_data();
-  std::unordered_map<std::string, std::vector<std::size_t>> unique_syndromes;
-  for (std::size_t ix = 0; auto &col : pcm_as_strings) {
-    unique_syndromes[col].push_back(ix);
-    ix++;
-  }
+//   // Look for duplicate columns
+//   const auto pcm_as_strings = ctx_pcm.result.sequential_data();
+//   std::unordered_map<std::string, std::vector<std::size_t>> unique_syndromes;
+//   for (std::size_t ix = 0; auto &col : pcm_as_strings) {
+//     unique_syndromes[col].push_back(ix);
+//     ix++;
+//   }
 
-  printf("pcm_dimensions is %lu %lu\n", ctx_pcm.pcm_dimensions.value().first,
-         ctx_pcm.pcm_dimensions.value().second);
+//   printf("pcm_dimensions is %lu %lu\n", ctx_pcm.pcm_dimensions.value().first,
+//          ctx_pcm.pcm_dimensions.value().second);
 
-  for (std::size_t r = 0; r < ctx_pcm.pcm_dimensions.value().first; r++) {
-    for (std::size_t c = 0; c < ctx_pcm.pcm_dimensions.value().second; c++) {
-      printf("%c", pcm_as_strings[c][r] == '1' ? '1' : '.');
-    }
-    printf("\n");
-  }
+//   for (std::size_t r = 0; r < ctx_pcm.pcm_dimensions.value().first; r++) {
+//     for (std::size_t c = 0; c < ctx_pcm.pcm_dimensions.value().second; c++) {
+//       printf("%c", pcm_as_strings[c][r] == '1' ? '1' : '.');
+//     }
+//     printf("\n");
+//   }
 
-  // Now make a second pass, collapsing all the duplicates, adding the
-  // probabilities for error mechanisms that produce the same syndrome.
-  std::vector<std::size_t> collapsed2orig(unique_syndromes.size());
-  std::vector<std::size_t> orig2collapsed(pcm_as_strings.size());
-  std::vector<double> collapsed_prob;
-  auto &pcm_probabilities = ctx_pcm.pcm_probabilities.value();
-  collapsed_prob.reserve(unique_syndromes.size());
-  auto num_rows = pcm_as_strings[0].size();
-  auto num_cols = unique_syndromes.size();
-  cudaqx::tensor<uint8_t> pcm({num_rows, num_cols});
-  for (std::size_t ix = 0; auto &col : pcm_as_strings) {
-    if (unique_syndromes[col].front() == ix) {
-      double p_not = 1.0;
-      // Loop over the indices of the error mechanisms that all share this
-      // unique syndrome.
-      for (auto ix2 : unique_syndromes[col]) {
-        p_not *= (1.0 - pcm_probabilities[ix2]);
-      }
-      collapsed2orig[collapsed_prob.size()] = ix;
-      orig2collapsed[ix] = collapsed_prob.size();
-      for (std::size_t row = 0; row < num_rows; row++)
-        pcm.at({row, collapsed_prob.size()}) = col[row] - '0';
-      collapsed_prob.push_back(1.0 - p_not);
-    }
-    ix++;
-  }
+//   // Now make a second pass, collapsing all the duplicates, adding the
+//   // probabilities for error mechanisms that produce the same syndrome.
+//   std::vector<std::size_t> collapsed2orig(unique_syndromes.size());
+//   std::vector<std::size_t> orig2collapsed(pcm_as_strings.size());
+//   std::vector<double> collapsed_prob;
+//   auto &pcm_probabilities = ctx_pcm.pcm_probabilities.value();
+//   collapsed_prob.reserve(unique_syndromes.size());
+//   auto num_rows = pcm_as_strings[0].size();
+//   auto num_cols = unique_syndromes.size();
+//   cudaqx::tensor<uint8_t> pcm({num_rows, num_cols});
+//   for (std::size_t ix = 0; auto &col : pcm_as_strings) {
+//     if (unique_syndromes[col].front() == ix) {
+//       double p_not = 1.0;
+//       // Loop over the indices of the error mechanisms that all share this
+//       // unique syndrome.
+//       for (auto ix2 : unique_syndromes[col]) {
+//         p_not *= (1.0 - pcm_probabilities[ix2]);
+//       }
+//       collapsed2orig[collapsed_prob.size()] = ix;
+//       orig2collapsed[ix] = collapsed_prob.size();
+//       for (std::size_t row = 0; row < num_rows; row++)
+//         pcm.at({row, collapsed_prob.size()}) = col[row] - '0';
+//       collapsed_prob.push_back(1.0 - p_not);
+//     }
+//     ix++;
+//   }
 
-  pcm.dump();
-  for (std::size_t r = 0; r < pcm.shape()[0]; r++) {
-    for (std::size_t c = 0; c < pcm.shape()[1]; c++) {
-      printf("%c", pcm.at({r, c}) ? '1' : '.');
-    }
-    printf("\n");
-  }
+//   pcm.dump();
+//   for (std::size_t r = 0; r < pcm.shape()[0]; r++) {
+//     for (std::size_t c = 0; c < pcm.shape()[1]; c++) {
+//       printf("%c", pcm.at({r, c}) ? '1' : '.');
+//     }
+//     printf("\n");
+//   }
 
-  return pcm;
-}
+//   return pcm;
+// }
 
 std::tuple<cudaqx::tensor<uint8_t>, cudaqx::tensor<uint8_t>>
 sample_memory_circuit(const code &code, operation statePrep,
@@ -216,8 +216,8 @@ sample_memory_circuit(const code &code, operation statePrep,
 
   // Run the memory circuit experiment
   if (statePrep == operation::prep0 || statePrep == operation::prep1) {
-    auto x = get_pcm(noise, memory_circuit_mz, stabRound, prep, numData,
-                     numAncx, numAncz, numRounds, xVec, zVec);
+    // auto x = get_pcm(noise, memory_circuit_mz, stabRound, prep, numData,
+    //                  numAncx, numAncz, numRounds, xVec, zVec);
     // run z basis
     result = cudaq::sample(opts, memory_circuit_mz, stabRound, prep, numData,
                            numAncx, numAncz, numRounds, xVec, zVec);

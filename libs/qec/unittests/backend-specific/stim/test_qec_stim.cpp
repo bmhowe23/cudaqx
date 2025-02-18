@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2024 NVIDIA Corporation & Affiliates.                         *
+ * Copyright (c) 2024 - 2025 NVIDIA Corporation & Affiliates.                  *
  * All rights reserved.                                                        *
  *                                                                             *
  * This source code and the accompanying materials are made available under    *
@@ -296,8 +296,6 @@ TEST(QECCodeTester, checkSampleMemoryCircuitStim) {
     {
       cudaq::set_random_seed(13);
       cudaq::noise_model noise;
-      // noise.add_all_qubit_channel("x", cudaq::qec::two_qubit_bitflip(0.1), 1);
-      // noise.add_all_qubit_channel("x", cudaq::qec::two_qubit_depolarization(0.1), 1);
       noise.add_all_qubit_channel("x", cudaq::qec::two_qubit_depolarization(0.0), 1);
 
       nShots = 10;

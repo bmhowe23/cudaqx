@@ -72,9 +72,12 @@ public:
     std::size_t size = num_rows * num_cols;
     scalar_type *scalar_data = new scalar_type[size]();
     auto result = iter->second(scalar_data, {num_rows, num_cols});
-    for (size_t r = 0; r < num_rows; r++)
-      for (size_t c = 0; c < num_cols; c++)
-        result->at({r, c}) = data[r][c] - '0';
+    for (size_t r = 0; r < num_rows; r++) {
+      Scalar __restrict__ *resultRow = &result->at({r, 0});
+      for (size_t c = 0; c < num_cols; c++) {
+        resultRow[c] = data[r][c] - '0';
+      }
+    }
     return std::move(result);
   }
 
