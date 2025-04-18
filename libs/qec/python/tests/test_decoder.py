@@ -213,6 +213,14 @@ def test_sort_pcm_columns_non_decreasing_column_weight():
 
     assert np.array_equal(H_calculated, H_expected)
 
+    col_order = qec.get_sorted_pcm_column_indices(H)
+    expected_order = [1, 4, 8, 0, 3, 2, 6, 7, 5]
+    assert col_order == expected_order
+
+    # Now check that reordering the columns of H yields H_expected
+    H_reordered = qec.reorder_pcm_columns(H, col_order)
+    assert np.array_equal(H_reordered, H_expected)
+
 
 def test_sort_pcm_columns_invalid_input():
     # Test that passing a non-2D array raises an error.
