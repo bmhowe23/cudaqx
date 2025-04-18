@@ -188,5 +188,38 @@ def test_pass_weights():
     # Test is that no error is thrown
 
 
+def test_sort_pcm_columns_non_decreasing_column_weight():
+    # Create a test parity-check matrix with random binary values.
+    # yapf: disable
+    H = np.array([[0, 1, 0, 0, 1, 0, 0, 0, 1],
+                  [1, 0, 0, 1, 1, 0, 0, 0, 0],
+                  [0, 0, 1, 0, 1, 0, 1, 0, 0],
+                  [0, 0, 0, 1, 1, 0, 0, 1, 0],
+                  [0, 0, 0, 0, 1, 1, 1, 1, 1]],
+                 dtype=np.uint8)
+    # yapf: enable
+
+    H_calculated = qec.sort_pcm_columns(H)
+
+    # yapf: disable
+    H_expected = np.array(
+        [[1, 1, 1, 0, 0, 0, 0, 0, 0],
+         [0, 1, 0, 1, 1, 0, 0, 0, 0],
+         [0, 1, 0, 0, 0, 1, 1, 0, 0],
+         [0, 1, 0, 0, 1, 0, 0, 1, 0],
+         [0, 1, 1, 0, 0, 0, 1, 1, 1]],
+        dtype=np.uint8)
+    # yapf: enable
+
+    assert np.array_equal(H_calculated, H_expected)
+
+
+def test_sort_pcm_columns_invalid_input():
+    # Test that passing a non-2D array raises an error.
+    H_invalid = np.array([0, 1, 0, 1], dtype=np.uint8)
+    with pytest.raises(RuntimeError):
+        qec.get_sorted_pcm_column_indices(H_invalid)
+
+
 if __name__ == "__main__":
     pytest.main()

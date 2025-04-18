@@ -781,10 +781,10 @@ TEST(PCMUtilsTester, checkReorderPCMColumns) {
   };
   cudaqx::tensor<uint8_t> pcm(std::vector<std::size_t>{5, 9});
   pcm.borrow(data.data());
-  auto column_order = cudaq::qec::sort_pcm_columns(pcm);
+  auto column_order = cudaq::qec::get_sorted_pcm_column_indices(pcm);
   const std::vector<std::uint32_t> expected_order = {1, 4, 8, 0, 3, 2, 6, 7, 5};
   EXPECT_EQ(column_order, expected_order);
-  cudaq::qec::reorder_pcm_columns(pcm, column_order);
+  auto pcm_reordered = cudaq::qec::reorder_pcm_columns(pcm, column_order);
 
   const std::vector<std::vector<uint8_t>> expected_data = {
       {1, 1, 1, 0, 0, 0, 0, 0, 0}, /* row 0 */
@@ -796,6 +796,12 @@ TEST(PCMUtilsTester, checkReorderPCMColumns) {
 
   // Compare expected data with reordered data
   for (std::size_t i = 0; i < pcm.shape()[0]; ++i)
-    for (std::size_t j = 0; j < pcm.shape()[1]; ++j)
-      EXPECT_EQ(expected_data[i][j], pcm.at({i, j}));
+    for (std::size_t j = 0; j < pcm_reordered.shape()[1]; ++j)
+      EXPECT_EQ(expected_data[i][j], pcm_reordered.at({i, j}));
+
+  // Now try the whole flow with sort_pcm_columns
+  auto pcm_reordered2 = cudaq::qec::sort_pcm_columns(pcm);
+  for (std::size_t i = 0; i < pcm_reordered2.shape()[0]; ++i)
+    for (std::size_t j = 0; j < pcm_reordered2.shape()[1]; ++j)
+      EXPECT_EQ(expected_data[i][j], pcm_reordered2.at({i, j}));
 }

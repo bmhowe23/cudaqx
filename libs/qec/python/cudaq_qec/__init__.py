@@ -1,5 +1,5 @@
 # ============================================================================ #
-# Copyright (c) 2024 NVIDIA Corporation & Affiliates.                          #
+# Copyright (c) 2024 - 2025 NVIDIA Corporation & Affiliates.                   #
 # All rights reserved.                                                         #
 #                                                                              #
 # This source code and the accompanying materials are made available under     #
@@ -23,6 +23,9 @@ DecoderResult = qecrt.DecoderResult
 generate_random_bit_flips = qecrt.generate_random_bit_flips
 sample_memory_circuit = qecrt.sample_memory_circuit
 sample_code_capacity = qecrt.sample_code_capacity
+get_sorted_pcm_column_indices = qecrt.get_sorted_pcm_column_indices
+reorder_pcm_columns = qecrt.reorder_pcm_columns
+sort_pcm_columns = qecrt.sort_pcm_columns
 
 from .plugins import decoders, codes
 import pkgutil, importlib, traceback

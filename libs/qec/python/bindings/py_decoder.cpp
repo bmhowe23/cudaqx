@@ -14,6 +14,7 @@
 #include "common/Logger.h"
 
 #include "cudaq/qec/decoder.h"
+#include "cudaq/qec/pcm_utils.h"
 #include "cudaq/qec/plugin_loader.h"
 
 #include "cuda-qx/core/kwargs_utils.h"
@@ -240,6 +241,116 @@ void bindDecoder(py::module &mod) {
       "Get a decoder by name with a given parity check matrix"
       "and optional decoder-specific parameters. Note: the parity check matrix "
       "must be in row-major order.");
+
+  qecmod.def(
+      "get_sorted_pcm_column_indices",
+      [](const py::array_t<uint8_t> &H) {
+        py::buffer_info buf = H.request();
+        if (buf.ndim != 2) {
+          throw std::runtime_error(
+              "Parity check matrix must be 2-dimensional.");
+        }
+        if (buf.itemsize != sizeof(uint8_t)) {
+          throw std::runtime_error(
+              "Parity check matrix must be an array of uint8_t.");
+        }
+        if (buf.strides[0] == buf.itemsize) {
+          throw std::runtime_error(
+              "Parity check matrix must be in row-major order, but "
+              "column-major order was detected.");
+        }
+
+        // Create a vector of the array dimensions
+        std::vector<std::size_t> shape;
+        for (py::ssize_t d : buf.shape) {
+          shape.push_back(static_cast<std::size_t>(d));
+        }
+
+        cudaqx::tensor<uint8_t> tensor_H(shape);
+        tensor_H.borrow(static_cast<uint8_t *>(buf.ptr), shape);
+
+        return cudaq::qec::get_sorted_pcm_column_indices(tensor_H);
+      },
+      "Get the sorted column indices of a parity check matrix.");
+
+  qecmod.def(
+      "reorder_pcm_columns",
+      [](const py::array_t<uint8_t> &H,
+         const py::array_t<uint32_t> &column_order) {
+        py::buffer_info buf = H.request();
+        if (buf.ndim != 2) {
+          throw std::runtime_error(
+              "Parity check matrix must be 2-dimensional.");
+        }
+        if (buf.itemsize != sizeof(uint8_t)) {
+          throw std::runtime_error(
+              "Parity check matrix must be an array of uint8_t.");
+        }
+        if (buf.strides[0] == buf.itemsize) {
+          throw std::runtime_error(
+              "Parity check matrix must be in row-major order, but "
+              "column-major order was detected.");
+        }
+
+        // Create a vector of the array dimensions
+        std::vector<std::size_t> shape;
+        for (py::ssize_t d : buf.shape) {
+          shape.push_back(static_cast<std::size_t>(d));
+        }
+
+        cudaqx::tensor<uint8_t> tensor_H(shape);
+        tensor_H.borrow(static_cast<uint8_t *>(buf.ptr), shape);
+
+        // Use pybind to create a std::vector from the column_order array
+        std::vector<std::uint32_t> column_order_vec =
+            column_order.cast<std::vector<std::uint32_t>>();
+
+        auto H_new = cudaq::qec::reorder_pcm_columns(tensor_H, column_order_vec);
+
+        // Construct a new py_array_t<uint8_t> from H_new.
+        py::array_t<uint8_t> H_new_py(shape);
+        memcpy(H_new_py.mutable_data(), H_new.data(),
+               shape[0] * shape[1] * sizeof(uint8_t));
+        return H_new_py;
+      },
+      "Reorder the columns of a parity check matrix.");
+
+  qecmod.def(
+      "sort_pcm_columns",
+      [](py::array_t<uint8_t> &H) {
+        py::buffer_info buf = H.request(/*writable=*/true);
+        if (buf.ndim != 2) {
+          throw std::runtime_error(
+              "Parity check matrix must be 2-dimensional.");
+        }
+        if (buf.itemsize != sizeof(uint8_t)) {
+          throw std::runtime_error(
+              "Parity check matrix must be an array of uint8_t.");
+        }
+        if (buf.strides[0] == buf.itemsize) {
+          throw std::runtime_error(
+              "Parity check matrix must be in row-major order, but "
+              "column-major order was detected.");
+        }
+
+        // Create a vector of the array dimensions
+        std::vector<std::size_t> shape;
+        for (py::ssize_t d : buf.shape) {
+          shape.push_back(static_cast<std::size_t>(d));
+        }
+
+        cudaqx::tensor<uint8_t> tensor_H(shape);
+        tensor_H.borrow(static_cast<uint8_t *>(buf.ptr), shape);
+
+        auto H_new = cudaq::qec::sort_pcm_columns(tensor_H);
+
+        // Construct a new py_array_t<uint8_t> from H_new.
+        py::array_t<uint8_t> H_new_py(shape);
+        memcpy(H_new_py.mutable_data(), H_new.data(),
+               shape[0] * shape[1] * sizeof(uint8_t));
+        return H_new_py;
+      },
+      "Sort the columns of a parity check matrix.");
 }
 
 } // namespace cudaq::qec
