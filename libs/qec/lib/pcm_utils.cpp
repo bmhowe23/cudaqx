@@ -38,18 +38,17 @@ std::vector<std::uint32_t> get_sorted_pcm_column_indices(
   return column_order;
 }
 
-/// @brief Return a vector of column indices that would sort the pcm columns
-/// in topological order.
-std::vector<std::uint32_t>
-get_sorted_pcm_column_indices(const cudaqx::tensor<uint8_t> &pcm) {
+/// @brief Return a sparse representation of the PCM.
+std::vector<std::vector<std::uint32_t>> get_sparse_pcm(
+    const cudaqx::tensor<uint8_t> &pcm) {
   if (pcm.rank() != 2) {
-    throw std::invalid_argument("pcm must be a 2D tensor");
+    throw std::invalid_argument("get_sparse_pcm: PCM must be a 2D tensor");
   }
 
   auto num_rows = pcm.shape()[0];
   auto num_cols = pcm.shape()[1];
 
-  // Form a sparse representation of the pcm
+  // Form a sparse representation of the PCM.
   std::vector<std::vector<std::uint32_t>> row_indices(num_cols);
   for (std::size_t r = 0; r < num_rows; r++) {
     auto *row = &pcm.at({r, 0});
@@ -57,6 +56,20 @@ get_sorted_pcm_column_indices(const cudaqx::tensor<uint8_t> &pcm) {
       if (row[c])
         row_indices[c].push_back(r);
   }
+
+  return row_indices;
+}
+
+/// @brief Return a vector of column indices that would sort the pcm columns
+/// in topological order.
+std::vector<std::uint32_t>
+get_sorted_pcm_column_indices(const cudaqx::tensor<uint8_t> &pcm) {
+  if (pcm.rank() != 2) {
+    throw std::invalid_argument(
+        "get_sorted_pcm_column_indices: PCM must be a 2D tensor");
+  }
+
+  auto row_indices = get_sparse_pcm(pcm);
 
   return get_sorted_pcm_column_indices(row_indices);
 }
@@ -97,6 +110,55 @@ reorder_pcm_columns(const cudaqx::tensor<uint8_t> &pcm,
 cudaqx::tensor<uint8_t> sort_pcm_columns(const cudaqx::tensor<uint8_t> &pcm) {
   auto column_order = get_sorted_pcm_column_indices(pcm);
   return reorder_pcm_columns(pcm, column_order);
+}
+
+/// @brief Simplify a PCM by removing duplicate columns, and combine the
+/// probability weight vectors accordingly.
+/// @param pcm The PCM to simplify.
+/// @param weights The probability weight vectors to combine.
+/// @return A new PCM with the columns sorted in topological order, and the
+/// probability weight vectors combined accordingly.
+std::pair<cudaqx::tensor<uint8_t>, std::vector<double>>
+simplify_pcm(const cudaqx::tensor<uint8_t> &pcm,
+             const std::vector<double> &weights) {
+  auto row_indices = get_sparse_pcm(pcm);
+  auto column_order = get_sorted_pcm_column_indices(pcm);
+  // March through the columns in topological order, and combine the probability
+  // weight vectors if the columns have the same row indices.
+  std::vector<std::vector<std::uint32_t>> new_row_indices;
+  std::vector<double> new_weights;
+  const auto num_cols = column_order.size();
+  for (std::size_t c = 0; c < num_cols; c++) {
+    auto column_index = column_order[c];
+    auto &curr_row_indices = row_indices[column_index];
+    if (c == 0) {
+      // The first column is always added to the new PCM.
+      new_row_indices.push_back(curr_row_indices);
+      new_weights.push_back(weights[column_index]);
+    } else {
+      auto &prev_row_indices = new_row_indices.back();
+      if (prev_row_indices == curr_row_indices) {
+        // The current column has the same row indices as the previous column,
+        // so we update the weights and do NOT add the duplicate column.
+        auto prev_weight = new_weights.back();
+        auto curr_weight = weights[column_index];
+        auto new_weight = 1.0 - (1.0 - prev_weight) * (1.0 - curr_weight);
+        new_weights.back() = new_weight;
+      } else {
+        // The current column has different row indices than the previous column.
+        // So we add the current column to the new PCM, and update the weights.
+        new_row_indices.push_back(curr_row_indices);
+        new_weights.push_back(weights[column_index]);
+      }
+    }
+  }
+
+  cudaqx::tensor<uint8_t> new_pcm(pcm.shape());
+  for (std::size_t c = 0; c < new_row_indices.size(); c++)
+    for (auto r : new_row_indices[c])
+      new_pcm.at({r, c}) = 1;
+
+  return std::make_pair(new_pcm, new_weights);
 }
 
 } // namespace cudaq::qec

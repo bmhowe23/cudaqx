@@ -37,4 +37,14 @@ reorder_pcm_columns(const cudaqx::tensor<uint8_t> &pcm,
 /// @return A new PCM with the columns sorted in topological order.
 cudaqx::tensor<uint8_t> sort_pcm_columns(const cudaqx::tensor<uint8_t> &pcm);
 
+/// @brief Simplify a PCM by removing duplicate columns, and combine the
+/// probability weight vectors accordingly.
+/// @param pcm The PCM to simplify.
+/// @param weights The probability weight vectors to combine.
+/// @return A new PCM with the columns sorted in topological order, and the
+/// probability weight vectors combined accordingly.
+std::pair<cudaqx::tensor<uint8_t>, std::vector<double>>
+simplify_pcm(const cudaqx::tensor<uint8_t> &pcm,
+             const std::vector<double> &weights);
+
 } // namespace cudaq::qec
