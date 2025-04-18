@@ -805,3 +805,40 @@ TEST(PCMUtilsTester, checkReorderPCMColumns) {
     for (std::size_t j = 0; j < pcm_reordered2.shape()[1]; ++j)
       EXPECT_EQ(expected_data[i][j], pcm_reordered2.at({i, j}));
 }
+
+TEST(PCMUtilsTester, checkSimplifyPCM1) {
+  std::vector<uint8_t> data = {
+      0, 1, /* row 0 */
+      1, 0  /* row 1 */
+  };
+  std::vector<double> weights = {0.5, 0.5};
+  cudaqx::tensor<uint8_t> pcm(std::vector<std::size_t>{2, 2});
+  pcm.borrow(data.data());
+  auto column_order = cudaq::qec::get_sorted_pcm_column_indices(pcm);
+  const std::vector<std::uint32_t> expected_order = {1, 0};
+  EXPECT_EQ(column_order, expected_order);
+  auto pcm_reordered = cudaq::qec::reorder_pcm_columns(pcm, column_order);
+  auto [H_new, weights_new] = cudaq::qec::simplify_pcm(pcm_reordered, weights);
+  std::vector<double> expected_weights = {0.5, 0.5};
+  EXPECT_EQ(weights_new, expected_weights);
+}
+
+
+TEST(PCMUtilsTester, checkSimplifyPCM2) {
+  std::vector<uint8_t> data = {
+      0, 1, 0, /* row 0 */
+      1, 0, 1  /* row 1 */
+  };
+  std::vector<double> weights = {0.1, 0.2, 0.3};
+  cudaqx::tensor<uint8_t> pcm(std::vector<std::size_t>{2, 3});
+  pcm.borrow(data.data());
+
+  auto column_order = cudaq::qec::get_sorted_pcm_column_indices(pcm);
+  const std::vector<std::uint32_t> expected_order = {1, 0, 2};
+  EXPECT_EQ(column_order, expected_order);
+
+  auto [H_new, weights_new] = cudaq::qec::simplify_pcm(pcm, weights);
+  std::vector<double> expected_weights = {0.2, 1.0 - 0.9 * 0.7};
+  EXPECT_EQ(weights_new, expected_weights);
+}
+
