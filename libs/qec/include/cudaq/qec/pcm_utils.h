@@ -11,21 +11,30 @@
 
 namespace cudaq::qec {
 
-/// @brief Return a vector of column indices that would sort the pcm columns
+/// @brief Return a vector of column indices that would sort the PCM columns
 /// in topological order.
 /// @param row_indices For each column, a vector of row indices that have a
 /// non-zero value in that column.
-std::vector<std::uint32_t>
-sort_pcm_columns(const std::vector<std::vector<std::uint32_t>> &row_indices);
+std::vector<std::uint32_t> get_sorted_pcm_column_indices(
+    const std::vector<std::vector<std::uint32_t>> &row_indices);
 
-/// @brief Return a vector of column indices that would sort the pcm columns
+/// @brief Return a vector of column indices that would sort the PCM columns
 /// in topological order.
-std::vector<std::uint32_t> sort_pcm_columns(const cudaqx::tensor<uint8_t> &pcm);
+std::vector<std::uint32_t>
+get_sorted_pcm_column_indices(const cudaqx::tensor<uint8_t> &pcm);
 
-/// @brief Reorder the columns of a pcm according to the given column order.
-/// @param pcm The pcm to reorder.
+/// @brief Reorder the columns of a PCM according to the given column order.
+/// @param pcm The PCM to reorder.
 /// @param column_order The column order to use for reordering.
-void reorder_pcm_columns(cudaqx::tensor<uint8_t> &pcm,
-                         const std::vector<std::uint32_t> &column_order);
+/// @return A new PCM with the columns reordered according to the given column
+/// order.
+cudaqx::tensor<uint8_t>
+reorder_pcm_columns(const cudaqx::tensor<uint8_t> &pcm,
+                    const std::vector<std::uint32_t> &column_order);
+
+/// @brief Sort the columns of a PCM in topological order.
+/// @param pcm The PCM to sort.
+/// @return A new PCM with the columns sorted in topological order.
+cudaqx::tensor<uint8_t> sort_pcm_columns(const cudaqx::tensor<uint8_t> &pcm);
 
 } // namespace cudaq::qec
