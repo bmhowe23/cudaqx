@@ -9,10 +9,9 @@
 #include <cmath>
 #include <gtest/gtest.h>
 
-#include "cudaq.h"
-
 #include "cudaq/qec/codes/surface_code.h"
 #include "cudaq/qec/experiments.h"
+#include "cudaq/qec/pcm_utils.h"
 
 TEST(StabilizerTester, checkConstructFromSpinOps) {
   {
@@ -770,4 +769,33 @@ TEST(QECCodeTester, checkStabilizerGrid) {
     EXPECT_EQ(144, grid.x_stabilizers.size());
     EXPECT_EQ(144, grid.z_stabilizers.size());
   }
+}
+
+TEST(PCMUtilsTester, checkReorderPCMColumns) {
+  std::vector<uint8_t> data = {
+      0, 1, 0, 0, 1, 0, 0, 0, 1, /* row 0 */
+      1, 0, 0, 1, 1, 0, 0, 0, 0, /* row 1 */
+      0, 0, 1, 0, 1, 0, 1, 0, 0, /* row 2 */
+      0, 0, 0, 1, 1, 0, 0, 1, 0, /* row 3 */
+      0, 0, 0, 0, 1, 1, 1, 1, 1, /* row 4 */
+  };
+  cudaqx::tensor<uint8_t> pcm(std::vector<std::size_t>{5, 9});
+  pcm.borrow(data.data());
+  auto column_order = cudaq::qec::sort_pcm_columns(pcm);
+  const std::vector<std::uint32_t> expected_order = {1, 4, 8, 0, 3, 2, 6, 7, 5};
+  EXPECT_EQ(column_order, expected_order);
+  cudaq::qec::reorder_pcm_columns(pcm, column_order);
+
+  const std::vector<std::vector<uint8_t>> expected_data = {
+      {1, 1, 1, 0, 0, 0, 0, 0, 0}, /* row 0 */
+      {0, 1, 0, 1, 1, 0, 0, 0, 0}, /* row 1 */
+      {0, 1, 0, 0, 0, 1, 1, 0, 0}, /* row 2 */
+      {0, 1, 0, 0, 1, 0, 0, 1, 0}, /* row 3 */
+      {0, 1, 1, 0, 0, 0, 1, 1, 1}  /* row 4 */
+  };
+
+  // Compare expected data with reordered data
+  for (std::size_t i = 0; i < pcm.shape()[0]; ++i)
+    for (std::size_t j = 0; j < pcm.shape()[1]; ++j)
+      EXPECT_EQ(expected_data[i][j], pcm.at({i, j}));
 }
