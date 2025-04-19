@@ -807,6 +807,7 @@ TEST(PCMUtilsTester, checkReorderPCMColumns) {
 }
 
 TEST(PCMUtilsTester, checkSimplifyPCM1) {
+  // No simplification occurs here, but reordering occurs.
   std::vector<uint8_t> data = {
       0, 1, /* row 0 */
       1, 0  /* row 1 */
@@ -825,6 +826,7 @@ TEST(PCMUtilsTester, checkSimplifyPCM1) {
 
 
 TEST(PCMUtilsTester, checkSimplifyPCM2) {
+  // Simplification (combining columns) occurs here.
   std::vector<uint8_t> data = {
       0, 1, 0, /* row 0 */
       1, 0, 1  /* row 1 */
