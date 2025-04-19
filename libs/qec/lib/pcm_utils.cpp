@@ -11,10 +11,16 @@
 
 namespace cudaq::qec {
 
-/// @brief Return a vector of column indices that would sort the pcm columns
+/// @brief Return a vector of column indices that would sort the PCM columns
 /// in topological order.
 /// @param row_indices For each column, a vector of row indices that have a
 /// non-zero value in that column.
+/// @details This function tries to make a matrix that is close to a block
+/// diagonal matrix from its input. Columns are first sorted by the index of the
+/// first non-zero entry in the column, and if those match, then they are sorted
+/// by the index of the last non-zero entry in the column. This ping pong
+/// continues for the indices of the second non-zero element and the
+/// second-to-last non-zero element, and so forth.
 std::vector<std::uint32_t> get_sorted_pcm_column_indices(
     const std::vector<std::vector<std::uint32_t>> &row_indices) {
   std::vector<std::uint32_t> column_order(row_indices.size());
@@ -23,24 +29,74 @@ std::vector<std::uint32_t> get_sorted_pcm_column_indices(
             [&row_indices](const std::uint32_t &a, const std::uint32_t &b) {
               const auto &a_vec = row_indices[a];
               const auto &b_vec = row_indices[b];
-              // Traverse a and b in parallel until a difference is found.
-              auto a_size = a_vec.size();
-              auto b_size = b_vec.size();
-              for (std::size_t i = 0; i < a_size && i < b_size; i++) {
-                if (a_vec[i] != b_vec[i])
-                  return a_vec[i] < b_vec[i];
-              }
-              // If all elements are the same (up to the minimum size) then
-              // the shorter vector should come first.
-              return a_size < b_size;
+
+              if (a_vec.size() == 0)
+                return true;
+              if (b_vec.size() == 0)
+                return false;
+              if (a_vec.size() == 0 && b_vec.size() == 0)
+                return a < b; // stable sort.
+
+              // Now we know both vectors have at least one element.
+
+              // Have a and b iterators, both head and tail versions of both.
+              auto a_it_head = a_vec.begin();
+              auto a_it_tail = a_vec.end() - 1;
+              auto b_it_head = b_vec.begin();
+              auto b_it_tail = b_vec.end() - 1;
+
+              do {
+                // Compare the head elements.
+                if (*a_it_head != *b_it_head)
+                  return *a_it_head < *b_it_head;
+
+                // Before checking the tail iterators, make sure they are not
+                // aliased to the head elements that we just compared. If so,
+                // we've exhausted one of the vectors and will return
+                // accordingly.
+
+                // Check if we ran out of "a" elements.
+                if (a_it_head == a_it_tail && b_it_head != b_it_tail)
+                  return true;
+                // Check if we ran out of "b" elements.
+                if (a_it_head != a_it_tail && b_it_head == b_it_tail)
+                  return false;
+                if (a_it_head == a_it_tail && b_it_head == b_it_tail)
+                  return a < b; // stable sort.
+
+                // Compare the tail elements.
+                if (*a_it_tail != *b_it_tail)
+                  return *a_it_tail < *b_it_tail;
+
+                // Advance the head iterators.
+                a_it_head++;
+                b_it_head++;
+
+                // Check to see if the new head iterators match the tail
+                // iterators that we just compared. If so, we've exhausted one
+                // of the vectors and will return accordingly.
+                if (a_it_head == a_it_tail && b_it_head != b_it_tail)
+                  return true;
+                if (a_it_head != a_it_tail && b_it_head == b_it_tail)
+                  return false;
+                if (a_it_head == a_it_tail && b_it_head == b_it_tail)
+                  return a < b; // stable sort.
+
+                // Decrement the tail iterators.
+                a_it_tail--;
+                b_it_tail--;
+              } while (true);
+
+              // Unreachable.
+              return a < b;
             });
 
   return column_order;
 }
 
 /// @brief Return a sparse representation of the PCM.
-std::vector<std::vector<std::uint32_t>> get_sparse_pcm(
-    const cudaqx::tensor<uint8_t> &pcm) {
+std::vector<std::vector<std::uint32_t>>
+get_sparse_pcm(const cudaqx::tensor<uint8_t> &pcm) {
   if (pcm.rank() != 2) {
     throw std::invalid_argument("get_sparse_pcm: PCM must be a 2D tensor");
   }
@@ -145,8 +201,9 @@ simplify_pcm(const cudaqx::tensor<uint8_t> &pcm,
         auto new_weight = 1.0 - (1.0 - prev_weight) * (1.0 - curr_weight);
         new_weights.back() = new_weight;
       } else {
-        // The current column has different row indices than the previous column.
-        // So we add the current column to the new PCM, and update the weights.
+        // The current column has different row indices than the previous
+        // column. So we add the current column to the new PCM, and update the
+        // weights.
         new_row_indices.push_back(curr_row_indices);
         new_weights.push_back(weights[column_index]);
       }

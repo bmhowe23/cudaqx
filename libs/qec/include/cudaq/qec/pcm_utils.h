@@ -15,6 +15,12 @@ namespace cudaq::qec {
 /// in topological order.
 /// @param row_indices For each column, a vector of row indices that have a
 /// non-zero value in that column.
+/// @details This function tries to make a matrix that is close to a block
+/// diagonal matrix from its input. Columns are first sorted by the index of the
+/// first non-zero entry in the column, and if those match, then they are sorted
+/// by the index of the last non-zero entry in the column. This ping pong
+/// continues for the indices of the second non-zero element and the
+/// second-to-last non-zero element, and so forth.
 std::vector<std::uint32_t> get_sorted_pcm_column_indices(
     const std::vector<std::vector<std::uint32_t>> &row_indices);
 

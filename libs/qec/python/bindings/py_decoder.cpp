@@ -305,7 +305,8 @@ void bindDecoder(py::module &mod) {
         std::vector<std::uint32_t> column_order_vec =
             column_order.cast<std::vector<std::uint32_t>>();
 
-        auto H_new = cudaq::qec::reorder_pcm_columns(tensor_H, column_order_vec);
+        auto H_new =
+            cudaq::qec::reorder_pcm_columns(tensor_H, column_order_vec);
 
         // Construct a new py_array_t<uint8_t> from H_new.
         py::array_t<uint8_t> H_new_py(shape);
