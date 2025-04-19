@@ -204,9 +204,9 @@ def test_sort_pcm_columns_non_decreasing_column_weight():
     # yapf: disable
     H_expected = np.array(
         [[1, 1, 1, 0, 0, 0, 0, 0, 0],
-         [0, 1, 0, 1, 1, 0, 0, 0, 0],
-         [0, 1, 0, 0, 0, 1, 1, 0, 0],
-         [0, 1, 0, 0, 1, 0, 0, 1, 0],
+         [0, 0, 1, 1, 1, 0, 0, 0, 0],
+         [0, 0, 1, 0, 0, 1, 1, 0, 0],
+         [0, 0, 1, 0, 1, 0, 0, 1, 0],
          [0, 1, 1, 0, 0, 0, 1, 1, 1]],
         dtype=np.uint8)
     # yapf: enable
@@ -214,7 +214,7 @@ def test_sort_pcm_columns_non_decreasing_column_weight():
     assert np.array_equal(H_calculated, H_expected)
 
     col_order = qec.get_sorted_pcm_column_indices(H)
-    expected_order = [1, 4, 8, 0, 3, 2, 6, 7, 5]
+    expected_order = [1, 8, 4, 0, 3, 2, 6, 7, 5]
     assert col_order == expected_order
 
     # Now check that reordering the columns of H yields H_expected

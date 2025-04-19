@@ -782,15 +782,15 @@ TEST(PCMUtilsTester, checkReorderPCMColumns) {
   cudaqx::tensor<uint8_t> pcm(std::vector<std::size_t>{5, 9});
   pcm.borrow(data.data());
   auto column_order = cudaq::qec::get_sorted_pcm_column_indices(pcm);
-  const std::vector<std::uint32_t> expected_order = {1, 4, 8, 0, 3, 2, 6, 7, 5};
+  const std::vector<std::uint32_t> expected_order = {1, 8, 4, 0, 3, 2, 6, 7, 5};
   EXPECT_EQ(column_order, expected_order);
   auto pcm_reordered = cudaq::qec::reorder_pcm_columns(pcm, column_order);
 
   const std::vector<std::vector<uint8_t>> expected_data = {
       {1, 1, 1, 0, 0, 0, 0, 0, 0}, /* row 0 */
-      {0, 1, 0, 1, 1, 0, 0, 0, 0}, /* row 1 */
-      {0, 1, 0, 0, 0, 1, 1, 0, 0}, /* row 2 */
-      {0, 1, 0, 0, 1, 0, 0, 1, 0}, /* row 3 */
+      {0, 0, 1, 1, 1, 0, 0, 0, 0}, /* row 1 */
+      {0, 0, 1, 0, 0, 1, 1, 0, 0}, /* row 2 */
+      {0, 0, 1, 0, 1, 0, 0, 1, 0}, /* row 3 */
       {0, 1, 1, 0, 0, 0, 1, 1, 1}  /* row 4 */
   };
 
@@ -824,7 +824,6 @@ TEST(PCMUtilsTester, checkSimplifyPCM1) {
   EXPECT_EQ(weights_new, expected_weights);
 }
 
-
 TEST(PCMUtilsTester, checkSimplifyPCM2) {
   // Simplification (combining columns) occurs here.
   std::vector<uint8_t> data = {
@@ -843,4 +842,3 @@ TEST(PCMUtilsTester, checkSimplifyPCM2) {
   std::vector<double> expected_weights = {0.2, 1.0 - 0.9 * 0.7};
   EXPECT_EQ(weights_new, expected_weights);
 }
-
