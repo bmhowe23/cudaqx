@@ -91,6 +91,34 @@ std::vector<std::uint32_t> get_sorted_pcm_column_indices(
               return a < b;
             });
 
+  // auto stage1_column_order = column_order;
+  // std::iota(stage1_column_order.begin(), stage1_column_order.end(), 0);
+
+  // // Then we sort them again by round.
+  // // For each column, assign a pair of rounds that it belongs to.
+  // std::sort(column_order.begin(), column_order.end(),
+  //           [&row_indices, &stage1_column_order](const std::uint32_t &a, const std::uint32_t &b) {
+  //             const auto &a_vec = row_indices[stage1_column_order[a]];
+  //             const auto &b_vec = row_indices[stage1_column_order[b]];
+  //             auto syndromes_per_round = 72;
+  //             auto a_first_round = a_vec.front() / syndromes_per_round;
+  //             auto a_last_round = a_vec.back() / syndromes_per_round;
+  //             auto b_first_round = b_vec.front() / syndromes_per_round;
+  //             auto b_last_round = b_vec.back() / syndromes_per_round;
+  //             printf("a_first_round: %d, a_last_round: %d, b_first_round: %d, "
+  //                    "b_last_round: %d\n",
+  //                    a_first_round, a_last_round, b_first_round, b_last_round);
+  //             if (a_first_round != b_first_round)
+  //               return a_first_round < b_first_round;
+  //             if (a_last_round != b_last_round)
+  //               return a_last_round < b_last_round;
+  //             return stage1_column_order[a] < stage1_column_order[b];
+  //           });
+  // // std::vector<std::pair<std::uint32_t, std::uint32_t>> round_bounds(column_order.size());
+  // // for (std::size_t c = 0; c < column_order.size(); c++) {
+  // //   round_bounds[c] = std::make_pair(0, 0);
+  // // }
+
   return column_order;
 }
 
@@ -115,6 +143,46 @@ get_sparse_pcm(const cudaqx::tensor<uint8_t> &pcm) {
 
   return row_indices;
 }
+
+// std::pair<std::vector<std::pair<std::uint32_t, std::uint32_t>>,
+//           std::vector<std::pair<std::uint32_t, std::uint32_t>>>
+// get_row_col_bounds(const cudaqx::tensor<uint8_t> &pcm) {
+//   if (pcm.rank() != 2) {
+//     throw std::invalid_argument("get_sparse_pcm: PCM must be a 2D tensor");
+//   }
+
+//   auto num_rows = pcm.shape()[0];
+//   auto num_cols = pcm.shape()[1];
+
+//   auto ret =
+//       std::make_pair(std::vector<std::pair<std::uint32_t, std::uint32_t>>(num_rows),
+//                      std::vector<std::pair<std::uint32_t, std::uint32_t>>(num_cols));
+//   // For each row, contains the first and last column index with a 1 in that row.
+//   auto &row_bounds = ret.first;
+//   // For each column, contains the first and last row index with a 1 in that column.
+//   auto &col_bounds = ret.second;
+
+//   for (std::size_t r = 0; r < num_rows; r++) {
+//     row_bounds[r] = std::make_pair(num_cols, 0);
+//   }
+//   for (std::size_t c = 0; c < num_cols; c++) {
+//     col_bounds[c] = std::make_pair(num_rows, 0);
+//   }
+
+//   // Traverse the PCM, updating the row and column bounds.
+//   for (uint32_t r = 0; r < num_rows; r++) {
+//     auto *row = &pcm.at({r, 0});
+//     for (uint32_t c = 0; c < num_cols; c++) {
+//       if (row[c]) {
+//         row_bounds[r].first = std::min(row_bounds[r].first, c);
+//         row_bounds[r].second = std::max(row_bounds[r].second, c);
+//         col_bounds[c].first = std::min(col_bounds[c].first, r);
+//         col_bounds[c].second = std::max(col_bounds[c].second, r);
+//       }
+//     }
+//   }
+//   return ret;
+// }
 
 /// @brief Return a vector of column indices that would sort the pcm columns
 /// in topological order.

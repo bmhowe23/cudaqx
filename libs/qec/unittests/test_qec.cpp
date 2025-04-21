@@ -842,3 +842,38 @@ TEST(PCMUtilsTester, checkSimplifyPCM2) {
   std::vector<double> expected_weights = {0.2, 1.0 - 0.9 * 0.7};
   EXPECT_EQ(weights_new, expected_weights);
 }
+
+TEST(PCMUtilsTester, checkSparsePCM) {
+  std::size_t n_rounds = 4;
+  std::size_t n_errs_per_round = 30;
+  std::size_t n_syndromes_per_round = 10;
+  std::size_t n_cols = n_rounds * n_errs_per_round;
+  std::size_t n_rows = n_rounds * n_syndromes_per_round;
+  cudaqx::tensor<uint8_t> pcm(std::vector<std::size_t>{n_rows, n_cols});
+  std::size_t weight = 3;
+  // Set the random seed for reproducibility
+  srand(13);
+  for (std::size_t r = 0; r < n_rounds; ++r) {
+    for (std::size_t c = 0; c < n_errs_per_round; ++c) {
+      auto c_ix = r * n_errs_per_round + c;
+      // Randomly decide if this column has all errors appear within this round
+      // or if they should also appear in the next round too.
+      bool all_errors_in_this_round =
+          (rand() % 2 == 0) ? true : false;
+      if (r == n_rounds - 1)
+        all_errors_in_this_round = true;
+      std::size_t row_max = all_errors_in_this_round
+                                ? n_syndromes_per_round
+                                : 2 * n_syndromes_per_round;
+      for (std::size_t i = 0; i < weight; ++i) {
+        auto row_ix = rand() % row_max;
+        pcm.at({r * n_syndromes_per_round + row_ix, c_ix}) = 1;
+      }
+    }
+  }
+  pcm.dump_bits();
+  printf("--------------------------------\n");
+  auto pcm2 = cudaq::qec::sort_pcm_columns(pcm);
+  pcm2.dump_bits();
+}
+
