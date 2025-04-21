@@ -26,6 +26,7 @@ sample_code_capacity = qecrt.sample_code_capacity
 get_sorted_pcm_column_indices = qecrt.get_sorted_pcm_column_indices
 reorder_pcm_columns = qecrt.reorder_pcm_columns
 sort_pcm_columns = qecrt.sort_pcm_columns
+dump_pcm = qecrt.dump_pcm
 
 from .plugins import decoders, codes
 import pkgutil, importlib, traceback

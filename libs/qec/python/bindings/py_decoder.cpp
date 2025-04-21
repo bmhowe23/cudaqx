@@ -352,6 +352,39 @@ void bindDecoder(py::module &mod) {
         return H_new_py;
       },
       "Sort the columns of a parity check matrix.");
+
+  qecmod.def(
+      "dump_pcm",
+      [](const py::array_t<uint8_t> &H) {
+        py::buffer_info buf = H.request();
+        if (buf.ndim != 2) {
+          throw std::runtime_error(
+              "Parity check matrix must be 2-dimensional.");
+        }
+        if (buf.itemsize != sizeof(uint8_t)) {
+          throw std::runtime_error(
+              "Parity check matrix must be an array of uint8_t.");
+        }
+        if (buf.strides[0] == buf.itemsize) {
+          throw std::runtime_error(
+              "Parity check matrix must be in row-major order, but "
+              "column-major order was detected.");
+        }
+
+        // Create a vector of the array dimensions
+        std::vector<std::size_t> shape;
+        for (py::ssize_t d : buf.shape) {
+          shape.push_back(static_cast<std::size_t>(d));
+        }
+
+        cudaqx::tensor<uint8_t> tensor_H(shape);
+        tensor_H.borrow(static_cast<uint8_t *>(buf.ptr), shape);
+
+        tensor_H.dump_bits();
+        printf("\n");
+        fflush(stdout);
+      },
+      "Dump the parity check matrix to stdout.");
 }
 
 } // namespace cudaq::qec
