@@ -8,6 +8,7 @@
 
 #include <cmath>
 #include <gtest/gtest.h>
+#include <random>
 
 #include "cudaq/qec/codes/surface_code.h"
 #include "cudaq/qec/experiments.h"
@@ -843,36 +844,82 @@ TEST(PCMUtilsTester, checkSimplifyPCM2) {
   EXPECT_EQ(weights_new, expected_weights);
 }
 
+/// Generate a random PCM with the given parameters.
+cudaqx::tensor<uint8_t> get_random_pcm(std::size_t n_rounds,
+                                       std::size_t n_errs_per_round,
+                                       std::size_t n_syndromes_per_round,
+                                       int weight, int seed) {
+  std::size_t n_cols = n_rounds * n_errs_per_round;
+  std::size_t n_rows = n_rounds * n_syndromes_per_round;
+  cudaqx::tensor<uint8_t> pcm(std::vector<std::size_t>{n_rows, n_cols});
+
+  // Set the random seed for reproducibility
+  std::mt19937_64 gen(seed);
+
+  // Generate a random bit (either a 0 or 1) for each element of the PCM.
+  std::uniform_int_distribution<> dis(0, 1);
+
+  for (std::size_t r = 0; r < n_rounds; ++r) {
+    for (std::size_t c = 0; c < n_errs_per_round; ++c) {
+      auto c_ix = r * n_errs_per_round + c;
+      // Randomly decide if this column has all errors appear within this round
+      // or if they should also appear in the next round too.
+      bool all_errors_in_this_round = dis(gen) ? true : false;
+      if (r == n_rounds - 1)
+        all_errors_in_this_round = true;
+      std::size_t row_max = all_errors_in_this_round
+                                ? n_syndromes_per_round
+                                : 2 * n_syndromes_per_round;
+      std::uniform_int_distribution<> row_dis(0, row_max - 1);
+      for (std::size_t i = 0; i < weight; ++i) {
+        auto row_ix = row_dis(gen);
+        // Loop until we find a row that has not been set yet
+        while (pcm.at({r * n_syndromes_per_round + row_ix, c_ix}) == 1)
+          row_ix = row_dis(gen);
+        pcm.at({r * n_syndromes_per_round + row_ix, c_ix}) = 1;
+      }
+    }
+  }
+
+  return pcm;
+}
+
+void check_pcm_equality(const cudaqx::tensor<uint8_t> &a,
+                        const cudaqx::tensor<uint8_t> &b,
+                        bool use_assert = true) {
+  if (a.rank() != 2 || b.rank() != 2) {
+    throw std::runtime_error("PCM must be a 2D tensor");
+  }
+  ASSERT_EQ(a.shape(), b.shape());
+  auto num_rows = a.shape()[0];
+  auto num_cols = a.shape()[1];
+  for (std::size_t r = 0; r < num_rows; ++r) {
+    for (std::size_t c = 0; c < num_cols; ++c) {
+      if (a.at({r, c}) != b.at({r, c})) {
+        if (use_assert)
+          ASSERT_EQ(a.at({r, c}), b.at({r, c}))
+              << "a.at({" << r << ", " << c << "}) = " << a.at({r, c})
+              << ", b.at({" << r << ", " << c << "}) = " << b.at({r, c})
+              << "\n";
+        else
+          EXPECT_EQ(a.at({r, c}), b.at({r, c}))
+              << "a.at({" << r << ", " << c << "}) = " << a.at({r, c})
+              << ", b.at({" << r << ", " << c << "}) = " << b.at({r, c})
+              << "\n";
+      }
+    }
+  }
+}
+
 TEST(PCMUtilsTester, checkSparsePCM) {
   std::size_t n_rounds = 4;
   std::size_t n_errs_per_round = 30;
   std::size_t n_syndromes_per_round = 10;
   std::size_t n_cols = n_rounds * n_errs_per_round;
   std::size_t n_rows = n_rounds * n_syndromes_per_round;
-  cudaqx::tensor<uint8_t> pcm(std::vector<std::size_t>{n_rows, n_cols});
   std::size_t weight = 3;
-  // Set the random seed for reproducibility
-  srand(13);
-  for (std::size_t r = 0; r < n_rounds; ++r) {
-    for (std::size_t c = 0; c < n_errs_per_round; ++c) {
-      auto c_ix = r * n_errs_per_round + c;
-      // Randomly decide if this column has all errors appear within this round
-      // or if they should also appear in the next round too.
-      bool all_errors_in_this_round = (rand() % 2 == 0) ? true : false;
-      if (r == n_rounds - 1)
-        all_errors_in_this_round = true;
-      std::size_t row_max = all_errors_in_this_round
-                                ? n_syndromes_per_round
-                                : 2 * n_syndromes_per_round;
-      for (std::size_t i = 0; i < weight; ++i) {
-        auto row_ix = rand() % row_max;
-        // Loop until we find a row that has not been set yet
-        while (pcm.at({r * n_syndromes_per_round + row_ix, c_ix}) == 1)
-          row_ix = rand() % row_max;
-        pcm.at({r * n_syndromes_per_round + row_ix, c_ix}) = 1;
-      }
-    }
-  }
+  cudaqx::tensor<uint8_t> pcm = get_random_pcm(
+      n_rounds, n_errs_per_round, n_syndromes_per_round, weight, 13);
   printf("--------------------------------\n");
   printf("Original PCM:\n");
   pcm.dump_bits();
@@ -928,8 +975,36 @@ TEST(PCMUtilsTester, checkSparsePCM) {
         pcm_shuffled.at({r, c}) = pcm.at({r, shuffle_vector[c]});
     auto pcm_sorted =
         cudaq::qec::sort_pcm_columns(pcm_shuffled, n_syndromes_per_round);
-    for (std::size_t r = 0; r < n_rows; ++r)
-      for (std::size_t c = 0; c < n_cols; ++c)
-        ASSERT_EQ(pcm2.at({r, c}), pcm_sorted.at({r, c}));
+    check_pcm_equality(pcm2, pcm_sorted);
+  }
+}
+
+TEST(PCMUtilsTester, checkGetPCMForRounds) {
+  std::size_t n_rounds = 4;
+  std::size_t n_errs_per_round = 30;
+  std::size_t n_syndromes_per_round = 10;
+  std::size_t n_cols = n_rounds * n_errs_per_round;
+  std::size_t n_rows = n_rounds * n_syndromes_per_round;
+  std::size_t weight = 3;
+
+  cudaqx::tensor<uint8_t> pcm = get_random_pcm(
+      n_rounds, n_errs_per_round, n_syndromes_per_round, weight, 13);
+
+  pcm = cudaq::qec::sort_pcm_columns(pcm, n_syndromes_per_round);
+  auto pcm_for_rounds = cudaq::qec::get_pcm_for_rounds(
+      pcm, n_syndromes_per_round, 0, n_rounds - 1);
+  check_pcm_equality(pcm_for_rounds, pcm);
+
+  // Try all possible combinations of start and end rounds.
+  for (int start_round = 0; start_round < n_rounds; ++start_round) {
+    for (int end_round = start_round; end_round < n_rounds; ++end_round) {
+      auto pcm_test = cudaq::qec::get_pcm_for_rounds(pcm, n_syndromes_per_round,
+                                                     start_round, end_round);
+      // I don't have a good test criteria for this yet. It mainly just runs to
+      // see if it runs without errors.
+      printf("pcm_test for start_round = %u, end_round = %u:\n", start_round,
+             end_round);
+      pcm_test.dump_bits();
+    }
   }
 }

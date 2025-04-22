@@ -8,6 +8,7 @@
 #pragma once
 
 #include "cuda-qx/core/tensor.h"
+#include <limits>
 
 namespace cudaq::qec {
 
@@ -36,13 +37,21 @@ get_sorted_pcm_column_indices(const cudaqx::tensor<uint8_t> &pcm,
                               std::uint32_t num_syndromes_per_round = 0);
 
 /// @brief Reorder the columns of a PCM according to the given column order.
+/// Note: this may return a subset of the columns in the original PCM if the
+/// \p column_order does not contain all of the columns in the original PCM.
 /// @param pcm The PCM to reorder.
 /// @param column_order The column order to use for reordering.
+/// @param row_begin The first row to include in the reordering. Leave at the
+/// default value to include all rows.
+/// @param row_end The last row to include in the reordering. Leave at the
+/// default value to include all rows.
 /// @return A new PCM with the columns reordered according to the given column
 /// order.
 cudaqx::tensor<uint8_t>
 reorder_pcm_columns(const cudaqx::tensor<uint8_t> &pcm,
-                    const std::vector<std::uint32_t> &column_order);
+                    const std::vector<std::uint32_t> &column_order,
+                    uint32_t row_begin = 0,
+                    uint32_t row_end = std::numeric_limits<uint32_t>::max());
 
 /// @brief Sort the columns of a PCM in topological order.
 /// @param pcm The PCM to sort.
@@ -62,7 +71,8 @@ simplify_pcm(const cudaqx::tensor<uint8_t> &pcm,
              const std::vector<double> &weights,
              std::uint32_t num_syndromes_per_round = 0);
 
-/// @brief Get a sub-PCM for a range of rounds.
+/// @brief Get a sub-PCM for a range of rounds. It is recommended (but not
+/// required) that you call sort_pcm_columns() before calling this function.
 /// @param pcm The PCM to get a sub-PCM for.
 /// @param num_syndromes_per_round The number of syndromes per round.
 /// @param start_round The start round.

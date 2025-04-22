@@ -160,15 +160,31 @@ get_sorted_pcm_column_indices(const cudaqx::tensor<uint8_t> &pcm,
 /// \p column_order does not contain all of the columns in the original PCM.
 /// @param pcm The PCM to reorder.
 /// @param column_order The column order to use for reordering.
+/// @param row_begin The first row to include in the reordering. Leave at the
+/// default value to include all rows.
+/// @param row_end The last row to include in the reordering. Leave at the
+/// default value to include all rows.
+/// @return A new PCM with the columns reordered according to the given column
+/// order.
 cudaqx::tensor<uint8_t>
 reorder_pcm_columns(const cudaqx::tensor<uint8_t> &pcm,
-                    const std::vector<std::uint32_t> &column_order) {
+                    const std::vector<std::uint32_t> &column_order,
+                    uint32_t row_begin, uint32_t row_end) {
   if (pcm.rank() != 2) {
     throw std::invalid_argument("reorder_pcm_columns: PCM must be a 2D tensor");
+  }
+  if (row_begin > row_end) {
+    throw std::invalid_argument(
+        "reorder_pcm_columns: row_begin must be less than or equal to row_end");
   }
 
   auto num_rows = pcm.shape()[0];
   auto num_cols = pcm.shape()[1];
+  auto new_num_cols = column_order.size();
+
+  // Clamp row_end to the last row in the PCM.
+  row_end = std::min(row_end, static_cast<uint32_t>(num_rows - 1));
+  auto num_rows_to_copy = row_end - row_begin + 1;
 
   for (auto c : column_order) {
     if (c >= num_cols) {
@@ -179,11 +195,12 @@ reorder_pcm_columns(const cudaqx::tensor<uint8_t> &pcm,
   }
 
   auto transposed_pcm = pcm.transpose();
-  cudaqx::tensor<uint8_t> new_pcm_t(transposed_pcm.shape());
-  for (std::size_t c = 0; c < num_cols; c++) {
-    auto *orig_col = &transposed_pcm.at({column_order[c], 0});
+  cudaqx::tensor<uint8_t> new_pcm_t(
+      std::vector<std::size_t>{new_num_cols, num_rows_to_copy});
+  for (std::size_t c = 0; c < new_num_cols; c++) {
+    auto *orig_col = &transposed_pcm.at({column_order[c], row_begin});
     auto *new_col = &new_pcm_t.at({c, 0});
-    std::memcpy(new_col, orig_col, num_rows * sizeof(uint8_t));
+    std::memcpy(new_col, orig_col, num_rows_to_copy * sizeof(uint8_t));
   }
 
   return new_pcm_t.transpose();
@@ -256,6 +273,31 @@ cudaqx::tensor<uint8_t>
 get_pcm_for_rounds(const cudaqx::tensor<uint8_t> &pcm,
                    std::uint32_t num_syndromes_per_round,
                    std::uint32_t start_round, std::uint32_t end_round) {
+  if (num_syndromes_per_round == 0) {
+    throw std::invalid_argument(
+        "get_pcm_for_rounds: num_syndromes_per_round must be greater than 0");
+  }
+  if (num_syndromes_per_round > pcm.shape()[0]) {
+    throw std::invalid_argument(
+        "get_pcm_for_rounds: num_syndromes_per_round must be less than the "
+        "number of rows in PCM");
+  }
+
+  // Trim down to the right rows
+  auto first_row_to_keep = start_round * num_syndromes_per_round;
+  auto last_row_to_keep = (end_round + 1) * num_syndromes_per_round - 1;
+
+  if (first_row_to_keep >= pcm.shape()[0]) {
+    throw std::invalid_argument(
+        "get_pcm_for_rounds: first_row_to_keep is greater than the number of "
+        "rows in PCM");
+  }
+  if (last_row_to_keep >= pcm.shape()[0]) {
+    throw std::invalid_argument(
+        "get_pcm_for_rounds: last_row_to_keep is greater than the number of "
+        "rows in PCM");
+  }
+
   // Get a sparse representation of the PCM.
   auto row_indices = get_sparse_pcm(pcm);
 
@@ -271,7 +313,8 @@ get_pcm_for_rounds(const cudaqx::tensor<uint8_t> &pcm,
       columns_in_range.push_back(c);
   }
 
-  return reorder_pcm_columns(pcm, columns_in_range);
+  return reorder_pcm_columns(pcm, columns_in_range, first_row_to_keep,
+                             last_row_to_keep);
 }
 
 } // namespace cudaq::qec
