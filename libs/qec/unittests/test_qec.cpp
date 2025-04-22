@@ -913,7 +913,8 @@ TEST(PCMUtilsTester, checkSparsePCM) {
     prev_col_last_round = last_round;
   }
 
-  // Make sure that the sort is stable, regardless of the input order of the columns.
+  // Make sure that the sort is stable, regardless of the input order of the
+  // columns.
   int num_tests = 10;
   std::mt19937_64 rng(/*seed=*/13);
   for (int iter = 0; iter < num_tests; ++iter) {

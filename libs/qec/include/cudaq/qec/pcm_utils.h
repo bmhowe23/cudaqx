@@ -62,4 +62,15 @@ simplify_pcm(const cudaqx::tensor<uint8_t> &pcm,
              const std::vector<double> &weights,
              std::uint32_t num_syndromes_per_round = 0);
 
+/// @brief Get a sub-PCM for a range of rounds.
+/// @param pcm The PCM to get a sub-PCM for.
+/// @param num_syndromes_per_round The number of syndromes per round.
+/// @param start_round The start round.
+/// @param end_round The end round.
+/// @return A new PCM with the columns in the range [start_round, end_round].
+cudaqx::tensor<uint8_t>
+get_pcm_for_rounds(const cudaqx::tensor<uint8_t> &pcm,
+                   std::uint32_t num_syndromes_per_round,
+                   std::uint32_t start_round, std::uint32_t end_round);
+
 } // namespace cudaq::qec

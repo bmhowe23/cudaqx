@@ -115,6 +115,10 @@ std::vector<std::uint32_t> get_sorted_pcm_column_indices(
 }
 
 /// @brief Return a sparse representation of the PCM.
+/// @return A vector of vectors that sparsely represents the PCM. The size of
+/// the outer vector is the number of columns in the PCM, and the i-th element
+/// contains an inner vector of the row indices of the non-zero elements in the
+/// i-th column of the PCM.
 std::vector<std::vector<std::uint32_t>>
 get_sparse_pcm(const cudaqx::tensor<uint8_t> &pcm) {
   if (pcm.rank() != 2) {
@@ -152,6 +156,8 @@ get_sorted_pcm_column_indices(const cudaqx::tensor<uint8_t> &pcm,
 }
 
 /// @brief Reorder the columns of a PCM according to the given column order.
+/// Note: this may return a subset of the columns in the original PCM if the
+/// \p column_order does not contain all of the columns in the original PCM.
 /// @param pcm The PCM to reorder.
 /// @param column_order The column order to use for reordering.
 cudaqx::tensor<uint8_t>
@@ -161,14 +167,16 @@ reorder_pcm_columns(const cudaqx::tensor<uint8_t> &pcm,
     throw std::invalid_argument("reorder_pcm_columns: PCM must be a 2D tensor");
   }
 
-  if (pcm.shape()[1] != column_order.size()) {
-    throw std::invalid_argument(
-        "reorder_pcm_columns: column_order must be the same size as the number "
-        "of columns in PCM");
-  }
-
   auto num_rows = pcm.shape()[0];
   auto num_cols = pcm.shape()[1];
+
+  for (auto c : column_order) {
+    if (c >= num_cols) {
+      throw std::invalid_argument(
+          "reorder_pcm_columns: column_order contains a column index that is "
+          "greater than the number of columns in PCM");
+    }
+  }
 
   auto transposed_pcm = pcm.transpose();
   cudaqx::tensor<uint8_t> new_pcm_t(transposed_pcm.shape());
@@ -242,6 +250,28 @@ simplify_pcm(const cudaqx::tensor<uint8_t> &pcm,
       new_pcm.at({r, c}) = 1;
 
   return std::make_pair(new_pcm, new_weights);
+}
+
+cudaqx::tensor<uint8_t>
+get_pcm_for_rounds(const cudaqx::tensor<uint8_t> &pcm,
+                   std::uint32_t num_syndromes_per_round,
+                   std::uint32_t start_round, std::uint32_t end_round) {
+  // Get a sparse representation of the PCM.
+  auto row_indices = get_sparse_pcm(pcm);
+
+  // Get the columns that are in the range [start_round, end_round].
+  std::vector<std::uint32_t> columns_in_range;
+  for (std::size_t c = 0; c < row_indices.size(); c++) {
+    auto &rows_for_this_column = row_indices[c];
+    if (rows_for_this_column.size() == 0)
+      continue;
+    auto first_round = rows_for_this_column.front() / num_syndromes_per_round;
+    auto last_round = rows_for_this_column.back() / num_syndromes_per_round;
+    if (first_round >= start_round && last_round <= end_round)
+      columns_in_range.push_back(c);
+  }
+
+  return reorder_pcm_columns(pcm, columns_in_range);
 }
 
 } // namespace cudaq::qec
