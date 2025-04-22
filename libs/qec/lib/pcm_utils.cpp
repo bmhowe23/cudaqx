@@ -29,7 +29,8 @@ std::vector<std::uint32_t> get_sorted_pcm_column_indices(
   std::vector<std::uint32_t> column_order(row_indices.size());
   std::iota(column_order.begin(), column_order.end(), 0);
   std::sort(column_order.begin(), column_order.end(),
-            [&row_indices](const std::uint32_t &a, const std::uint32_t &b) {
+            [&row_indices, num_syndromes_per_round](const std::uint32_t &a,
+                                                    const std::uint32_t &b) {
               const auto &a_vec = row_indices[a];
               const auto &b_vec = row_indices[b];
 
@@ -48,6 +49,22 @@ std::vector<std::uint32_t> get_sorted_pcm_column_indices(
               auto b_it_head = b_vec.begin();
               auto b_it_tail = b_vec.end() - 1;
 
+              // First sort by the span of rounds that the errors appear in. We
+              // can only do this sorting if we know how many syndromes per
+              // round.
+              if (num_syndromes_per_round > 0) {
+                auto a_first_round = *a_it_head / num_syndromes_per_round;
+                auto a_last_round = *a_it_tail / num_syndromes_per_round;
+                auto b_first_round = *b_it_head / num_syndromes_per_round;
+                auto b_last_round = *b_it_tail / num_syndromes_per_round;
+                if (a_first_round != b_first_round)
+                  return a_first_round < b_first_round;
+                if (a_last_round != b_last_round)
+                  return a_last_round < b_last_round;
+              }
+
+              // Now we sort the columns corresponding to errors that occur in
+              // the same rounds.
               do {
                 // Compare the head elements.
                 if (*a_it_head != *b_it_head)
@@ -93,38 +110,6 @@ std::vector<std::uint32_t> get_sorted_pcm_column_indices(
               // Unreachable.
               return a < b;
             });
-
-  if (num_syndromes_per_round > 0) {
-    std::vector<std::uint32_t> inv_column_order(column_order.size());
-    for (std::size_t c = 0; c < column_order.size(); c++) {
-      inv_column_order[column_order[c]] = c;
-    }
-
-    // Then we sort them again by round.
-    std::sort(column_order.begin(), column_order.end(),
-              [&row_indices, &inv_column_order, num_syndromes_per_round](
-                  const std::uint32_t &a, const std::uint32_t &b) {
-                const auto &a_vec = row_indices[a];
-                const auto &b_vec = row_indices[b];
-                if (a_vec.size() == 0 && b_vec.size() != 0)
-                  return true;
-                if (a_vec.size() != 0 && b_vec.size() == 0)
-                  return false;
-                if (a_vec.size() == 0 && b_vec.size() == 0)
-                  return inv_column_order[a] < inv_column_order[b];
-                auto a_first_round = a_vec.front() / num_syndromes_per_round;
-                auto a_last_round = a_vec.back() / num_syndromes_per_round;
-                auto b_first_round = b_vec.front() / num_syndromes_per_round;
-                auto b_last_round = b_vec.back() / num_syndromes_per_round;
-                if (a_first_round != b_first_round)
-                  return a_first_round < b_first_round;
-                if (a_last_round != b_last_round)
-                  return a_last_round < b_last_round;
-                // As a last resort, return them in the order that they were
-                // after the first stage of sorting.
-                return inv_column_order[a] < inv_column_order[b];
-              });
-  }
 
   return column_order;
 }
