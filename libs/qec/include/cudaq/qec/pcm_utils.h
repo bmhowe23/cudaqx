@@ -15,6 +15,8 @@ namespace cudaq::qec {
 /// in topological order.
 /// @param row_indices For each column, a vector of row indices that have a
 /// non-zero value in that column.
+/// @param num_syndromes_per_round The number of syndromes per round. (Defaults
+/// to 0, which means that no secondary per-round sorting will occur.)
 /// @details This function tries to make a matrix that is close to a block
 /// diagonal matrix from its input. Columns are first sorted by the index of the
 /// first non-zero entry in the column, and if those match, then they are sorted
@@ -22,12 +24,16 @@ namespace cudaq::qec {
 /// continues for the indices of the second non-zero element and the
 /// second-to-last non-zero element, and so forth.
 std::vector<std::uint32_t> get_sorted_pcm_column_indices(
-    const std::vector<std::vector<std::uint32_t>> &row_indices);
+    const std::vector<std::vector<std::uint32_t>> &row_indices,
+    std::uint32_t num_syndromes_per_round = 0);
 
 /// @brief Return a vector of column indices that would sort the PCM columns
 /// in topological order.
+/// @param num_syndromes_per_round The number of syndromes per round. (Defaults
+/// to 0, which means that no secondary per-round sorting will occur.)
 std::vector<std::uint32_t>
-get_sorted_pcm_column_indices(const cudaqx::tensor<uint8_t> &pcm);
+get_sorted_pcm_column_indices(const cudaqx::tensor<uint8_t> &pcm,
+                              std::uint32_t num_syndromes_per_round = 0);
 
 /// @brief Reorder the columns of a PCM according to the given column order.
 /// @param pcm The PCM to reorder.
@@ -41,7 +47,9 @@ reorder_pcm_columns(const cudaqx::tensor<uint8_t> &pcm,
 /// @brief Sort the columns of a PCM in topological order.
 /// @param pcm The PCM to sort.
 /// @return A new PCM with the columns sorted in topological order.
-cudaqx::tensor<uint8_t> sort_pcm_columns(const cudaqx::tensor<uint8_t> &pcm);
+cudaqx::tensor<uint8_t>
+sort_pcm_columns(const cudaqx::tensor<uint8_t> &pcm,
+                 std::uint32_t num_syndromes_per_round = 0);
 
 /// @brief Simplify a PCM by removing duplicate columns, and combine the
 /// probability weight vectors accordingly.
@@ -51,6 +59,7 @@ cudaqx::tensor<uint8_t> sort_pcm_columns(const cudaqx::tensor<uint8_t> &pcm);
 /// probability weight vectors combined accordingly.
 std::pair<cudaqx::tensor<uint8_t>, std::vector<double>>
 simplify_pcm(const cudaqx::tensor<uint8_t> &pcm,
-             const std::vector<double> &weights);
+             const std::vector<double> &weights,
+             std::uint32_t num_syndromes_per_round = 0);
 
 } // namespace cudaq::qec

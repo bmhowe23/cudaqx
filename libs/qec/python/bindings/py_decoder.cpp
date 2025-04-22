@@ -244,7 +244,7 @@ void bindDecoder(py::module &mod) {
 
   qecmod.def(
       "get_sorted_pcm_column_indices",
-      [](const py::array_t<uint8_t> &H) {
+      [](const py::array_t<uint8_t> &H, std::uint32_t num_syndromes_per_round) {
         py::buffer_info buf = H.request();
         if (buf.ndim != 2) {
           throw std::runtime_error(
@@ -269,9 +269,11 @@ void bindDecoder(py::module &mod) {
         cudaqx::tensor<uint8_t> tensor_H(shape);
         tensor_H.borrow(static_cast<uint8_t *>(buf.ptr), shape);
 
-        return cudaq::qec::get_sorted_pcm_column_indices(tensor_H);
+        return cudaq::qec::get_sorted_pcm_column_indices(
+            tensor_H, num_syndromes_per_round);
       },
-      "Get the sorted column indices of a parity check matrix.");
+      "Get the sorted column indices of a parity check matrix.", py::arg("H"),
+      py::arg("num_syndromes_per_round") = 0);
 
   qecmod.def(
       "reorder_pcm_columns",
@@ -318,7 +320,7 @@ void bindDecoder(py::module &mod) {
 
   qecmod.def(
       "sort_pcm_columns",
-      [](py::array_t<uint8_t> &H) {
+      [](py::array_t<uint8_t> &H, std::uint32_t num_syndromes_per_round) {
         py::buffer_info buf = H.request(/*writable=*/true);
         if (buf.ndim != 2) {
           throw std::runtime_error(
@@ -343,7 +345,8 @@ void bindDecoder(py::module &mod) {
         cudaqx::tensor<uint8_t> tensor_H(shape);
         tensor_H.borrow(static_cast<uint8_t *>(buf.ptr), shape);
 
-        auto H_new = cudaq::qec::sort_pcm_columns(tensor_H);
+        auto H_new =
+            cudaq::qec::sort_pcm_columns(tensor_H, num_syndromes_per_round);
 
         // Construct a new py_array_t<uint8_t> from H_new.
         py::array_t<uint8_t> H_new_py(shape);
@@ -351,7 +354,8 @@ void bindDecoder(py::module &mod) {
                shape[0] * shape[1] * sizeof(uint8_t));
         return H_new_py;
       },
-      "Sort the columns of a parity check matrix.");
+      "Sort the columns of a parity check matrix.", py::arg("H"),
+      py::arg("num_syndromes_per_round") = 0);
 
   qecmod.def(
       "dump_pcm",

@@ -15,6 +15,8 @@ namespace cudaq::qec {
 /// in topological order.
 /// @param row_indices For each column, a vector of row indices that have a
 /// non-zero value in that column.
+/// @param num_syndromes_per_round The number of syndromes per round. (Defaults
+/// to 0, which means that no secondary per-round sorting will occur.)
 /// @details This function tries to make a matrix that is close to a block
 /// diagonal matrix from its input. Columns are first sorted by the index of the
 /// first non-zero entry in the column, and if those match, then they are sorted
@@ -22,7 +24,8 @@ namespace cudaq::qec {
 /// continues for the indices of the second non-zero element and the
 /// second-to-last non-zero element, and so forth.
 std::vector<std::uint32_t> get_sorted_pcm_column_indices(
-    const std::vector<std::vector<std::uint32_t>> &row_indices) {
+    const std::vector<std::vector<std::uint32_t>> &row_indices,
+    std::uint32_t num_syndromes_per_round) {
   std::vector<std::uint32_t> column_order(row_indices.size());
   std::iota(column_order.begin(), column_order.end(), 0);
   std::sort(column_order.begin(), column_order.end(),
@@ -30,9 +33,9 @@ std::vector<std::uint32_t> get_sorted_pcm_column_indices(
               const auto &a_vec = row_indices[a];
               const auto &b_vec = row_indices[b];
 
-              if (a_vec.size() == 0)
+              if (a_vec.size() == 0 && b_vec.size() != 0)
                 return true;
-              if (b_vec.size() == 0)
+              if (a_vec.size() != 0 && b_vec.size() == 0)
                 return false;
               if (a_vec.size() == 0 && b_vec.size() == 0)
                 return a < b; // stable sort.
@@ -91,33 +94,37 @@ std::vector<std::uint32_t> get_sorted_pcm_column_indices(
               return a < b;
             });
 
-  // auto stage1_column_order = column_order;
-  // std::iota(stage1_column_order.begin(), stage1_column_order.end(), 0);
+  if (num_syndromes_per_round > 0) {
+    std::vector<std::uint32_t> inv_column_order(column_order.size());
+    for (std::size_t c = 0; c < column_order.size(); c++) {
+      inv_column_order[column_order[c]] = c;
+    }
 
-  // // Then we sort them again by round.
-  // // For each column, assign a pair of rounds that it belongs to.
-  // std::sort(column_order.begin(), column_order.end(),
-  //           [&row_indices, &stage1_column_order](const std::uint32_t &a, const std::uint32_t &b) {
-  //             const auto &a_vec = row_indices[stage1_column_order[a]];
-  //             const auto &b_vec = row_indices[stage1_column_order[b]];
-  //             auto syndromes_per_round = 72;
-  //             auto a_first_round = a_vec.front() / syndromes_per_round;
-  //             auto a_last_round = a_vec.back() / syndromes_per_round;
-  //             auto b_first_round = b_vec.front() / syndromes_per_round;
-  //             auto b_last_round = b_vec.back() / syndromes_per_round;
-  //             printf("a_first_round: %d, a_last_round: %d, b_first_round: %d, "
-  //                    "b_last_round: %d\n",
-  //                    a_first_round, a_last_round, b_first_round, b_last_round);
-  //             if (a_first_round != b_first_round)
-  //               return a_first_round < b_first_round;
-  //             if (a_last_round != b_last_round)
-  //               return a_last_round < b_last_round;
-  //             return stage1_column_order[a] < stage1_column_order[b];
-  //           });
-  // // std::vector<std::pair<std::uint32_t, std::uint32_t>> round_bounds(column_order.size());
-  // // for (std::size_t c = 0; c < column_order.size(); c++) {
-  // //   round_bounds[c] = std::make_pair(0, 0);
-  // // }
+    // Then we sort them again by round.
+    std::sort(column_order.begin(), column_order.end(),
+              [&row_indices, &inv_column_order, num_syndromes_per_round](
+                  const std::uint32_t &a, const std::uint32_t &b) {
+                const auto &a_vec = row_indices[a];
+                const auto &b_vec = row_indices[b];
+                if (a_vec.size() == 0 && b_vec.size() != 0)
+                  return true;
+                if (a_vec.size() != 0 && b_vec.size() == 0)
+                  return false;
+                if (a_vec.size() == 0 && b_vec.size() == 0)
+                  return inv_column_order[a] < inv_column_order[b];
+                auto a_first_round = a_vec.front() / num_syndromes_per_round;
+                auto a_last_round = a_vec.back() / num_syndromes_per_round;
+                auto b_first_round = b_vec.front() / num_syndromes_per_round;
+                auto b_last_round = b_vec.back() / num_syndromes_per_round;
+                if (a_first_round != b_first_round)
+                  return a_first_round < b_first_round;
+                if (a_last_round != b_last_round)
+                  return a_last_round < b_last_round;
+                // As a last resort, return them in the order that they were
+                // after the first stage of sorting.
+                return inv_column_order[a] < inv_column_order[b];
+              });
+  }
 
   return column_order;
 }
@@ -144,50 +151,11 @@ get_sparse_pcm(const cudaqx::tensor<uint8_t> &pcm) {
   return row_indices;
 }
 
-// std::pair<std::vector<std::pair<std::uint32_t, std::uint32_t>>,
-//           std::vector<std::pair<std::uint32_t, std::uint32_t>>>
-// get_row_col_bounds(const cudaqx::tensor<uint8_t> &pcm) {
-//   if (pcm.rank() != 2) {
-//     throw std::invalid_argument("get_sparse_pcm: PCM must be a 2D tensor");
-//   }
-
-//   auto num_rows = pcm.shape()[0];
-//   auto num_cols = pcm.shape()[1];
-
-//   auto ret =
-//       std::make_pair(std::vector<std::pair<std::uint32_t, std::uint32_t>>(num_rows),
-//                      std::vector<std::pair<std::uint32_t, std::uint32_t>>(num_cols));
-//   // For each row, contains the first and last column index with a 1 in that row.
-//   auto &row_bounds = ret.first;
-//   // For each column, contains the first and last row index with a 1 in that column.
-//   auto &col_bounds = ret.second;
-
-//   for (std::size_t r = 0; r < num_rows; r++) {
-//     row_bounds[r] = std::make_pair(num_cols, 0);
-//   }
-//   for (std::size_t c = 0; c < num_cols; c++) {
-//     col_bounds[c] = std::make_pair(num_rows, 0);
-//   }
-
-//   // Traverse the PCM, updating the row and column bounds.
-//   for (uint32_t r = 0; r < num_rows; r++) {
-//     auto *row = &pcm.at({r, 0});
-//     for (uint32_t c = 0; c < num_cols; c++) {
-//       if (row[c]) {
-//         row_bounds[r].first = std::min(row_bounds[r].first, c);
-//         row_bounds[r].second = std::max(row_bounds[r].second, c);
-//         col_bounds[c].first = std::min(col_bounds[c].first, r);
-//         col_bounds[c].second = std::max(col_bounds[c].second, r);
-//       }
-//     }
-//   }
-//   return ret;
-// }
-
 /// @brief Return a vector of column indices that would sort the pcm columns
 /// in topological order.
 std::vector<std::uint32_t>
-get_sorted_pcm_column_indices(const cudaqx::tensor<uint8_t> &pcm) {
+get_sorted_pcm_column_indices(const cudaqx::tensor<uint8_t> &pcm,
+                              std::uint32_t num_syndromes_per_round) {
   if (pcm.rank() != 2) {
     throw std::invalid_argument(
         "get_sorted_pcm_column_indices: PCM must be a 2D tensor");
@@ -195,7 +163,7 @@ get_sorted_pcm_column_indices(const cudaqx::tensor<uint8_t> &pcm) {
 
   auto row_indices = get_sparse_pcm(pcm);
 
-  return get_sorted_pcm_column_indices(row_indices);
+  return get_sorted_pcm_column_indices(row_indices, num_syndromes_per_round);
 }
 
 /// @brief Reorder the columns of a PCM according to the given column order.
@@ -231,8 +199,11 @@ reorder_pcm_columns(const cudaqx::tensor<uint8_t> &pcm,
 /// @brief Sort the columns of a PCM in topological order.
 /// @param pcm The PCM to sort.
 /// @return A new PCM with the columns sorted in topological order.
-cudaqx::tensor<uint8_t> sort_pcm_columns(const cudaqx::tensor<uint8_t> &pcm) {
-  auto column_order = get_sorted_pcm_column_indices(pcm);
+cudaqx::tensor<uint8_t>
+sort_pcm_columns(const cudaqx::tensor<uint8_t> &pcm,
+                 std::uint32_t num_syndromes_per_round) {
+  auto column_order =
+      get_sorted_pcm_column_indices(pcm, num_syndromes_per_round);
   return reorder_pcm_columns(pcm, column_order);
 }
 
@@ -244,9 +215,11 @@ cudaqx::tensor<uint8_t> sort_pcm_columns(const cudaqx::tensor<uint8_t> &pcm) {
 /// probability weight vectors combined accordingly.
 std::pair<cudaqx::tensor<uint8_t>, std::vector<double>>
 simplify_pcm(const cudaqx::tensor<uint8_t> &pcm,
-             const std::vector<double> &weights) {
+             const std::vector<double> &weights,
+             std::uint32_t num_syndromes_per_round) {
   auto row_indices = get_sparse_pcm(pcm);
-  auto column_order = get_sorted_pcm_column_indices(pcm);
+  auto column_order =
+      get_sorted_pcm_column_indices(pcm, num_syndromes_per_round);
   // March through the columns in topological order, and combine the probability
   // weight vectors if the columns have the same row indices.
   std::vector<std::vector<std::uint32_t>> new_row_indices;

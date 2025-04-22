@@ -858,8 +858,7 @@ TEST(PCMUtilsTester, checkSparsePCM) {
       auto c_ix = r * n_errs_per_round + c;
       // Randomly decide if this column has all errors appear within this round
       // or if they should also appear in the next round too.
-      bool all_errors_in_this_round =
-          (rand() % 2 == 0) ? true : false;
+      bool all_errors_in_this_round = (rand() % 2 == 0) ? true : false;
       if (r == n_rounds - 1)
         all_errors_in_this_round = true;
       std::size_t row_max = all_errors_in_this_round
@@ -876,4 +875,3 @@ TEST(PCMUtilsTester, checkSparsePCM) {
   auto pcm2 = cudaq::qec::sort_pcm_columns(pcm);
   pcm2.dump_bits();
 }
-
