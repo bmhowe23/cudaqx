@@ -27,6 +27,8 @@ get_sorted_pcm_column_indices = qecrt.get_sorted_pcm_column_indices
 reorder_pcm_columns = qecrt.reorder_pcm_columns
 sort_pcm_columns = qecrt.sort_pcm_columns
 dump_pcm = qecrt.dump_pcm
+generate_random_pcm = qecrt.generate_random_pcm
+get_pcm_for_rounds = qecrt.get_pcm_for_rounds
 
 from .plugins import decoders, codes
 import pkgutil, importlib, traceback

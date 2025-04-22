@@ -8,6 +8,7 @@
 
 #include "cudaq/qec/pcm_utils.h"
 #include <cstring>
+#include <random>
 
 namespace cudaq::qec {
 
@@ -315,6 +316,52 @@ get_pcm_for_rounds(const cudaqx::tensor<uint8_t> &pcm,
 
   return reorder_pcm_columns(pcm, columns_in_range, first_row_to_keep,
                              last_row_to_keep);
+}
+
+/// @brief Generate a random PCM with the given parameters.
+/// @param n_rounds The number of rounds in the PCM.
+/// @param n_errs_per_round The number of errors per round in the PCM.
+/// @param n_syndromes_per_round The number of syndromes per round in the PCM.
+/// @param weight The weight of the PCM.
+/// @param seed The seed for the random number generator.
+/// @return A random PCM with the given parameters.
+cudaqx::tensor<uint8_t> generate_random_pcm(std::size_t n_rounds,
+                                            std::size_t n_errs_per_round,
+                                            std::size_t n_syndromes_per_round,
+                                            int weight, int seed) {
+  std::size_t n_cols = n_rounds * n_errs_per_round;
+  std::size_t n_rows = n_rounds * n_syndromes_per_round;
+  cudaqx::tensor<uint8_t> pcm(std::vector<std::size_t>{n_rows, n_cols});
+
+  // Set the random seed for reproducibility
+  std::mt19937_64 gen(seed);
+
+  // Generate a random bit (either a 0 or 1) for each element of the PCM.
+  std::uniform_int_distribution<> dis(0, 1);
+
+  for (std::size_t r = 0; r < n_rounds; ++r) {
+    for (std::size_t c = 0; c < n_errs_per_round; ++c) {
+      auto c_ix = r * n_errs_per_round + c;
+      // Randomly decide if this column has all errors appear within this round
+      // or if they should also appear in the next round too.
+      bool all_errors_in_this_round = dis(gen) ? true : false;
+      if (r == n_rounds - 1)
+        all_errors_in_this_round = true;
+      std::size_t row_max = all_errors_in_this_round
+                                ? n_syndromes_per_round
+                                : 2 * n_syndromes_per_round;
+      std::uniform_int_distribution<> row_dis(0, row_max - 1);
+      for (std::size_t i = 0; i < weight; ++i) {
+        auto row_ix = row_dis(gen);
+        // Loop until we find a row that has not been set yet
+        while (pcm.at({r * n_syndromes_per_round + row_ix, c_ix}) == 1)
+          row_ix = row_dis(gen);
+        pcm.at({r * n_syndromes_per_round + row_ix, c_ix}) = 1;
+      }
+    }
+  }
+
+  return pcm;
 }
 
 } // namespace cudaq::qec

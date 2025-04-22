@@ -229,5 +229,32 @@ def test_sort_pcm_columns_invalid_input():
         qec.get_sorted_pcm_column_indices(H_invalid)
 
 
+def test_gen_random_pcm():
+    pcm = qec.generate_random_pcm(n_rounds=10,
+                                  n_errs_per_round=20,
+                                  n_syndromes_per_round=10,
+                                  weight=3,
+                                  seed=13)
+    pcm = qec.sort_pcm_columns(pcm)
+    print('')
+    qec.dump_pcm(pcm)
+    print('')
+    assert pcm.shape == (100, 200)
+
+
+def test_get_pcm_for_rounds():
+    pcm = qec.generate_random_pcm(n_rounds=10,
+                                  n_errs_per_round=20,
+                                  n_syndromes_per_round=10,
+                                  weight=3,
+                                  seed=13)
+    pcm = qec.sort_pcm_columns(pcm)
+    pcm_for_rounds = qec.get_pcm_for_rounds(pcm, 10, 0, 1)
+    assert pcm_for_rounds.shape == (20, 30)
+    print('')
+    qec.dump_pcm(pcm_for_rounds)
+    print('')
+
+
 if __name__ == "__main__":
     pytest.main()

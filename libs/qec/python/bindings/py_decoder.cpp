@@ -311,6 +311,7 @@ void bindDecoder(py::module &mod) {
             cudaq::qec::reorder_pcm_columns(tensor_H, column_order_vec);
 
         // Construct a new py_array_t<uint8_t> from H_new.
+        // FIXME - is this necessary
         py::array_t<uint8_t> H_new_py(shape);
         memcpy(H_new_py.mutable_data(), H_new.data(),
                shape[0] * shape[1] * sizeof(uint8_t));
@@ -349,6 +350,7 @@ void bindDecoder(py::module &mod) {
             cudaq::qec::sort_pcm_columns(tensor_H, num_syndromes_per_round);
 
         // Construct a new py_array_t<uint8_t> from H_new.
+        // FIXME - is this necessary
         py::array_t<uint8_t> H_new_py(shape);
         memcpy(H_new_py.mutable_data(), H_new.data(),
                shape[0] * shape[1] * sizeof(uint8_t));
@@ -389,6 +391,65 @@ void bindDecoder(py::module &mod) {
         fflush(stdout);
       },
       "Dump the parity check matrix to stdout.");
+
+  qecmod.def(
+      "generate_random_pcm",
+      [](std::uint32_t n_rounds, std::uint32_t n_errs_per_round,
+         std::uint32_t n_syndromes_per_round, std::uint32_t weight,
+         std::uint32_t seed) {
+        auto H_new = cudaq::qec::generate_random_pcm(
+            n_rounds, n_errs_per_round, n_syndromes_per_round, weight, seed);
+        // Construct a new py_array_t<uint8_t> from H_new.
+        // FIXME - is this necessary
+        py::array_t<uint8_t> H_new_py(H_new.shape());
+        memcpy(H_new_py.mutable_data(), H_new.data(),
+               H_new.shape()[0] * H_new.shape()[1] * sizeof(uint8_t));
+        return H_new_py;
+      },
+      "Generate a random parity check matrix.", py::arg("n_rounds"),
+      py::arg("n_errs_per_round"), py::arg("n_syndromes_per_round"),
+      py::arg("weight"), py::arg("seed"));
+
+  qecmod.def(
+      "get_pcm_for_rounds",
+      [](const py::array_t<uint8_t> &H, std::uint32_t num_syndromes_per_round,
+         std::uint32_t start_round, std::uint32_t end_round) {
+        py::buffer_info buf = H.request();
+        if (buf.ndim != 2) {
+          throw std::runtime_error(
+              "Parity check matrix must be 2-dimensional.");
+        }
+        if (buf.itemsize != sizeof(uint8_t)) {
+          throw std::runtime_error(
+              "Parity check matrix must be an array of uint8_t.");
+        }
+        if (buf.strides[0] == buf.itemsize) {
+          throw std::runtime_error(
+              "Parity check matrix must be in row-major order, but "
+              "column-major order was detected.");
+        }
+
+        // Create a vector of the array dimensions
+        std::vector<std::size_t> shape;
+        for (py::ssize_t d : buf.shape) {
+          shape.push_back(static_cast<std::size_t>(d));
+        }
+
+        cudaqx::tensor<uint8_t> tensor_H(shape);
+        tensor_H.borrow(static_cast<uint8_t *>(buf.ptr), shape);
+        auto H_new = cudaq::qec::get_pcm_for_rounds(
+            tensor_H, num_syndromes_per_round, start_round, end_round);
+
+        // Construct a new py_array_t<uint8_t> from H_new.
+        // FIXME - is this necessary
+        py::array_t<uint8_t> H_new_py(H_new.shape());
+        memcpy(H_new_py.mutable_data(), H_new.data(),
+               H_new.shape()[0] * H_new.shape()[1] * sizeof(uint8_t));
+        return H_new_py;
+      },
+      "Get a sub-PCM for a range of rounds.", py::arg("H"),
+      py::arg("num_syndromes_per_round"), py::arg("start_round"),
+      py::arg("end_round"));
 }
 
 } // namespace cudaq::qec

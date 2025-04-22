@@ -83,4 +83,16 @@ get_pcm_for_rounds(const cudaqx::tensor<uint8_t> &pcm,
                    std::uint32_t num_syndromes_per_round,
                    std::uint32_t start_round, std::uint32_t end_round);
 
+/// @brief Generate a random PCM with the given parameters.
+/// @param n_rounds The number of rounds in the PCM.
+/// @param n_errs_per_round The number of errors per round in the PCM.
+/// @param n_syndromes_per_round The number of syndromes per round in the PCM.
+/// @param weight The weight of the PCM.
+/// @param seed The seed for the random number generator.
+/// @return A random PCM with the given parameters.
+cudaqx::tensor<uint8_t> generate_random_pcm(std::size_t n_rounds,
+                                            std::size_t n_errs_per_round,
+                                            std::size_t n_syndromes_per_round,
+                                            int weight, int seed);
+
 } // namespace cudaq::qec
