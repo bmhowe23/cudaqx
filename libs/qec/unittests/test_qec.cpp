@@ -866,12 +866,69 @@ TEST(PCMUtilsTester, checkSparsePCM) {
                                 : 2 * n_syndromes_per_round;
       for (std::size_t i = 0; i < weight; ++i) {
         auto row_ix = rand() % row_max;
+        // Loop until we find a row that has not been set yet
+        while (pcm.at({r * n_syndromes_per_round + row_ix, c_ix}) == 1)
+          row_ix = rand() % row_max;
         pcm.at({r * n_syndromes_per_round + row_ix, c_ix}) = 1;
       }
     }
   }
-  pcm.dump_bits();
   printf("--------------------------------\n");
+  printf("Original PCM:\n");
+  pcm.dump_bits();
   auto pcm2 = cudaq::qec::sort_pcm_columns(pcm);
+  printf("--------------------------------\n");
+  printf("Sorted PCM (without specifying num syndromes per round):\n");
   pcm2.dump_bits();
+  pcm2 = cudaq::qec::sort_pcm_columns(pcm, n_syndromes_per_round);
+  printf("--------------------------------\n");
+  printf("Sorted PCM (with num syndromes per round specified):\n");
+  pcm2.dump_bits();
+  printf("--------------------------------\n");
+
+  // Make sure that the first round where an error occurs is non-decreasing
+  // and the last round where an error occurs is non-increasing.
+  std::size_t prev_col_first_round = 0;
+  std::size_t prev_col_last_round = 0;
+  for (std::size_t c = 0; c < n_cols; ++c) {
+    // Find the first and last row where an error occurs in this column.
+    auto first_row = std::numeric_limits<std::size_t>::max();
+    auto last_row = std::numeric_limits<std::size_t>::min();
+    for (std::size_t r = 0; r < n_rows; ++r) {
+      if (pcm2.at({r, c}) == 1) {
+        first_row = std::min(first_row, r);
+        last_row = std::max(last_row, r);
+      }
+    }
+    // Convert rows to rounds.
+    auto first_round = first_row / n_syndromes_per_round;
+    auto last_round = last_row / n_syndromes_per_round;
+
+    // Make sure we are not going backwards.
+    ASSERT_GE(first_round, prev_col_first_round);
+    ASSERT_GE(last_round, prev_col_last_round);
+
+    // Save for the next iteration.
+    prev_col_first_round = first_round;
+    prev_col_last_round = last_round;
+  }
+
+  // Make sure that the sort is stable, regardless of the input order of the columns.
+  int num_tests = 10;
+  std::mt19937_64 rng(/*seed=*/13);
+  for (int iter = 0; iter < num_tests; ++iter) {
+    std::vector<std::uint32_t> shuffle_vector(n_cols);
+    std::iota(shuffle_vector.begin(), shuffle_vector.end(), 0);
+    std::shuffle(shuffle_vector.begin(), shuffle_vector.end(), rng);
+    auto pcm_shuffled = cudaq::qec::reorder_pcm_columns(pcm, shuffle_vector);
+
+    for (std::size_t c = 0; c < n_cols; ++c)
+      for (std::size_t r = 0; r < n_rows; ++r)
+        pcm_shuffled.at({r, c}) = pcm.at({r, shuffle_vector[c]});
+    auto pcm_sorted =
+        cudaq::qec::sort_pcm_columns(pcm_shuffled, n_syndromes_per_round);
+    for (std::size_t r = 0; r < n_rows; ++r)
+      for (std::size_t c = 0; c < n_cols; ++c)
+        ASSERT_EQ(pcm2.at({r, c}), pcm_sorted.at({r, c}));
+  }
 }
