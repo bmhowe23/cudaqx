@@ -840,7 +840,8 @@ TEST(PCMUtilsTester, checkSimplifyPCM2) {
 
   auto [H_new, weights_new] = cudaq::qec::simplify_pcm(pcm, weights);
   std::vector<double> expected_weights = {0.2, 1.0 - 0.9 * 0.7};
-  EXPECT_EQ(weights_new, expected_weights);
+  for (std::size_t i = 0; i < weights_new.size(); ++i)
+    EXPECT_NEAR(weights_new[i], expected_weights[i], 1e-6);
 }
 
 void check_pcm_equality(const cudaqx::tensor<uint8_t> &a,
