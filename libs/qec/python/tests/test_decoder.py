@@ -256,5 +256,41 @@ def test_get_pcm_for_rounds():
     print('')
 
 
+def test_shuffle_pcm_columns():
+    pcm = qec.generate_random_pcm(n_rounds=10,
+                                  n_errs_per_round=20,
+                                  n_syndromes_per_round=10,
+                                  weight=3,
+                                  seed=13)
+    sorted_pcm = qec.sort_pcm_columns(pcm)
+    shuffled_pcm = qec.shuffle_pcm_columns(sorted_pcm, seed=13)
+
+    # They should not be equal here
+    assert not np.array_equal(sorted_pcm, shuffled_pcm)
+
+    # They should be equal after sorting
+    assert np.array_equal(qec.sort_pcm_columns(shuffled_pcm), sorted_pcm)
+
+
+def test_simplify_pcm():
+    syndromes_per_round = 10
+    pcm = qec.generate_random_pcm(
+        n_rounds=10,
+        n_errs_per_round=30,
+        n_syndromes_per_round=syndromes_per_round,
+        weight=1,  # force some duplicate columns for this test
+        seed=13)
+    weights = np.ones(pcm.shape[1]) * 0.01
+    new_pcm, new_weights = qec.simplify_pcm(pcm, weights, syndromes_per_round)
+    # qec.dump_pcm(new_pcm)
+    print(new_pcm.shape)
+    assert new_pcm.shape[0] == pcm.shape[0]
+    assert new_pcm.shape[1] < pcm.shape[1]  # we expect fewer columns
+    assert new_weights.shape == (new_pcm.shape[1],)
+
+    # Test that the new weights are not all uniform.
+    assert not np.allclose(new_weights, new_weights[0])
+
+
 if __name__ == "__main__":
     pytest.main()

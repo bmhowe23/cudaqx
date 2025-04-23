@@ -307,8 +307,13 @@ void bindDecoder(py::module &mod) {
       [](std::uint32_t n_rounds, std::uint32_t n_errs_per_round,
          std::uint32_t n_syndromes_per_round, std::uint32_t weight,
          std::uint32_t seed) {
-        auto H_new = cudaq::qec::generate_random_pcm(
-            n_rounds, n_errs_per_round, n_syndromes_per_round, weight, seed);
+        std::mt19937_64 rng(seed);
+        if (seed == 0)
+          rng = std::mt19937_64(std::random_device()());
+
+        auto H_new = cudaq::qec::generate_random_pcm(n_rounds, n_errs_per_round,
+                                                     n_syndromes_per_round,
+                                                     weight, std::move(rng));
         // Construct a new py_array_t<uint8_t> from H_new.
         // FIXME - is this necessary
         py::array_t<uint8_t> H_new_py(H_new.shape());
@@ -318,7 +323,7 @@ void bindDecoder(py::module &mod) {
       },
       "Generate a random parity check matrix.", py::arg("n_rounds"),
       py::arg("n_errs_per_round"), py::arg("n_syndromes_per_round"),
-      py::arg("weight"), py::arg("seed"));
+      py::arg("weight"), py::arg("seed") = 0);
 
   qecmod.def(
       "get_pcm_for_rounds",
@@ -339,6 +344,47 @@ void bindDecoder(py::module &mod) {
       "Get a sub-PCM for a range of rounds.", py::arg("H"),
       py::arg("num_syndromes_per_round"), py::arg("start_round"),
       py::arg("end_round"));
+
+  qecmod.def(
+      "shuffle_pcm_columns",
+      [](const py::array_t<uint8_t> &H, std::uint32_t seed) {
+        auto tensor_H = pcmToTensor(H);
+        std::mt19937_64 rng(seed);
+        if (seed == 0)
+          rng = std::mt19937_64(std::random_device()());
+
+        auto H_new = cudaq::qec::shuffle_pcm_columns(tensor_H, std::move(rng));
+        // Construct a new py_array_t<uint8_t> from H_new.
+        // FIXME - is this necessary
+        py::array_t<uint8_t> H_new_py(H_new.shape());
+        memcpy(H_new_py.mutable_data(), H_new.data(),
+               H_new.shape()[0] * H_new.shape()[1] * sizeof(uint8_t));
+        return H_new_py;
+      },
+      "Shuffle the columns of a parity check matrix.", py::arg("H"),
+      py::arg("seed") = 0);
+
+  qecmod.def(
+      "simplify_pcm",
+      [](const py::array_t<uint8_t> &H, const py::array_t<double> &weights,
+         std::uint32_t num_syndromes_per_round) {
+        auto tensor_H = pcmToTensor(H);
+        auto weights_vec = weights.cast<std::vector<double>>();
+        auto [H_new, weights_new] = cudaq::qec::simplify_pcm(
+            tensor_H, weights_vec, num_syndromes_per_round);
+        // Construct a new py_array_t<uint8_t> from H_new.
+        // FIXME - is this necessary
+        py::array_t<uint8_t> H_new_py(H_new.shape());
+        memcpy(H_new_py.mutable_data(), H_new.data(),
+               H_new.shape()[0] * H_new.shape()[1] * sizeof(uint8_t));
+        // Construct a new py_array_t<double> from weights_new.
+        py::array_t<double> weights_new_py(weights_new.size());
+        memcpy(weights_new_py.mutable_data(), weights_new.data(),
+               weights_new.size() * sizeof(double));
+        return py::make_tuple(H_new_py, weights_new_py);
+      },
+      "Simplify a parity check matrix.", py::arg("H"), py::arg("weights"),
+      py::arg("num_syndromes_per_round"));
 }
 
 } // namespace cudaq::qec

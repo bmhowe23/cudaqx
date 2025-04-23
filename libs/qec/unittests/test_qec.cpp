@@ -844,6 +844,20 @@ TEST(PCMUtilsTester, checkSimplifyPCM2) {
     EXPECT_NEAR(weights_new[i], expected_weights[i], 1e-6);
 }
 
+bool are_pcms_equal(const cudaqx::tensor<uint8_t> &a,
+                    const cudaqx::tensor<uint8_t> &b) {
+  if (a.rank() != 2 || b.rank() != 2) {
+    throw std::runtime_error("PCM must be a 2D tensor");
+  }
+  if (a.shape() != b.shape())
+    return false;
+  for (std::size_t r = 0; r < a.shape()[0]; ++r)
+    for (std::size_t c = 0; c < a.shape()[1]; ++c)
+      if (a.at({r, c}) != b.at({r, c}))
+        return false;
+  return true;
+}
+
 void check_pcm_equality(const cudaqx::tensor<uint8_t> &a,
                         const cudaqx::tensor<uint8_t> &b,
                         bool use_assert = true) {
@@ -879,7 +893,8 @@ TEST(PCMUtilsTester, checkSparsePCM) {
   std::size_t n_rows = n_rounds * n_syndromes_per_round;
   std::size_t weight = 3;
   cudaqx::tensor<uint8_t> pcm = cudaq::qec::generate_random_pcm(
-      n_rounds, n_errs_per_round, n_syndromes_per_round, weight, 13);
+      n_rounds, n_errs_per_round, n_syndromes_per_round, weight,
+      std::mt19937_64(13));
   printf("--------------------------------\n");
   printf("Original PCM:\n");
   pcm.dump_bits();
@@ -948,7 +963,8 @@ TEST(PCMUtilsTester, checkGetPCMForRounds) {
   std::size_t weight = 3;
 
   cudaqx::tensor<uint8_t> pcm = cudaq::qec::generate_random_pcm(
-      n_rounds, n_errs_per_round, n_syndromes_per_round, weight, 13);
+      n_rounds, n_errs_per_round, n_syndromes_per_round, weight,
+      std::mt19937_64(13));
 
   pcm = cudaq::qec::sort_pcm_columns(pcm, n_syndromes_per_round);
   auto pcm_for_rounds = cudaq::qec::get_pcm_for_rounds(
@@ -967,4 +983,28 @@ TEST(PCMUtilsTester, checkGetPCMForRounds) {
       pcm_test.dump_bits();
     }
   }
+}
+
+TEST(PCMUtilsTester, checkShufflePCMColumns) {
+  std::size_t n_rounds = 4;
+  std::size_t n_errs_per_round = 30;
+  std::size_t n_syndromes_per_round = 10;
+  std::size_t weight = 3;
+  std::mt19937_64 rng(13);
+  cudaqx::tensor<uint8_t> pcm = cudaq::qec::generate_random_pcm(
+      n_rounds, n_errs_per_round, n_syndromes_per_round, weight,
+      std::move(rng));
+  pcm = cudaq::qec::sort_pcm_columns(pcm, n_syndromes_per_round);
+  auto pcm_permuted = cudaq::qec::shuffle_pcm_columns(pcm, std::move(rng));
+  // Verify that the new PCM is different from the original.
+  EXPECT_FALSE(are_pcms_equal(pcm, pcm_permuted));
+  // printf("Original PCM:\n");
+  // pcm.dump_bits();
+  // printf("--------------------------------\n");
+  // printf("Permuted PCM:\n");
+  // pcm_permuted.dump_bits();
+  // printf("--------------------------------\n");
+  auto pcm_permuted_and_sorted =
+      cudaq::qec::sort_pcm_columns(pcm_permuted, n_syndromes_per_round);
+  check_pcm_equality(pcm_permuted_and_sorted, pcm);
 }

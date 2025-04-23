@@ -262,7 +262,9 @@ simplify_pcm(const cudaqx::tensor<uint8_t> &pcm,
     }
   }
 
-  cudaqx::tensor<uint8_t> new_pcm(pcm.shape());
+  // The new PCM may have fewer columns than the original PCM.
+  cudaqx::tensor<uint8_t> new_pcm(
+      std::vector<std::size_t>{pcm.shape()[0], new_row_indices.size()});
   for (std::size_t c = 0; c < new_row_indices.size(); c++)
     for (auto r : new_row_indices[c])
       new_pcm.at({r, c}) = 1;
@@ -323,18 +325,16 @@ get_pcm_for_rounds(const cudaqx::tensor<uint8_t> &pcm,
 /// @param n_errs_per_round The number of errors per round in the PCM.
 /// @param n_syndromes_per_round The number of syndromes per round in the PCM.
 /// @param weight The weight of the PCM.
-/// @param seed The seed for the random number generator.
+/// @param rng The random number generator to use (e.g.
+/// std::mt19937_64(your_seed))
 /// @return A random PCM with the given parameters.
 cudaqx::tensor<uint8_t> generate_random_pcm(std::size_t n_rounds,
                                             std::size_t n_errs_per_round,
                                             std::size_t n_syndromes_per_round,
-                                            int weight, int seed) {
+                                            int weight, std::mt19937_64 &&rng) {
   std::size_t n_cols = n_rounds * n_errs_per_round;
   std::size_t n_rows = n_rounds * n_syndromes_per_round;
   cudaqx::tensor<uint8_t> pcm(std::vector<std::size_t>{n_rows, n_cols});
-
-  // Set the random seed for reproducibility
-  std::mt19937_64 gen(seed);
 
   // Generate a random bit (either a 0 or 1) for each element of the PCM.
   std::uniform_int_distribution<> dis(0, 1);
@@ -344,7 +344,7 @@ cudaqx::tensor<uint8_t> generate_random_pcm(std::size_t n_rounds,
       auto c_ix = r * n_errs_per_round + c;
       // Randomly decide if this column has all errors appear within this round
       // or if they should also appear in the next round too.
-      bool all_errors_in_this_round = dis(gen) ? true : false;
+      bool all_errors_in_this_round = dis(rng) ? true : false;
       if (r == n_rounds - 1)
         all_errors_in_this_round = true;
       std::size_t row_max = all_errors_in_this_round
@@ -352,10 +352,10 @@ cudaqx::tensor<uint8_t> generate_random_pcm(std::size_t n_rounds,
                                 : 2 * n_syndromes_per_round;
       std::uniform_int_distribution<> row_dis(0, row_max - 1);
       for (std::size_t i = 0; i < weight; ++i) {
-        auto row_ix = row_dis(gen);
+        auto row_ix = row_dis(rng);
         // Loop until we find a row that has not been set yet
         while (pcm.at({r * n_syndromes_per_round + row_ix, c_ix}) == 1)
-          row_ix = row_dis(gen);
+          row_ix = row_dis(rng);
         pcm.at({r * n_syndromes_per_round + row_ix, c_ix}) = 1;
       }
     }
@@ -364,4 +364,14 @@ cudaqx::tensor<uint8_t> generate_random_pcm(std::size_t n_rounds,
   return pcm;
 }
 
+/// @brief Randomly permute the columns of a PCM.
+/// @param pcm The PCM to permute.
+/// @return A new PCM with the columns permuted randomly.
+cudaqx::tensor<uint8_t> shuffle_pcm_columns(const cudaqx::tensor<uint8_t> &pcm,
+                                            std::mt19937_64 &&rng) {
+  std::vector<std::uint32_t> column_order(pcm.shape()[1]);
+  std::iota(column_order.begin(), column_order.end(), 0);
+  std::shuffle(column_order.begin(), column_order.end(), rng);
+  return reorder_pcm_columns(pcm, column_order);
+}
 } // namespace cudaq::qec

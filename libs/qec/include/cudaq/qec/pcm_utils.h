@@ -9,6 +9,7 @@
 
 #include "cuda-qx/core/tensor.h"
 #include <limits>
+#include <random>
 
 namespace cudaq::qec {
 
@@ -88,11 +89,20 @@ get_pcm_for_rounds(const cudaqx::tensor<uint8_t> &pcm,
 /// @param n_errs_per_round The number of errors per round in the PCM.
 /// @param n_syndromes_per_round The number of syndromes per round in the PCM.
 /// @param weight The weight of the PCM.
-/// @param seed The seed for the random number generator.
+/// @param rng The random number generator to use (e.g.
+/// std::mt19937_64(your_seed))
 /// @return A random PCM with the given parameters.
 cudaqx::tensor<uint8_t> generate_random_pcm(std::size_t n_rounds,
                                             std::size_t n_errs_per_round,
                                             std::size_t n_syndromes_per_round,
-                                            int weight, int seed);
+                                            int weight, std::mt19937_64 &&rng);
+
+/// @brief Randomly permute the columns of a PCM.
+/// @param pcm The PCM to permute.
+/// @param rng The random number generator to use (e.g.
+/// std::mt19937_64(your_seed))
+/// @return A new PCM with the columns permuted randomly.
+cudaqx::tensor<uint8_t> shuffle_pcm_columns(const cudaqx::tensor<uint8_t> &pcm,
+                                            std::mt19937_64 &&rng);
 
 } // namespace cudaq::qec
