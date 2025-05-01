@@ -179,7 +179,7 @@ void check_pcm_equality(const cudaqx::tensor<uint8_t> &a,
   }
 }
 
-TEST(SlidingWindowDecoder, SlidingWindowDecoderTest) {
+void SlidingWindowDecoderTest(bool run_batched) {
   std::size_t n_rounds = 8;
   std::size_t n_errs_per_round = 30;
   std::size_t n_syndromes_per_round = 10;
@@ -222,7 +222,7 @@ TEST(SlidingWindowDecoder, SlidingWindowDecoderTest) {
 
   // Create some random syndromes.
   const int num_syndromes = 1000;
-  std::vector<cudaqx::tensor<uint8_t>> syndromes(num_syndromes);
+  std::vector<std::vector<cudaq::qec::float_t>> syndromes(num_syndromes);
 
   // Set a fixed number of error mechanisms to be non-zero. Since we are using
   // "single_error_lut", let's only set 1 error mechanism for now.
@@ -230,13 +230,13 @@ TEST(SlidingWindowDecoder, SlidingWindowDecoderTest) {
   std::uniform_int_distribution<uint32_t> dist(0, n_cols - 1);
   std::mt19937_64 rng(13);
   for (std::size_t i = 0; i < num_syndromes; ++i) {
-    syndromes[i] = cudaqx::tensor<uint8_t>(std::vector<std::size_t>{n_rows});
+    syndromes[i] = std::vector<cudaq::qec::float_t>(n_rows, 0.0);
     for (int e = 0; e < num_error_mechanisms_to_set; ++e) {
       auto col = dist(rng);
       // printf("For syndrome %zu, setting error mechanism %d at column %u\n",
       // i, e, col);
       for (std::size_t r = 0; r < n_rows; ++r)
-        syndromes[i].at({r}) ^= pcm.at({r, col});
+        syndromes[i][r] = pcm.at({r, col});
       // syndromes[i].dump_bits();
     }
   }
@@ -250,12 +250,20 @@ TEST(SlidingWindowDecoder, SlidingWindowDecoderTest) {
     auto global_decoder = cudaq::qec::decoder::get(
         inner_decoder_name, simplified_pcm, inner_decoder_params);
     printf("Done\n");
-    for (std::size_t i = 0; i < num_syndromes; ++i) {
-      // printf("Decoding syndrome %zu\n", i);
-      // syndromes[i].dump_bits();
-      auto d = global_decoder->decode(syndromes[i]);
-      ASSERT_TRUE(d.converged);
-      cudaq::qec::convert_vec_soft_to_hard(d.result, global_decoded_results[i]);
+    if (run_batched) {
+      auto dec_results = global_decoder->decode_batch(syndromes);
+      for (std::size_t i = 0; i < num_syndromes; ++i) {
+        ASSERT_TRUE(dec_results[i].converged);
+        cudaq::qec::convert_vec_soft_to_hard(dec_results[i].result, global_decoded_results[i]);
+      }
+    } else {
+      for (std::size_t i = 0; i < num_syndromes; ++i) {
+        // printf("Decoding syndrome %zu\n", i);
+        // syndromes[i].dump_bits();
+        auto d = global_decoder->decode(syndromes[i]);
+        ASSERT_TRUE(d.converged);
+        cudaq::qec::convert_vec_soft_to_hard(d.result, global_decoded_results[i]);
+      }
     }
   }
   auto t1 = std::chrono::high_resolution_clock::now();
@@ -265,12 +273,21 @@ TEST(SlidingWindowDecoder, SlidingWindowDecoderTest) {
   // Now decode each syndrome using a windowed approach.
   std::vector<std::vector<uint8_t>> windowed_decoded_results(num_syndromes);
   auto t2 = std::chrono::high_resolution_clock::now();
-  for (std::size_t i = 0; i < num_syndromes; ++i) {
-    // printf(" ------ Decoding syndrome %zu ------ \n", i);
-    auto decoded_result = sliding_window_decoder->decode(syndromes[i]);
-    // ASSERT_TRUE(decoded_result.converged);
-    cudaq::qec::convert_vec_soft_to_hard(decoded_result.result,
-                                         windowed_decoded_results[i]);
+  if (run_batched) {
+    printf("Running batched decoding\n");
+    auto dec_results = sliding_window_decoder->decode_batch(syndromes);
+    for (std::size_t i = 0; i < num_syndromes; ++i) {
+      // ASSERT_TRUE(dec_results[i].converged);
+      cudaq::qec::convert_vec_soft_to_hard(dec_results[i].result, windowed_decoded_results[i]);
+    }
+  } else {
+    for (std::size_t i = 0; i < num_syndromes; ++i) {
+      // printf(" ------ Decoding syndrome %zu ------ \n", i);
+      auto decoded_result = sliding_window_decoder->decode(syndromes[i]);
+      // ASSERT_TRUE(decoded_result.converged);
+      cudaq::qec::convert_vec_soft_to_hard(decoded_result.result,
+                                          windowed_decoded_results[i]);
+    }
   }
   auto t3 = std::chrono::high_resolution_clock::now();
   auto duration_windowed = std::chrono::duration_cast<std::chrono::milliseconds>(t3 - t2);
@@ -296,6 +313,14 @@ TEST(SlidingWindowDecoder, SlidingWindowDecoderTest) {
              print_as_bits(windowed_decoded_results[i]).c_str());
     }
   }
+}
+
+TEST(SlidingWindowDecoder, SlidingWindowDecoderTestNonBatched) {
+  SlidingWindowDecoderTest(false);
+}
+
+TEST(SlidingWindowDecoder, SlidingWindowDecoderTestBatched) {
+  SlidingWindowDecoderTest(true);
 }
 
 TEST(AsyncDecoderResultTest, MoveConstructorTransfersFuture) {
