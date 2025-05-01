@@ -19,6 +19,7 @@ add_library(${LIBRARY_NAME} SHARED
   plugin_loader.cpp
   stabilizer_utils.cpp 
   decoders/single_error_lut.cpp
+  decoders/sliding_window.cpp
 )
 
 add_subdirectory(decoders/plugins/example)

@@ -37,6 +37,13 @@ std::vector<std::uint32_t>
 get_sorted_pcm_column_indices(const cudaqx::tensor<uint8_t> &pcm,
                               std::uint32_t num_syndromes_per_round = 0);
 
+/// @brief Check if a PCM is sorted.
+/// @param pcm The PCM to check.
+/// @param num_syndromes_per_round The number of syndromes per round.
+/// @return True if the PCM is sorted, false otherwise.
+bool pcm_is_sorted(const cudaqx::tensor<uint8_t> &pcm,
+                   std::uint32_t num_syndromes_per_round = 0);
+
 /// @brief Reorder the columns of a PCM according to the given column order.
 /// Note: this may return a subset of the columns in the original PCM if the
 /// \p column_order does not contain all of the columns in the original PCM.

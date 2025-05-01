@@ -117,6 +117,25 @@ std::vector<std::uint32_t> get_sorted_pcm_column_indices(
   return column_order;
 }
 
+/// @brief Check if a PCM is sorted.
+/// @param pcm The PCM to check.
+/// @param num_syndromes_per_round The number of syndromes per round.
+/// @return True if the PCM is sorted, false otherwise.
+bool pcm_is_sorted(const cudaqx::tensor<uint8_t> &pcm,
+                   std::uint32_t num_syndromes_per_round) {
+  if (pcm.rank() != 2) {
+    throw std::invalid_argument("pcm_is_sorted: PCM must be a 2D tensor");
+  }
+
+  auto column_indices =
+      get_sorted_pcm_column_indices(pcm, num_syndromes_per_round);
+  auto num_cols = pcm.shape()[1];
+  for (std::size_t c = 0; c < num_cols; c++)
+    if (column_indices[c] != c)
+      return false;
+  return true;
+}
+
 /// @brief Return a sparse representation of the PCM.
 /// @return A vector of vectors that sparsely represents the PCM. The size of
 /// the outer vector is the number of columns in the PCM, and the i-th element
