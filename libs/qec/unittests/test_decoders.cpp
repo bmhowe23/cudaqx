@@ -243,6 +243,7 @@ TEST(SlidingWindowDecoder, SlidingWindowDecoderTest) {
 
   // First decode the syndromes using a global decoder.
   std::vector<std::vector<uint8_t>> global_decoded_results(num_syndromes);
+  auto t0 = std::chrono::high_resolution_clock::now();
   {
     printf("Generating global_decoder with PCM dims %zu x %zu\n",
            pcm.shape()[0], pcm.shape()[1]);
@@ -257,16 +258,23 @@ TEST(SlidingWindowDecoder, SlidingWindowDecoderTest) {
       cudaq::qec::convert_vec_soft_to_hard(d.result, global_decoded_results[i]);
     }
   }
+  auto t1 = std::chrono::high_resolution_clock::now();
+  auto duration_global = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0);
+  printf("Global decoder time: %ld ms\n", duration_global.count());
 
   // Now decode each syndrome using a windowed approach.
   std::vector<std::vector<uint8_t>> windowed_decoded_results(num_syndromes);
+  auto t2 = std::chrono::high_resolution_clock::now();
   for (std::size_t i = 0; i < num_syndromes; ++i) {
-    printf(" ------ Decoding syndrome %zu ------ \n", i);
+    // printf(" ------ Decoding syndrome %zu ------ \n", i);
     auto decoded_result = sliding_window_decoder->decode(syndromes[i]);
     // ASSERT_TRUE(decoded_result.converged);
     cudaq::qec::convert_vec_soft_to_hard(decoded_result.result,
                                          windowed_decoded_results[i]);
   }
+  auto t3 = std::chrono::high_resolution_clock::now();
+  auto duration_windowed = std::chrono::duration_cast<std::chrono::milliseconds>(t3 - t2);
+  printf("Windowed decoder time: %ld ms\n", duration_windowed.count());
 
   // Check that the global and windowed decoders agree.
   auto print_as_bits = [](const std::vector<uint8_t> &v) {
