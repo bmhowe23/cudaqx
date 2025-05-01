@@ -1039,6 +1039,9 @@ TEST(PCMUtilsTester, SlidingWindowDecoderTest) {
   const std::size_t num_syndromes_per_window =
       window_size * n_syndromes_per_round;
 
+  cudaqx::heterogeneous_map custom_args;
+  custom_args.insert("circuit_level_like", true);
+
   // Store a list of decoders and the PCM for each window.
   std::vector<std::unique_ptr<cudaq::qec::decoder>> decoders;
   std::vector<cudaqx::tensor<uint8_t>> decoder_pcms;
@@ -1058,32 +1061,56 @@ TEST(PCMUtilsTester, SlidingWindowDecoderTest) {
            last_column);
     // printf("H:\n");
     // H.dump_bits();
-    auto d = cudaq::qec::decoder::get("single_error_lut", H);
+    auto d = cudaq::qec::decoder::get("single_error_lut", H, custom_args);
     decoders.push_back(std::move(d));
     decoder_pcms.push_back(std::move(H));
   }
 
   // Create some random syndromes.
-  const int num_syndromes = 1;
+  const int num_syndromes = 1000;
   std::vector<cudaqx::tensor<uint8_t>> syndromes(num_syndromes);
 
-  // Probability that a syndrome bit is set.
-  const double p_set = 0.01;
-  std::uniform_real_distribution<double> dist(0.0, 1.0);
+  // Set a fixed number of error mechanisms to be non-zero. Since we are using
+  // "single_error_lut", let's only set 1 error mechanism for now.
+  const int num_error_mechanisms_to_set = 1;
+  std::uniform_int_distribution<uint32_t> dist(0, n_cols - 1);
   std::mt19937_64 rng(13);
   for (std::size_t i = 0; i < num_syndromes; ++i) {
     syndromes[i] = cudaqx::tensor<uint8_t>(std::vector<std::size_t>{n_rows});
-    for (std::size_t r = 0; r < n_rows; ++r)
-      syndromes[i].at({r}) = dist(rng) < p_set ? 1 : 0;
+    for (int e = 0; e < num_error_mechanisms_to_set; ++e) {
+      auto col = dist(rng);
+      // printf("For syndrome %zu, setting error mechanism %d at column %u\n", i, e, col);
+      for (std::size_t r = 0; r < n_rows; ++r)
+        syndromes[i].at({r}) ^= pcm.at({r, col});
+      // syndromes[i].dump_bits();
+    }
+  }
+
+  // First decode the syndromes using a global decoder.
+  std::vector<std::vector<uint8_t>> global_decoded_results(num_syndromes);
+  {
+    printf("Generating global_decoder with PCM dims %zu x %zu\n",
+           pcm.shape()[0], pcm.shape()[1]);
+    auto global_decoder =
+        cudaq::qec::decoder::get("single_error_lut", pcm, custom_args);
+    printf("Done\n");
+    for (std::size_t i = 0; i < num_syndromes; ++i) {
+      // printf("Decoding syndrome %zu\n", i);
+      // syndromes[i].dump_bits();
+      auto d = global_decoder->decode(syndromes[i]);
+      ASSERT_TRUE(d.converged);
+      cudaq::qec::convert_vec_soft_to_hard(d.result, global_decoded_results[i]);
+    }
   }
 
   // Now decode each syndrome using a windowed approach.
+  std::vector<std::vector<uint8_t>> windowed_decoded_results(num_syndromes);
   for (std::size_t i = 0; i < num_syndromes; ++i) {
     std::vector<uint8_t> decoded_result(n_cols);
     auto decoded_result_it = decoded_result.begin();
 
     for (std::size_t w = 0; w < n_windows; ++w) {
-      printf("Processing syndrome %zu for window %zu\n", i, w);
+      // printf("Processing syndrome %zu for window %zu\n", i, w);
       std::size_t syndrome_start = w * step_size * n_syndromes_per_round;
       std::size_t syndrome_end = syndrome_start + num_syndromes_per_window - 1;
       auto syndrome_slice = cudaqx::tensor<uint8_t>(
@@ -1105,9 +1132,9 @@ TEST(PCMUtilsTester, SlidingWindowDecoderTest) {
       cudaqx::tensor<uint8_t> window_result;
       cudaq::qec::convert_vec_soft_to_tensor_hard(d.result, window_result);
       const auto &window_pcm = decoder_pcms[w];
-      printf("PCM dims: %zu x %zu, window_result dims: %zu\n",
-             window_pcm.shape()[0], window_pcm.shape()[1],
-             window_result.shape()[0]);
+      // printf("PCM dims: %zu x %zu, window_result dims: %zu\n",
+      //        window_pcm.shape()[0], window_pcm.shape()[1],
+      //        window_result.shape()[0]);
       auto result = window_pcm.dot(window_result);
       // Commit to everything up to the first column of the next window.
       if (w < n_windows - 1) {
@@ -1116,7 +1143,7 @@ TEST(PCMUtilsTester, SlidingWindowDecoderTest) {
         auto this_window_first_column = first_columns[w];
         auto num_to_commit =
             next_window_first_column - this_window_first_column;
-        printf("  Committing %u bits from window %zu\n", num_to_commit, w);
+        // printf("  Committing %u bits from window %zu\n", num_to_commit, w);
         for (std::size_t c = 0; c < num_to_commit; ++c) {
           ASSERT_NE(decoded_result_it, decoded_result.end());
           *decoded_result_it++ = window_result.at({c});
@@ -1125,7 +1152,7 @@ TEST(PCMUtilsTester, SlidingWindowDecoderTest) {
         // This is the last window. Append ALL of window_result to
         // decoded_result.
         auto num_to_commit = window_result.shape()[0];
-        printf("  Committing %zu bits from window %zu\n", num_to_commit, w);
+        // printf("  Committing %zu bits from window %zu\n", num_to_commit, w);
         for (std::size_t c = 0; c < num_to_commit; ++c) {
           ASSERT_NE(decoded_result_it, decoded_result.end());
           *decoded_result_it++ = window_result.at({c});
@@ -1134,5 +1161,27 @@ TEST(PCMUtilsTester, SlidingWindowDecoderTest) {
     }
     EXPECT_EQ(decoded_result.end(), decoded_result_it);
     EXPECT_EQ(decoded_result.size(), n_cols);
+    windowed_decoded_results[i] = std::move(decoded_result);
+  }
+
+  // Check that the global and windowed decoders agree.
+  auto print_as_bits = [](const std::vector<uint8_t> &v) {
+    std::string s;
+    s.reserve(v.size());
+    for (auto r : v)
+      s += (r == 0) ? '.' : '1';
+    return s;
+  };
+  for (std::size_t i = 0; i < num_syndromes; ++i) {
+    bool decoder_agreement =
+        global_decoded_results[i] == windowed_decoded_results[i];
+    EXPECT_EQ(decoder_agreement, true)
+        << "Comparison failed for syndrome " << i;
+    if (!decoder_agreement) {
+      printf("Global   decoder result: %s\n",
+             print_as_bits(global_decoded_results[i]).c_str());
+      printf("Windowed decoder result: %s\n",
+             print_as_bits(windowed_decoded_results[i]).c_str());
+    }
   }
 }
