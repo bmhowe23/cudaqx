@@ -204,45 +204,21 @@ TEST(SlidingWindowDecoder, SlidingWindowDecoderTest) {
   const std::size_t num_syndromes_per_window =
       window_size * n_syndromes_per_round;
 
-  cudaqx::heterogeneous_map custom_args;
-  custom_args.insert("window_size", window_size);
-  custom_args.insert("step_size", step_size);
-  custom_args.insert("num_syndromes_per_round", n_syndromes_per_round);
-  custom_args.insert("error_vec", simplified_weights);
-  custom_args.insert("inner_decoder_name", "single_error_lut");
+  const std::string inner_decoder_name = "single_error_lut";
+  cudaqx::heterogeneous_map sliding_window_params;
+  sliding_window_params.insert("window_size", window_size);
+  sliding_window_params.insert("step_size", step_size);
+  sliding_window_params.insert("num_syndromes_per_round",
+                               n_syndromes_per_round);
+  sliding_window_params.insert("error_vec", simplified_weights);
+  sliding_window_params.insert("inner_decoder_name", inner_decoder_name);
 
   cudaqx::heterogeneous_map inner_decoder_params;
   inner_decoder_params.insert("circuit_level_like", true);
-  custom_args.insert("inner_decoder_params", inner_decoder_params);
+  sliding_window_params.insert("inner_decoder_params", inner_decoder_params);
 
-  auto d =
-      cudaq::qec::decoder::get("sliding_window", simplified_pcm, custom_args);
-
-  return;
-
-  // Store a list of decoders and the PCM for each window.
-  std::vector<std::unique_ptr<cudaq::qec::decoder>> decoders;
-  std::vector<cudaqx::tensor<uint8_t>> decoder_pcms;
-  std::vector<std::uint32_t> first_columns;
-  printf("Original PCM size: %zu x %zu\n", pcm.shape()[0], pcm.shape()[1]);
-  // pcm.dump_bits();
-  for (std::size_t w = 0; w < n_windows; ++w) {
-    std::size_t start_round = w * step_size;
-    std::size_t end_round = start_round + window_size - 1;
-    auto [H, first_column, last_column] = cudaq::qec::get_pcm_for_rounds(
-        pcm, n_syndromes_per_round, start_round, end_round,
-        /*straddle_start_round=*/false, /*straddle_end_round=*/true);
-    first_columns.push_back(first_column);
-    printf("Creating a decoder for window %zu-%zu (dims %zu x %zu) "
-           "first_column = %u, last_column = %u\n",
-           start_round, end_round, H.shape()[0], H.shape()[1], first_column,
-           last_column);
-    // printf("H:\n");
-    // H.dump_bits();
-    auto d = cudaq::qec::decoder::get("single_error_lut", H, custom_args);
-    decoders.push_back(std::move(d));
-    decoder_pcms.push_back(std::move(H));
-  }
+  auto sliding_window_decoder = cudaq::qec::decoder::get(
+      "sliding_window", simplified_pcm, sliding_window_params);
 
   // Create some random syndromes.
   const int num_syndromes = 1000;
@@ -270,8 +246,8 @@ TEST(SlidingWindowDecoder, SlidingWindowDecoderTest) {
   {
     printf("Generating global_decoder with PCM dims %zu x %zu\n",
            pcm.shape()[0], pcm.shape()[1]);
-    auto global_decoder =
-        cudaq::qec::decoder::get("single_error_lut", pcm, custom_args);
+    auto global_decoder = cudaq::qec::decoder::get(
+        inner_decoder_name, simplified_pcm, inner_decoder_params);
     printf("Done\n");
     for (std::size_t i = 0; i < num_syndromes; ++i) {
       // printf("Decoding syndrome %zu\n", i);
@@ -285,62 +261,11 @@ TEST(SlidingWindowDecoder, SlidingWindowDecoderTest) {
   // Now decode each syndrome using a windowed approach.
   std::vector<std::vector<uint8_t>> windowed_decoded_results(num_syndromes);
   for (std::size_t i = 0; i < num_syndromes; ++i) {
-    std::vector<uint8_t> decoded_result(n_cols);
-    auto decoded_result_it = decoded_result.begin();
-
-    for (std::size_t w = 0; w < n_windows; ++w) {
-      // printf("Processing syndrome %zu for window %zu\n", i, w);
-      std::size_t syndrome_start = w * step_size * n_syndromes_per_round;
-      std::size_t syndrome_end = syndrome_start + num_syndromes_per_window - 1;
-      auto syndrome_slice = cudaqx::tensor<uint8_t>(
-          std::vector<std::size_t>{num_syndromes_per_window});
-      for (std::size_t r = 0; r < num_syndromes_per_window; ++r)
-        syndrome_slice.at({r}) = syndromes[i].at({syndrome_start + r});
-      cudaqx::tensor<uint8_t> syndrome_mods(syndromes[i].shape());
-      if (w > 0) {
-        // Modify the syndrome slice to account for the previous windows.
-        // FIXME we can make this more efficient.
-        cudaqx::tensor<uint8_t> committed_results(
-            std::vector<std::size_t>{n_cols});
-        committed_results.borrow(decoded_result.data());
-        syndrome_mods = pcm.dot(committed_results);
-        for (std::size_t r = 0; r < num_syndromes_per_window; ++r)
-          syndrome_slice.at({r}) ^= syndrome_mods.at({r + syndrome_start});
-      }
-      auto d = decoders[w]->decode(syndrome_slice);
-      cudaqx::tensor<uint8_t> window_result;
-      cudaq::qec::convert_vec_soft_to_tensor_hard(d.result, window_result);
-      const auto &window_pcm = decoder_pcms[w];
-      // printf("PCM dims: %zu x %zu, window_result dims: %zu\n",
-      //        window_pcm.shape()[0], window_pcm.shape()[1],
-      //        window_result.shape()[0]);
-      auto result = window_pcm.dot(window_result);
-      // Commit to everything up to the first column of the next window.
-      if (w < n_windows - 1) {
-        // Prepare for the next window.
-        auto next_window_first_column = first_columns[w + 1];
-        auto this_window_first_column = first_columns[w];
-        auto num_to_commit =
-            next_window_first_column - this_window_first_column;
-        // printf("  Committing %u bits from window %zu\n", num_to_commit, w);
-        for (std::size_t c = 0; c < num_to_commit; ++c) {
-          ASSERT_NE(decoded_result_it, decoded_result.end());
-          *decoded_result_it++ = window_result.at({c});
-        }
-      } else {
-        // This is the last window. Append ALL of window_result to
-        // decoded_result.
-        auto num_to_commit = window_result.shape()[0];
-        // printf("  Committing %zu bits from window %zu\n", num_to_commit, w);
-        for (std::size_t c = 0; c < num_to_commit; ++c) {
-          ASSERT_NE(decoded_result_it, decoded_result.end());
-          *decoded_result_it++ = window_result.at({c});
-        }
-      }
-    }
-    EXPECT_EQ(decoded_result.end(), decoded_result_it);
-    EXPECT_EQ(decoded_result.size(), n_cols);
-    windowed_decoded_results[i] = std::move(decoded_result);
+    printf(" ------ Decoding syndrome %zu ------ \n", i);
+    auto decoded_result = sliding_window_decoder->decode(syndromes[i]);
+    // ASSERT_TRUE(decoded_result.converged);
+    cudaq::qec::convert_vec_soft_to_hard(decoded_result.result,
+                                         windowed_decoded_results[i]);
   }
 
   // Check that the global and windowed decoders agree.
