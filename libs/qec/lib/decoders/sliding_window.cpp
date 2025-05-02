@@ -31,7 +31,6 @@ private:
   std::size_t num_rounds = 0;
   std::size_t num_syndromes_per_window = 0;
   std::vector<std::unique_ptr<decoder>> inner_decoders;
-  std::vector<cudaqx::tensor<uint8_t>> decoder_pcms;
   std::vector<std::size_t> first_columns;
   cudaqx::tensor<std::uint8_t> full_pcm;
 
@@ -112,7 +111,6 @@ public:
       auto inner_decoder =
           decoder::get(inner_decoder_name, H_round, inner_decoder_params_mod);
       inner_decoders.push_back(std::move(inner_decoder));
-      decoder_pcms.emplace_back(std::move(H_round));
     }
   }
 
@@ -123,21 +121,21 @@ public:
     cudaqx::tensor<std::uint8_t> result_tensor(
         std::vector<std::size_t>{block_size});
 
+    // A buffer containing the syndrome modifications necessary to account for
+    // already-committed errors (used during the windowing process).
+    cudaqx::tensor<uint8_t> syndrome_mods(
+        std::vector<std::size_t>{this->syndrome_size});
     for (std::size_t w = 0; w < num_windows; ++w) {
       // printf("Processing syndrome %zu for window %zu\n", i, w);
       std::size_t syndrome_start = w * step_size * num_syndromes_per_round;
       std::size_t syndrome_end = syndrome_start + num_syndromes_per_window - 1;
+      std::size_t syndrome_start_next_window = syndrome_end + 1;
+      std::size_t syndrome_end_next_window =
+          syndrome_start_next_window + num_syndromes_per_round - 1;
       std::vector<float_t> syndrome_slice(syndrome.begin() + syndrome_start,
                                           syndrome.begin() + syndrome_end + 1);
-      cudaqx::tensor<uint8_t> syndrome_mods(
-          std::vector<std::size_t>{this->syndrome_size});
       if (w > 0) {
         // Modify the syndrome slice to account for the previous windows.
-        // FIXME we can make this more efficient.
-        cudaqx::tensor<uint8_t> committed_results(
-            std::vector<std::size_t>{this->block_size});
-        committed_results.borrow(result_tensor.data());
-        syndrome_mods = full_pcm.dot(committed_results) % 2;
         for (std::size_t r = 0; r < num_syndromes_per_window; ++r) {
           auto &slice_val = syndrome_slice.at({r});
           slice_val =
@@ -157,11 +155,6 @@ public:
       cudaqx::tensor<uint8_t> window_result;
       cudaq::qec::convert_vec_soft_to_tensor_hard(inner_result.result,
                                                   window_result);
-      const auto &window_pcm = decoder_pcms[w];
-      // printf("PCM dims: %zu x %zu, window_result dims: %zu\n",
-      //        window_pcm.shape()[0], window_pcm.shape()[1],
-      //        window_result.shape()[0]);
-      // auto result = window_pcm.dot(window_result);
       // Commit to everything up to the first column of the next window.
       if (w < num_windows - 1) {
         // Prepare for the next window.
@@ -173,6 +166,24 @@ public:
         for (std::size_t c = 0; c < num_to_commit; ++c) {
           result_tensor.at({c + this_window_first_column}) =
               window_result.at({c});
+        }
+        // We are committing to some errors that would affect the next round's
+        // syndrome measurements. Therefore, we need to modify some of the
+        // syndrome measurements for the next round to "back out" the errors
+        // that we already know about (or more specifically, the errors we think
+        // we've already accounted for).
+        for (std::size_t c = 0; c < num_to_commit; ++c) {
+          if (result_tensor.at({c + this_window_first_column})) {
+            // This bit is a 1, so we need to modify the syndrome measurements
+            // for the next window to account for this already-accounted-for
+            // error. We do this by flipping the bit in the syndrome
+            // measurements if the corresponding entry in the PCM is a 1.
+            for (auto r = syndrome_start_next_window;
+                 r <= syndrome_end_next_window; ++r) {
+              syndrome_mods.at({r}) ^=
+                  full_pcm.at({r, c + this_window_first_column});
+            }
+          }
         }
       } else {
         // This is the last window. Append ALL of window_result to
@@ -203,10 +214,17 @@ public:
         std::vector<std::size_t>{syndromes.size(), this->block_size});
     auto t1 = std::chrono::high_resolution_clock::now();
     std::vector<std::chrono::duration<double>> window_times(num_windows);
+    // A buffer containing the syndrome modifications necessary to account for
+    // already-committed errors (used during the windowing process).
+    std::vector<cudaqx::tensor<uint8_t>> syndrome_mods(
+        syndromes.size(), std::vector<std::size_t>{this->syndrome_size});
     for (std::size_t w = 0; w < num_windows; ++w) {
       auto t2 = std::chrono::high_resolution_clock::now();
       std::size_t syndrome_start = w * step_size * num_syndromes_per_round;
       std::size_t syndrome_end = syndrome_start + num_syndromes_per_window - 1;
+      std::size_t syndrome_start_next_window = syndrome_end + 1;
+      std::size_t syndrome_end_next_window =
+          syndrome_start_next_window + num_syndromes_per_round - 1;
       std::vector<std::vector<cudaq::qec::float_t>> syndrome_slices(
           syndromes.size());
       for (std::size_t s = 0; s < syndromes.size(); ++s) {
@@ -215,26 +233,14 @@ public:
             syndromes[s].begin() + syndrome_end + 1);
       }
       auto t3 = std::chrono::high_resolution_clock::now();
-      std::vector<cudaqx::tensor<uint8_t>> syndrome_mods(
-          syndromes.size(), std::vector<std::size_t>{this->syndrome_size});
       if (w > 0) {
         // Modify the syndrome slice to account for the previous windows.
-        // FIXME we can make this more efficient.
-        // syndrome_mods is syndrome_size x num_syndromes_in_batch_call
-        auto t10 = std::chrono::high_resolution_clock::now();
-        auto syndrome_mods = full_pcm.dot(result_tensor.transpose()) % 2;
-        auto t11 = std::chrono::high_resolution_clock::now();
-        auto syndrome_mods_T = syndrome_mods.transpose();
-        auto t12 = std::chrono::high_resolution_clock::now();
-        printf("Time to compute syndrome_mods: %.3f ms, time to transpose: %.3f ms\n",
-               std::chrono::duration<double>(t11 - t10).count() * 1000,
-               std::chrono::duration<double>(t12 - t11).count() * 1000);
         for (std::size_t s = 0; s < syndromes.size(); ++s) {
           for (std::size_t r = 0; r < num_syndromes_per_window; ++r) {
             auto &slice_val = syndrome_slices[s].at({r});
             slice_val =
                 static_cast<double>(static_cast<std::uint8_t>(slice_val) ^
-                                    syndrome_mods.at({r + syndrome_start, s}));
+                                    syndrome_mods[s].at({r + syndrome_start}));
           }
         }
       }
@@ -254,11 +260,6 @@ public:
         cudaq::qec::convert_vec_soft_to_tensor_hard(inner_results[s].result,
                                                     window_results[s]);
       }
-      const auto &window_pcm = decoder_pcms[w];
-      // printf("PCM dims: %zu x %zu, window_result dims: %zu\n",
-      //        window_pcm.shape()[0], window_pcm.shape()[1],
-      //        window_result.shape()[0]);
-      // auto result = window_pcm.dot(window_result);
       // Commit to everything up to the first column of the next window.
       auto t6 = std::chrono::high_resolution_clock::now();
       if (w < num_windows - 1) {
@@ -272,6 +273,26 @@ public:
           for (std::size_t c = 0; c < num_to_commit; ++c) {
             result_tensor.at({s, c + this_window_first_column}) =
                 window_results[s].at({c});
+          }
+        }
+        // We are committing to some errors that would affect the next round's
+        // syndrome measurements. Therefore, we need to modify some of the
+        // syndrome measurements for the next round to "back out" the errors
+        // that we already know about (or more specifically, the errors we think
+        // we've already accounted for).
+        for (std::size_t s = 0; s < syndromes.size(); ++s) {
+          for (std::size_t c = 0; c < num_to_commit; ++c) {
+            if (result_tensor.at({s, c + this_window_first_column})) {
+              // This bit is a 1, so we need to modify the syndrome measurements
+              // for the next window to account for this already-accounted-for
+              // error. We do this by flipping the bit in the syndrome
+              // measurements if the corresponding entry in the PCM is a 1.
+              for (auto r = syndrome_start_next_window;
+                   r <= syndrome_end_next_window; ++r) {
+                syndrome_mods[s].at({r}) ^=
+                    full_pcm.at({r, c + this_window_first_column});
+              }
+            }
           }
         }
       } else {
