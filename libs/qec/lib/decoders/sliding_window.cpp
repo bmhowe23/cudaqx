@@ -137,7 +137,7 @@ public:
         cudaqx::tensor<uint8_t> committed_results(
             std::vector<std::size_t>{this->block_size});
         committed_results.borrow(result_tensor.data());
-        syndrome_mods = full_pcm.dot(committed_results);
+        syndrome_mods = full_pcm.dot(committed_results) % 2;
         for (std::size_t r = 0; r < num_syndromes_per_window; ++r) {
           auto &slice_val = syndrome_slice.at({r});
           slice_val =
@@ -196,11 +196,15 @@ public:
 
   virtual std::vector<decoder_result>
   decode_batch(const std::vector<std::vector<float_t>> &syndromes) override {
+    auto t0 = std::chrono::high_resolution_clock::now();
     printf("Decoding batch of size %zu\n", syndromes.size());
     std::vector<decoder_result> results(syndromes.size());
     cudaqx::tensor<std::uint8_t> result_tensor(
         std::vector<std::size_t>{syndromes.size(), this->block_size});
+    auto t1 = std::chrono::high_resolution_clock::now();
+    std::vector<std::chrono::duration<double>> window_times(num_windows);
     for (std::size_t w = 0; w < num_windows; ++w) {
+      auto t2 = std::chrono::high_resolution_clock::now();
       std::size_t syndrome_start = w * step_size * num_syndromes_per_round;
       std::size_t syndrome_end = syndrome_start + num_syndromes_per_window - 1;
       std::vector<std::vector<cudaq::qec::float_t>> syndrome_slices(
@@ -210,13 +214,21 @@ public:
             syndromes[s].begin() + syndrome_start,
             syndromes[s].begin() + syndrome_end + 1);
       }
+      auto t3 = std::chrono::high_resolution_clock::now();
       std::vector<cudaqx::tensor<uint8_t>> syndrome_mods(
           syndromes.size(), std::vector<std::size_t>{this->syndrome_size});
       if (w > 0) {
         // Modify the syndrome slice to account for the previous windows.
         // FIXME we can make this more efficient.
         // syndrome_mods is syndrome_size x num_syndromes_in_batch_call
-        auto syndrome_mods = full_pcm.dot(result_tensor.transpose());
+        auto t10 = std::chrono::high_resolution_clock::now();
+        auto syndrome_mods = full_pcm.dot(result_tensor.transpose()) % 2;
+        auto t11 = std::chrono::high_resolution_clock::now();
+        auto syndrome_mods_T = syndrome_mods.transpose();
+        auto t12 = std::chrono::high_resolution_clock::now();
+        printf("Time to compute syndrome_mods: %.3f ms, time to transpose: %.3f ms\n",
+               std::chrono::duration<double>(t11 - t10).count() * 1000,
+               std::chrono::duration<double>(t12 - t11).count() * 1000);
         for (std::size_t s = 0; s < syndromes.size(); ++s) {
           for (std::size_t r = 0; r < num_syndromes_per_window; ++r) {
             auto &slice_val = syndrome_slices[s].at({r});
@@ -226,6 +238,7 @@ public:
           }
         }
       }
+      auto t4 = std::chrono::high_resolution_clock::now();
       // printf("Window %zu: syndrome_start = %zu, syndrome_end = %zu length1 = "
       //        "%zu length2 = %zu\n",
       //        w, syndrome_start, syndrome_end, syndrome_slice.size(),
@@ -234,6 +247,7 @@ public:
       // if (!inner_result.converged) {
       //   printf("Window %zu: inner decoder failed to converge\n", w);
       // }
+      auto t5 = std::chrono::high_resolution_clock::now();
       std::vector<cudaqx::tensor<uint8_t>> window_results(syndromes.size());
       for (std::size_t s = 0; s < syndromes.size(); ++s) {
         results[s].converged &= inner_results[s].converged;
@@ -246,6 +260,7 @@ public:
       //        window_result.shape()[0]);
       // auto result = window_pcm.dot(window_result);
       // Commit to everything up to the first column of the next window.
+      auto t6 = std::chrono::high_resolution_clock::now();
       if (w < num_windows - 1) {
         // Prepare for the next window.
         auto next_window_first_column = first_columns[w + 1];
@@ -272,7 +287,18 @@ public:
           }
         }
       }
+      auto t7 = std::chrono::high_resolution_clock::now();
+      window_times[w] = t7 - t2;
+      printf("Window %zu time: %.3f ms (3:%.3fms 4:%.3fms 5:%.3fms 6:%.3fms "
+             "7:%.3fms)\n",
+             w, std::chrono::duration<double>(window_times[w]).count() * 1000,
+             std::chrono::duration<double>(t3 - t2).count() * 1000,
+             std::chrono::duration<double>(t4 - t3).count() * 1000,
+             std::chrono::duration<double>(t5 - t4).count() * 1000,
+             std::chrono::duration<double>(t6 - t5).count() * 1000,
+             std::chrono::duration<double>(t7 - t6).count() * 1000);
     }
+    auto t8 = std::chrono::high_resolution_clock::now();
     // Convert back to a vector of floats.
     for (std::size_t s = 0; s < syndromes.size(); ++s) {
       results[s].result.resize(block_size);
@@ -280,6 +306,9 @@ public:
         results[s].result[j] = result_tensor.at({s, j});
       }
     }
+    auto t9 = std::chrono::high_resolution_clock::now();
+    printf("Total time: %.3f ms\n",
+           std::chrono::duration<double>(t9 - t0).count() * 1000);
     return results;
   }
 
