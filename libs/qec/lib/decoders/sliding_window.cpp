@@ -198,9 +198,6 @@ public:
   decode_batch(const std::vector<std::vector<float_t>> &syndromes) override {
     printf("Decoding batch of size %zu\n", syndromes.size());
     std::vector<decoder_result> results(syndromes.size());
-    for (std::size_t i = 0; i < syndromes.size(); ++i) {
-      results[i] = decode(syndromes[i]);
-    }
     cudaqx::tensor<std::uint8_t> result_tensor(
         std::vector<std::size_t>{syndromes.size(), this->block_size});
     for (std::size_t w = 0; w < num_windows; ++w) {
@@ -274,6 +271,13 @@ public:
                 window_results[s].at({c});
           }
         }
+      }
+    }
+    // Convert back to a vector of floats.
+    for (std::size_t s = 0; s < syndromes.size(); ++s) {
+      results[s].result.resize(block_size);
+      for (std::size_t j = 0; j < block_size; ++j) {
+        results[s].result[j] = result_tensor.at({s, j});
       }
     }
     return results;
