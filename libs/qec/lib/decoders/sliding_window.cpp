@@ -125,7 +125,7 @@ public:
 
   virtual decoder_result decode(const std::vector<float_t> &syndrome) override {
     if (syndrome.size() == this->syndrome_size) {
-      printf("%s:%d Decoding whole block\n", __FILE__, __LINE__);
+      // printf("%s:%d Decoding whole block\n", __FILE__, __LINE__);
       // Decode the whole thing, iterating over windows manually.
       decoder_result result;
       for (std::size_t w = 0; w < num_rounds; ++w) {
@@ -151,22 +151,105 @@ public:
       rolling_window[0].resize(num_syndromes_per_window);
       window_proc_times.resize(num_windows);
       rw_filled = 0;
-      printf("%s:%d Initializing window\n", __FILE__, __LINE__);
+      // printf("%s:%d Initializing window\n", __FILE__, __LINE__);
     }
     if (this->rw_filled == num_syndromes_per_window) {
-      printf("%s:%d Window is full, sliding the window\n", __FILE__, __LINE__);
-      // The window is full. Slide existing data to the left and write the new
-      // data at the end.
+      // printf("%s:%d Window is full, sliding the window\n", __FILE__,
+      // __LINE__); The window is full. Slide existing data to the left and
+      // write the new data at the end.
       std::copy(this->rolling_window[0].begin() + num_syndromes_per_round,
                 this->rolling_window[0].end(), this->rolling_window[0].begin());
       std::copy(syndrome.begin(), syndrome.end(),
                 this->rolling_window[0].end() - num_syndromes_per_round);
     } else {
       // Just copy the data to the end of the rolling window.
-      printf("%s:%d Copying data to the end of the rolling window\n", __FILE__,
-             __LINE__);
+      // printf("%s:%d Copying data to the end of the rolling window\n",
+      // __FILE__,
+      //        __LINE__);
       std::copy(syndrome.begin(), syndrome.end(),
                 this->rolling_window[0].begin() + this->rw_filled);
+      this->rw_filled += num_syndromes_per_round;
+    }
+    if (rw_filled == num_syndromes_per_window) {
+      // printf("%s:%d Decoding window %lu/%lu\n", __FILE__, __LINE__,
+      //        num_windows_decoded + 1, num_windows);
+      decode_window();
+
+      num_windows_decoded++;
+      if (num_windows_decoded == num_windows) {
+        num_windows_decoded = 0;
+        rw_filled = 0;
+        // printf("%s:%d Returning decoder_result\n", __FILE__, __LINE__);
+        return std::move(this->rw_results[0]);
+      }
+    }
+    // printf("%s:%d Returning empty decoder_result\n", __FILE__, __LINE__);
+    return decoder_result(); // empty return value
+  }
+
+  virtual std::vector<decoder_result>
+  decode_batch(const std::vector<std::vector<float_t>> &syndromes) override {
+    if (syndromes[0].size() == this->syndrome_size) {
+      printf("%s:%d Decoding whole block\n", __FILE__, __LINE__);
+      // Decode the whole thing, iterating over windows manually.
+      std::vector<decoder_result> results;
+      std::vector<std::vector<float_t>> syndromes_round(syndromes.size());
+      for (std::size_t w = 0; w < num_rounds; ++w) {
+        for (std::size_t s = 0; s < syndromes.size(); ++s) {
+          syndromes_round[s].resize(num_syndromes_per_round);
+          std::copy(syndromes[s].begin() +
+                        w * step_size * num_syndromes_per_round,
+                    syndromes[s].begin() +
+                        (w + 1) * step_size * num_syndromes_per_round,
+                    syndromes_round[s].begin());
+        }
+        results = decode_batch(syndromes_round);
+      }
+      return results;
+    }
+    // Else we're receiving a single round.
+    if (rw_filled == 0) {
+      // Initialize the syndrome mods and rw_results.
+      syndrome_mods.resize(syndromes.size());
+      for (std::size_t s = 0; s < syndromes.size(); ++s) {
+        syndrome_mods[s].clear();
+        syndrome_mods[s].resize(this->syndrome_size);
+      }
+      rw_results.clear();
+      rw_results.resize(syndromes.size());
+      for (std::size_t s = 0; s < syndromes.size(); ++s) {
+        rw_results[s].converged =
+            true; // Gets set to false if we fail to decode
+        rw_results[s].result.resize(this->block_size);
+      }
+      rolling_window.resize(syndromes.size());
+      for (std::size_t s = 0; s < syndromes.size(); ++s) {
+        rolling_window[s].clear();
+        rolling_window[s].resize(num_syndromes_per_window);
+      }
+      window_proc_times.resize(num_windows);
+      rw_filled = 0;
+      printf("%s:%d Initializing window\n", __FILE__, __LINE__);
+    }
+    if (this->rw_filled == num_syndromes_per_window) {
+      printf("%s:%d Window is full, sliding the window\n", __FILE__, __LINE__);
+      // The window is full. Slide existing data to the left and write the new
+      // data at the end.
+      for (std::size_t s = 0; s < syndromes.size(); ++s) {
+        std::copy(this->rolling_window[s].begin() + num_syndromes_per_round,
+                  this->rolling_window[s].end(),
+                  this->rolling_window[s].begin());
+        std::copy(syndromes[s].begin(), syndromes[s].end(),
+                  this->rolling_window[s].end() - num_syndromes_per_round);
+      }
+    } else {
+      // Just copy the data to the end of the rolling window.
+      printf("%s:%d Copying data to the end of the rolling window\n", __FILE__,
+             __LINE__);
+      for (std::size_t s = 0; s < syndromes.size(); ++s) {
+        std::copy(syndromes[s].begin(), syndromes[s].end(),
+                  this->rolling_window[s].begin() + this->rw_filled);
+      }
       this->rw_filled += num_syndromes_per_round;
     }
     if (rw_filled == num_syndromes_per_window) {
@@ -179,11 +262,11 @@ public:
         num_windows_decoded = 0;
         rw_filled = 0;
         printf("%s:%d Returning decoder_result\n", __FILE__, __LINE__);
-        return std::move(this->rw_results[0]);
+        return std::move(this->rw_results);
       }
     }
     printf("%s:%d Returning empty decoder_result\n", __FILE__, __LINE__);
-    return decoder_result(); // empty return value
+    return std::vector<decoder_result>(); // empty return value
   }
 
   void decode_window() {
@@ -211,6 +294,7 @@ public:
     //        "%zu length2 = %zu\n",
     //        w, syndrome_start, syndrome_end, syndrome_slice.size(),
     //        syndrome_end - syndrome_start + 1);
+    // FIXME - change to decode for single syndrome case.
     auto inner_results = inner_decoders[w]->decode_batch(this->rolling_window);
     // if (!inner_result.converged) {
     //   printf("Window %zu: inner decoder failed to converge\n", w);

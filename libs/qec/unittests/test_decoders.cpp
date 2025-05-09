@@ -277,8 +277,10 @@ void SlidingWindowDecoderTest(bool run_batched) {
   if (run_batched) {
     printf("Running batched decoding\n");
     auto dec_results = sliding_window_decoder->decode_batch(syndromes);
+    ASSERT_EQ(dec_results.size(), num_syndromes);
     for (std::size_t i = 0; i < num_syndromes; ++i) {
       // ASSERT_TRUE(dec_results[i].converged);
+      ASSERT_GT(dec_results[i].result.size(), 0);
       cudaq::qec::convert_vec_soft_to_hard(dec_results[i].result, windowed_decoded_results[i]);
     }
   } else {
