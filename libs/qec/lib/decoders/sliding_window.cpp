@@ -179,6 +179,9 @@ public:
       if (num_windows_decoded == num_windows) {
         num_windows_decoded = 0;
         rw_filled = 0;
+        // for (std::size_t w = 0; w < num_windows; ++w) {
+        //   printf("Window %zu time: %.3f ms\n", w, window_proc_times[w]);
+        // }
         // printf("%s:%d Returning decoder_result\n", __FILE__, __LINE__);
         return std::move(this->rw_results[0]);
       }
@@ -190,7 +193,7 @@ public:
   virtual std::vector<decoder_result>
   decode_batch(const std::vector<std::vector<float_t>> &syndromes) override {
     if (syndromes[0].size() == this->syndrome_size) {
-      printf("%s:%d Decoding whole block\n", __FILE__, __LINE__);
+      // printf("%s:%d Decoding whole block\n", __FILE__, __LINE__);
       // Decode the whole thing, iterating over windows manually.
       std::vector<decoder_result> results;
       std::vector<std::vector<float_t>> syndromes_round(syndromes.size());
@@ -229,10 +232,10 @@ public:
       }
       window_proc_times.resize(num_windows);
       rw_filled = 0;
-      printf("%s:%d Initializing window\n", __FILE__, __LINE__);
+      // printf("%s:%d Initializing window\n", __FILE__, __LINE__);
     }
     if (this->rw_filled == num_syndromes_per_window) {
-      printf("%s:%d Window is full, sliding the window\n", __FILE__, __LINE__);
+      // printf("%s:%d Window is full, sliding the window\n", __FILE__, __LINE__);
       // The window is full. Slide existing data to the left and write the new
       // data at the end.
       for (std::size_t s = 0; s < syndromes.size(); ++s) {
@@ -244,8 +247,8 @@ public:
       }
     } else {
       // Just copy the data to the end of the rolling window.
-      printf("%s:%d Copying data to the end of the rolling window\n", __FILE__,
-             __LINE__);
+      // printf("%s:%d Copying data to the end of the rolling window\n", __FILE__,
+      //        __LINE__);
       for (std::size_t s = 0; s < syndromes.size(); ++s) {
         std::copy(syndromes[s].begin(), syndromes[s].end(),
                   this->rolling_window[s].begin() + this->rw_filled);
@@ -253,19 +256,23 @@ public:
       this->rw_filled += num_syndromes_per_round;
     }
     if (rw_filled == num_syndromes_per_window) {
-      printf("%s:%d Decoding window %lu/%lu\n", __FILE__, __LINE__,
-             num_windows_decoded + 1, num_windows);
+      // printf("%s:%d Decoding window %lu/%lu\n", __FILE__, __LINE__,
+      //        num_windows_decoded + 1, num_windows);
       decode_window();
 
       num_windows_decoded++;
       if (num_windows_decoded == num_windows) {
         num_windows_decoded = 0;
         rw_filled = 0;
-        printf("%s:%d Returning decoder_result\n", __FILE__, __LINE__);
+        // Dump the per window processing times.
+        // for (std::size_t w = 0; w < num_windows; ++w) {
+        //   printf("Window %zu time: %.3f ms\n", w, window_proc_times[w]);
+        // }
+        // printf("%s:%d Returning decoder_result\n", __FILE__, __LINE__);
         return std::move(this->rw_results);
       }
     }
-    printf("%s:%d Returning empty decoder_result\n", __FILE__, __LINE__);
+    // printf("%s:%d Returning empty decoder_result\n", __FILE__, __LINE__);
     return std::vector<decoder_result>(); // empty return value
   }
 
