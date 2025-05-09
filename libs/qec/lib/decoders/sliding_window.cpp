@@ -34,6 +34,15 @@ private:
   std::vector<std::size_t> first_columns;
   cudaqx::tensor<std::uint8_t> full_pcm;
 
+  // State data
+  std::vector<std::vector<cudaq::qec::float_t>>
+      rolling_window; // [batch_size, num_syndromes_per_window]
+  std::size_t rw_filled = 0;
+  std::size_t num_windows_decoded = 0;
+  std::vector<std::vector<bool>> syndrome_mods; // [batch_size, syndrome_size]
+  std::vector<decoder_result> rw_results;       // [batch_size]
+  std::vector<double> window_proc_times;
+
 public:
   sliding_window(const cudaqx::tensor<uint8_t> &H,
                  const cudaqx::heterogeneous_map &params)
@@ -115,222 +124,164 @@ public:
   }
 
   virtual decoder_result decode(const std::vector<float_t> &syndrome) override {
-    // Initialize converged to true and set to false if any inner decoder
-    // fails to converge.
-    decoder_result outer_result{true, std::vector<float_t>(block_size, 0.0)};
-    cudaqx::tensor<std::uint8_t> result_tensor(
-        std::vector<std::size_t>{block_size});
+    if (syndrome.size() == this->syndrome_size) {
+      printf("%s:%d Decoding whole block\n", __FILE__, __LINE__);
+      // Decode the whole thing, iterating over windows manually.
+      decoder_result result;
+      for (std::size_t w = 0; w < num_rounds; ++w) {
+        std::vector<float_t> syndrome_round(
+            syndrome.begin() + w * step_size * num_syndromes_per_round,
+            syndrome.begin() + (w + 1) * step_size * num_syndromes_per_round);
+        result = decode(syndrome_round);
+      }
+      return result;
+    }
+    // Else we're receiving a single round.
+    if (rw_filled == 0) {
+      // Initialize the syndrome mods and rw_results.
+      syndrome_mods.resize(1);
+      syndrome_mods[0].clear();
+      syndrome_mods[0].resize(this->syndrome_size);
+      rw_results.clear();
+      rw_results.resize(1);
+      rw_results[0].converged = true; // Gets set to false if we fail to decode
+      rw_results[0].result.resize(this->block_size);
+      rolling_window.resize(1);
+      rolling_window[0].clear();
+      rolling_window[0].resize(num_syndromes_per_window);
+      window_proc_times.resize(num_windows);
+      rw_filled = 0;
+      printf("%s:%d Initializing window\n", __FILE__, __LINE__);
+    }
+    if (this->rw_filled == num_syndromes_per_window) {
+      printf("%s:%d Window is full, sliding the window\n", __FILE__, __LINE__);
+      // The window is full. Slide existing data to the left and write the new
+      // data at the end.
+      std::copy(this->rolling_window[0].begin() + num_syndromes_per_round,
+                this->rolling_window[0].end(), this->rolling_window[0].begin());
+      std::copy(syndrome.begin(), syndrome.end(),
+                this->rolling_window[0].end() - num_syndromes_per_round);
+    } else {
+      // Just copy the data to the end of the rolling window.
+      printf("%s:%d Copying data to the end of the rolling window\n", __FILE__,
+             __LINE__);
+      std::copy(syndrome.begin(), syndrome.end(),
+                this->rolling_window[0].begin() + this->rw_filled);
+      this->rw_filled += num_syndromes_per_round;
+    }
+    if (rw_filled == num_syndromes_per_window) {
+      printf("%s:%d Decoding window %lu/%lu\n", __FILE__, __LINE__,
+             num_windows_decoded + 1, num_windows);
+      decode_window();
 
-    // A buffer containing the syndrome modifications necessary to account for
-    // already-committed errors (used during the windowing process).
-    cudaqx::tensor<uint8_t> syndrome_mods(
-        std::vector<std::size_t>{this->syndrome_size});
-    for (std::size_t w = 0; w < num_windows; ++w) {
-      // printf("Processing syndrome %zu for window %zu\n", i, w);
-      std::size_t syndrome_start = w * step_size * num_syndromes_per_round;
-      std::size_t syndrome_end = syndrome_start + num_syndromes_per_window - 1;
-      std::size_t syndrome_start_next_window = syndrome_end + 1;
-      std::size_t syndrome_end_next_window =
-          syndrome_start_next_window + num_syndromes_per_round - 1;
-      std::vector<float_t> syndrome_slice(syndrome.begin() + syndrome_start,
-                                          syndrome.begin() + syndrome_end + 1);
-      if (w > 0) {
-        // Modify the syndrome slice to account for the previous windows.
+      num_windows_decoded++;
+      if (num_windows_decoded == num_windows) {
+        num_windows_decoded = 0;
+        rw_filled = 0;
+        printf("%s:%d Returning decoder_result\n", __FILE__, __LINE__);
+        return std::move(this->rw_results[0]);
+      }
+    }
+    printf("%s:%d Returning empty decoder_result\n", __FILE__, __LINE__);
+    return decoder_result(); // empty return value
+  }
+
+  void decode_window() {
+    auto t0 = std::chrono::high_resolution_clock::now();
+    const auto &w = this->num_windows_decoded;
+    std::size_t syndrome_start = w * step_size * num_syndromes_per_round;
+    std::size_t syndrome_end = syndrome_start + num_syndromes_per_window - 1;
+    std::size_t syndrome_start_next_window = syndrome_end + 1;
+    std::size_t syndrome_end_next_window =
+        syndrome_start_next_window + num_syndromes_per_round - 1;
+    auto t3 = std::chrono::high_resolution_clock::now();
+    if (w > 0) {
+      // Modify the syndrome slice to account for the previous windows.
+      for (std::size_t s = 0; s < this->rolling_window.size(); ++s) {
         for (std::size_t r = 0; r < num_syndromes_per_window; ++r) {
-          auto &slice_val = syndrome_slice.at({r});
+          auto &slice_val = this->rolling_window[s].at(r);
           slice_val =
               static_cast<double>(static_cast<std::uint8_t>(slice_val) ^
-                                  syndrome_mods.at({r + syndrome_start}));
+                                  syndrome_mods[s].at(r + syndrome_start));
         }
       }
-      // printf("Window %zu: syndrome_start = %zu, syndrome_end = %zu length1 = "
-      //        "%zu length2 = %zu\n",
-      //        w, syndrome_start, syndrome_end, syndrome_slice.size(),
-      //        syndrome_end - syndrome_start + 1);
-      auto inner_result = inner_decoders[w]->decode(syndrome_slice);
-      // if (!inner_result.converged) {
-      //   printf("Window %zu: inner decoder failed to converge\n", w);
-      // }
-      outer_result.converged &= inner_result.converged;
-      cudaqx::tensor<uint8_t> window_result;
-      cudaq::qec::convert_vec_soft_to_tensor_hard(inner_result.result,
-                                                  window_result);
-      // Commit to everything up to the first column of the next window.
-      if (w < num_windows - 1) {
-        // Prepare for the next window.
-        auto next_window_first_column = first_columns[w + 1];
-        auto this_window_first_column = first_columns[w];
-        auto num_to_commit =
-            next_window_first_column - this_window_first_column;
-        // printf("  Committing %u bits from window %zu\n", num_to_commit, w);
+    }
+    auto t4 = std::chrono::high_resolution_clock::now();
+    // printf("Window %zu: syndrome_start = %zu, syndrome_end = %zu length1 = "
+    //        "%zu length2 = %zu\n",
+    //        w, syndrome_start, syndrome_end, syndrome_slice.size(),
+    //        syndrome_end - syndrome_start + 1);
+    auto inner_results = inner_decoders[w]->decode_batch(this->rolling_window);
+    // if (!inner_result.converged) {
+    //   printf("Window %zu: inner decoder failed to converge\n", w);
+    // }
+    auto t5 = std::chrono::high_resolution_clock::now();
+    std::vector<cudaqx::tensor<uint8_t>> window_results(
+        this->rolling_window.size());
+    for (std::size_t s = 0; s < this->rolling_window.size(); ++s) {
+      this->rw_results[s].converged &= inner_results[s].converged;
+      cudaq::qec::convert_vec_soft_to_tensor_hard(inner_results[s].result,
+                                                  window_results[s]);
+    }
+    // Commit to everything up to the first column of the next window.
+    auto t6 = std::chrono::high_resolution_clock::now();
+    if (w < num_windows - 1) {
+      // Prepare for the next window.
+      auto next_window_first_column = first_columns[w + 1];
+      auto this_window_first_column = first_columns[w];
+      auto num_to_commit = next_window_first_column - this_window_first_column;
+      // printf("  Committing %lu bits from window %zu\n", num_to_commit, w);
+      for (std::size_t s = 0; s < this->rolling_window.size(); ++s) {
         for (std::size_t c = 0; c < num_to_commit; ++c) {
-          result_tensor.at({c + this_window_first_column}) =
-              window_result.at({c});
+          rw_results[s].result.at(c + this_window_first_column) =
+              window_results[s].at({c});
         }
-        // We are committing to some errors that would affect the next round's
-        // syndrome measurements. Therefore, we need to modify some of the
-        // syndrome measurements for the next round to "back out" the errors
-        // that we already know about (or more specifically, the errors we think
-        // we've already accounted for).
+      }
+      // We are committing to some errors that would affect the next round's
+      // syndrome measurements. Therefore, we need to modify some of the
+      // syndrome measurements for the next round to "back out" the errors
+      // that we already know about (or more specifically, the errors we think
+      // we've already accounted for).
+      for (std::size_t s = 0; s < this->rolling_window.size(); ++s) {
         for (std::size_t c = 0; c < num_to_commit; ++c) {
-          if (result_tensor.at({c + this_window_first_column})) {
+          if (rw_results[s].result.at(c + this_window_first_column)) {
             // This bit is a 1, so we need to modify the syndrome measurements
             // for the next window to account for this already-accounted-for
             // error. We do this by flipping the bit in the syndrome
             // measurements if the corresponding entry in the PCM is a 1.
             for (auto r = syndrome_start_next_window;
                  r <= syndrome_end_next_window; ++r) {
-              syndrome_mods.at({r}) ^=
-                  full_pcm.at({r, c + this_window_first_column});
+              syndrome_mods[s][r] =
+                  syndrome_mods[s][r] ^ static_cast<bool>(full_pcm.at(
+                                            {r, c + this_window_first_column}));
             }
           }
         }
-      } else {
-        // This is the last window. Append ALL of window_result to
-        // decoded_result.
-        auto this_window_first_column = first_columns[w];
-        auto num_to_commit = window_result.shape()[0];
-        // printf("  Committing %zu bits from window %zu\n", num_to_commit, w);
+      }
+    } else {
+      // This is the last window. Append ALL of window_result to
+      // decoded_result.
+      auto this_window_first_column = first_columns[w];
+      auto num_to_commit = window_results[0].shape()[0];
+      // printf("  Committing %zu bits from window %zu\n", num_to_commit, w);
+      for (std::size_t s = 0; s < this->rolling_window.size(); ++s) {
         for (std::size_t c = 0; c < num_to_commit; ++c) {
-          result_tensor.at({c + this_window_first_column}) =
-              window_result.at({c});
+          rw_results[s].result.at(c + this_window_first_column) =
+              window_results[s].at({c});
         }
       }
     }
-    // Convert back to a vector of floats.
-    for (std::size_t i = 0; i < block_size; ++i) {
-      outer_result.result[i] = result_tensor.at({i});
-    }
-
-    return outer_result;
-  }
-
-  virtual std::vector<decoder_result>
-  decode_batch(const std::vector<std::vector<float_t>> &syndromes) override {
-    auto t0 = std::chrono::high_resolution_clock::now();
-    printf("Decoding batch of size %zu\n", syndromes.size());
-    std::vector<decoder_result> results(syndromes.size());
-    cudaqx::tensor<std::uint8_t> result_tensor(
-        std::vector<std::size_t>{syndromes.size(), this->block_size});
-    auto t1 = std::chrono::high_resolution_clock::now();
-    std::vector<std::chrono::duration<double>> window_times(num_windows);
-    // A buffer containing the syndrome modifications necessary to account for
-    // already-committed errors (used during the windowing process).
-    std::vector<cudaqx::tensor<uint8_t>> syndrome_mods(
-        syndromes.size(), std::vector<std::size_t>{this->syndrome_size});
-    for (std::size_t w = 0; w < num_windows; ++w) {
-      auto t2 = std::chrono::high_resolution_clock::now();
-      std::size_t syndrome_start = w * step_size * num_syndromes_per_round;
-      std::size_t syndrome_end = syndrome_start + num_syndromes_per_window - 1;
-      std::size_t syndrome_start_next_window = syndrome_end + 1;
-      std::size_t syndrome_end_next_window =
-          syndrome_start_next_window + num_syndromes_per_round - 1;
-      std::vector<std::vector<cudaq::qec::float_t>> syndrome_slices(
-          syndromes.size());
-      for (std::size_t s = 0; s < syndromes.size(); ++s) {
-        syndrome_slices[s] = std::vector<cudaq::qec::float_t>(
-            syndromes[s].begin() + syndrome_start,
-            syndromes[s].begin() + syndrome_end + 1);
-      }
-      auto t3 = std::chrono::high_resolution_clock::now();
-      if (w > 0) {
-        // Modify the syndrome slice to account for the previous windows.
-        for (std::size_t s = 0; s < syndromes.size(); ++s) {
-          for (std::size_t r = 0; r < num_syndromes_per_window; ++r) {
-            auto &slice_val = syndrome_slices[s].at({r});
-            slice_val =
-                static_cast<double>(static_cast<std::uint8_t>(slice_val) ^
-                                    syndrome_mods[s].at({r + syndrome_start}));
-          }
-        }
-      }
-      auto t4 = std::chrono::high_resolution_clock::now();
-      // printf("Window %zu: syndrome_start = %zu, syndrome_end = %zu length1 = "
-      //        "%zu length2 = %zu\n",
-      //        w, syndrome_start, syndrome_end, syndrome_slice.size(),
-      //        syndrome_end - syndrome_start + 1);
-      auto inner_results = inner_decoders[w]->decode_batch(syndrome_slices);
-      // if (!inner_result.converged) {
-      //   printf("Window %zu: inner decoder failed to converge\n", w);
-      // }
-      auto t5 = std::chrono::high_resolution_clock::now();
-      std::vector<cudaqx::tensor<uint8_t>> window_results(syndromes.size());
-      for (std::size_t s = 0; s < syndromes.size(); ++s) {
-        results[s].converged &= inner_results[s].converged;
-        cudaq::qec::convert_vec_soft_to_tensor_hard(inner_results[s].result,
-                                                    window_results[s]);
-      }
-      // Commit to everything up to the first column of the next window.
-      auto t6 = std::chrono::high_resolution_clock::now();
-      if (w < num_windows - 1) {
-        // Prepare for the next window.
-        auto next_window_first_column = first_columns[w + 1];
-        auto this_window_first_column = first_columns[w];
-        auto num_to_commit =
-            next_window_first_column - this_window_first_column;
-        // printf("  Committing %u bits from window %zu\n", num_to_commit, w);
-        for (std::size_t s = 0; s < syndromes.size(); ++s) {
-          for (std::size_t c = 0; c < num_to_commit; ++c) {
-            result_tensor.at({s, c + this_window_first_column}) =
-                window_results[s].at({c});
-          }
-        }
-        // We are committing to some errors that would affect the next round's
-        // syndrome measurements. Therefore, we need to modify some of the
-        // syndrome measurements for the next round to "back out" the errors
-        // that we already know about (or more specifically, the errors we think
-        // we've already accounted for).
-        for (std::size_t s = 0; s < syndromes.size(); ++s) {
-          for (std::size_t c = 0; c < num_to_commit; ++c) {
-            if (result_tensor.at({s, c + this_window_first_column})) {
-              // This bit is a 1, so we need to modify the syndrome measurements
-              // for the next window to account for this already-accounted-for
-              // error. We do this by flipping the bit in the syndrome
-              // measurements if the corresponding entry in the PCM is a 1.
-              for (auto r = syndrome_start_next_window;
-                   r <= syndrome_end_next_window; ++r) {
-                syndrome_mods[s].at({r}) ^=
-                    full_pcm.at({r, c + this_window_first_column});
-              }
-            }
-          }
-        }
-      } else {
-        // This is the last window. Append ALL of window_result to
-        // decoded_result.
-        auto this_window_first_column = first_columns[w];
-        auto num_to_commit = window_results[0].shape()[0];
-        // printf("  Committing %zu bits from window %zu\n", num_to_commit, w);
-        for (std::size_t s = 0; s < syndromes.size(); ++s) {  
-          for (std::size_t c = 0; c < num_to_commit; ++c) {
-            result_tensor.at({s, c + this_window_first_column}) =
-                window_results[s].at({c});
-          }
-        }
-      }
-      auto t7 = std::chrono::high_resolution_clock::now();
-      window_times[w] = t7 - t2;
-      printf("Window %zu time: %.3f ms (3:%.3fms 4:%.3fms 5:%.3fms 6:%.3fms "
-             "7:%.3fms)\n",
-             w, std::chrono::duration<double>(window_times[w]).count() * 1000,
-             std::chrono::duration<double>(t3 - t2).count() * 1000,
-             std::chrono::duration<double>(t4 - t3).count() * 1000,
-             std::chrono::duration<double>(t5 - t4).count() * 1000,
-             std::chrono::duration<double>(t6 - t5).count() * 1000,
-             std::chrono::duration<double>(t7 - t6).count() * 1000);
-    }
-    auto t8 = std::chrono::high_resolution_clock::now();
-    // Convert back to a vector of floats.
-    for (std::size_t s = 0; s < syndromes.size(); ++s) {
-      results[s].result.resize(block_size);
-      for (std::size_t j = 0; j < block_size; ++j) {
-        results[s].result[j] = result_tensor.at({s, j});
-      }
-    }
-    auto t9 = std::chrono::high_resolution_clock::now();
-    printf("Total time: %.3f ms\n",
-           std::chrono::duration<double>(t9 - t0).count() * 1000);
-    return results;
+    auto t7 = std::chrono::high_resolution_clock::now();
+    window_proc_times.at(w) =
+        std::chrono::duration<double>(t7 - t0).count() * 1000;
+    // printf("Window %zu time: %.3f ms (3:%.3fms 4:%.3fms 5:%.3fms 6:%.3fms "
+    //        "7:%.3fms)\n",
+    //        w, window_proc_times[w],
+    //        std::chrono::duration<double>(t3 - t0).count() * 1000,
+    //        std::chrono::duration<double>(t4 - t3).count() * 1000,
+    //        std::chrono::duration<double>(t5 - t4).count() * 1000,
+    //        std::chrono::duration<double>(t6 - t5).count() * 1000,
+    //        std::chrono::duration<double>(t7 - t6).count() * 1000);
   }
 
   virtual ~sliding_window() {}

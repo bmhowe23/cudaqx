@@ -262,6 +262,7 @@ void SlidingWindowDecoderTest(bool run_batched) {
         // syndromes[i].dump_bits();
         auto d = global_decoder->decode(syndromes[i]);
         ASSERT_TRUE(d.converged);
+        ASSERT_GT(d.result.size(), 0);
         cudaq::qec::convert_vec_soft_to_hard(d.result, global_decoded_results[i]);
       }
     }
@@ -284,6 +285,7 @@ void SlidingWindowDecoderTest(bool run_batched) {
     for (std::size_t i = 0; i < num_syndromes; ++i) {
       // printf(" ------ Decoding syndrome %zu ------ \n", i);
       auto decoded_result = sliding_window_decoder->decode(syndromes[i]);
+      ASSERT_GT(decoded_result.result.size(), 0);
       // ASSERT_TRUE(decoded_result.converged);
       cudaq::qec::convert_vec_soft_to_hard(decoded_result.result,
                                           windowed_decoded_results[i]);
