@@ -292,5 +292,10 @@ def test_simplify_pcm():
     assert not np.allclose(new_weights, new_weights[0])
 
 
+def test_version():
+    decoder = qec.get_decoder('example_byod', H)
+    assert "CUDA-Q QEC Base Decoder" in decoder.get_version()
+
+
 if __name__ == "__main__":
     pytest.main()

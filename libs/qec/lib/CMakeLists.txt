@@ -20,6 +20,7 @@ add_library(${LIBRARY_NAME} SHARED
   stabilizer_utils.cpp 
   decoders/single_error_lut.cpp
   decoders/sliding_window.cpp
+  version.cpp
 )
 
 add_subdirectory(decoders/plugins/example)
