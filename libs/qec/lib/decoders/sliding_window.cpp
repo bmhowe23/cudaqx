@@ -42,6 +42,7 @@ private:
   std::vector<std::vector<bool>> syndrome_mods; // [batch_size, syndrome_size]
   std::vector<decoder_result> rw_results;       // [batch_size]
   std::vector<double> window_proc_times;
+  std::array<double, 10> window_proc_times_arr;
 
 public:
   sliding_window(const cudaqx::tensor<uint8_t> &H,
@@ -301,18 +302,23 @@ public:
     //        "%zu length2 = %zu\n",
     //        w, syndrome_start, syndrome_end, syndrome_slice.size(),
     //        syndrome_end - syndrome_start + 1);
-    // FIXME - change to decode for single syndrome case.
-    auto inner_results = inner_decoders[w]->decode_batch(this->rolling_window);
+    std::vector<decoder_result> inner_results;
+    if (this->rolling_window.size() == 1) {
+      inner_results.push_back(
+          inner_decoders[w]->decode(this->rolling_window[0]));
+    } else {
+      inner_results = inner_decoders[w]->decode_batch(this->rolling_window);
+    }
     // if (!inner_result.converged) {
     //   printf("Window %zu: inner decoder failed to converge\n", w);
     // }
     auto t5 = std::chrono::high_resolution_clock::now();
-    std::vector<cudaqx::tensor<uint8_t>> window_results(
+    std::vector<std::vector<uint8_t>> window_results(
         this->rolling_window.size());
     for (std::size_t s = 0; s < this->rolling_window.size(); ++s) {
       this->rw_results[s].converged &= inner_results[s].converged;
-      cudaq::qec::convert_vec_soft_to_tensor_hard(inner_results[s].result,
-                                                  window_results[s]);
+      cudaq::qec::convert_vec_soft_to_hard(inner_results[s].result,
+                                           window_results[s]);
     }
     // Commit to everything up to the first column of the next window.
     auto t6 = std::chrono::high_resolution_clock::now();
@@ -325,7 +331,7 @@ public:
       for (std::size_t s = 0; s < this->rolling_window.size(); ++s) {
         for (std::size_t c = 0; c < num_to_commit; ++c) {
           rw_results[s].result.at(c + this_window_first_column) =
-              window_results[s].at({c});
+              window_results[s].at(c);
         }
       }
       // We are committing to some errors that would affect the next round's
@@ -353,18 +359,23 @@ public:
       // This is the last window. Append ALL of window_result to
       // decoded_result.
       auto this_window_first_column = first_columns[w];
-      auto num_to_commit = window_results[0].shape()[0];
+      auto num_to_commit = window_results[0].size();
       // printf("  Committing %zu bits from window %zu\n", num_to_commit, w);
       for (std::size_t s = 0; s < this->rolling_window.size(); ++s) {
         for (std::size_t c = 0; c < num_to_commit; ++c) {
           rw_results[s].result.at(c + this_window_first_column) =
-              window_results[s].at({c});
+              window_results[s].at(c);
         }
       }
     }
     auto t7 = std::chrono::high_resolution_clock::now();
     window_proc_times.at(w) =
         std::chrono::duration<double>(t7 - t0).count() * 1000;
+    window_proc_times_arr[3] += std::chrono::duration<double>(t3 - t0).count() * 1000;
+    window_proc_times_arr[4] += std::chrono::duration<double>(t4 - t3).count() * 1000;
+    window_proc_times_arr[5] += std::chrono::duration<double>(t5 - t4).count() * 1000;
+    window_proc_times_arr[6] += std::chrono::duration<double>(t6 - t5).count() * 1000;
+    window_proc_times_arr[7] += std::chrono::duration<double>(t7 - t6).count() * 1000;
     // printf("Window %zu time: %.3f ms (3:%.3fms 4:%.3fms 5:%.3fms 6:%.3fms "
     //        "7:%.3fms)\n",
     //        w, window_proc_times[w],
@@ -373,6 +384,11 @@ public:
     //        std::chrono::duration<double>(t5 - t4).count() * 1000,
     //        std::chrono::duration<double>(t6 - t5).count() * 1000,
     //        std::chrono::duration<double>(t7 - t6).count() * 1000);
+    // printf("Window %zu time: %.3f ms (3:%.3fms 4:%.3fms 5:%.3fms 6:%.3fms "
+    //        "7:%.3fms)\n",
+    //        w, window_proc_times[w], window_proc_times_arr[3],
+    //        window_proc_times_arr[4], window_proc_times_arr[5],
+    //        window_proc_times_arr[6], window_proc_times_arr[7]);
   }
 
   virtual ~sliding_window() {}
