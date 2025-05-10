@@ -151,6 +151,7 @@ public:
       rolling_window[0].clear();
       rolling_window[0].resize(num_syndromes_per_window);
       window_proc_times.resize(num_windows);
+      std::fill(window_proc_times.begin(), window_proc_times.end(), 0.0);
       rw_filled = 0;
       // printf("%s:%d Initializing window\n", __FILE__, __LINE__);
     }
@@ -369,7 +370,7 @@ public:
       }
     }
     auto t7 = std::chrono::high_resolution_clock::now();
-    window_proc_times.at(w) =
+    window_proc_times.at(w) +=
         std::chrono::duration<double>(t7 - t0).count() * 1000;
     window_proc_times_arr[3] += std::chrono::duration<double>(t3 - t0).count() * 1000;
     window_proc_times_arr[4] += std::chrono::duration<double>(t4 - t3).count() * 1000;

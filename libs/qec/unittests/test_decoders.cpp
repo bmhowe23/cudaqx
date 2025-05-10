@@ -300,8 +300,10 @@ void SlidingWindowDecoderTest(bool run_batched) {
     }
   }
   auto t1 = std::chrono::high_resolution_clock::now();
-  auto duration_global = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0);
-  printf("Global decoder time: %ld ms\n", duration_global.count());
+  std::chrono::duration<double> duration_global = t1 - t0;
+  printf("Global decoder time: %.3f ms, or %.3f us per syndrome\n",
+         duration_global.count() * 1000,
+         duration_global.count() * 1000 / num_syndromes);
 
   // Now decode each syndrome using a windowed approach.
   std::vector<std::vector<uint8_t>> windowed_decoded_results(num_syndromes);
@@ -326,8 +328,10 @@ void SlidingWindowDecoderTest(bool run_batched) {
     }
   }
   auto t3 = std::chrono::high_resolution_clock::now();
-  auto duration_windowed = std::chrono::duration_cast<std::chrono::milliseconds>(t3 - t2);
-  printf("Windowed decoder time: %ld ms\n", duration_windowed.count());
+  std::chrono::duration<double> duration_windowed = t3 - t2;
+  printf("Windowed decoder time: %.3f ms, or %.3f us per syndrome\n",
+         duration_windowed.count() * 1000,
+         duration_windowed.count() * 1000 / num_syndromes);
 
   // Check that the global and windowed decoders agree.
   auto print_as_bits = [](const std::vector<uint8_t> &v) {
