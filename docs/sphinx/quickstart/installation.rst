@@ -9,7 +9,9 @@ CUDA-QX provides multiple installation methods to suit your needs:
 pip install
 ^^^^^^^^^^^^
 
-The simplest way to install CUDA-QX is via pip. You can install individual components:
+The simplest way to install CUDA-QX is via pip. (If you're on Mac, your only
+option is to use the Docker container as described below.) For pip, you can
+install individual components:
 
 .. code-block:: bash
 
@@ -21,6 +23,14 @@ The simplest way to install CUDA-QX is via pip. You can install individual compo
 
     # Install both libraries
     pip install cudaq-qec cudaq-solvers
+
+.. note:: 
+
+    CUDA-Q Solvers will require the presence of :code:`libgfortran`, which is
+    not distributed with the Python wheel, for provided classical optimizers. If
+    :code:`libgfortran` is not installed, you will need to install it via your
+    distribution's package manager. On Debian based systems, you can install
+    this with :code:`apt-get install gfortran`.
 
 Docker Container
 ^^^^^^^^^^^^^^^^
@@ -39,6 +49,11 @@ CUDA-QX is available as a Docker container with all dependencies pre-installed:
 
     docker run --gpus all -it ghcr.io/nvidia/cudaqx
 
+.. note::
+
+    If your system does not have local GPUs (eg. a MacBook), omit the `--gpus all`
+    argument.
+
 The container includes:
     * CUDA-Q compiler and runtime
     * CUDA-QX libraries (QEC and Solvers)
@@ -54,7 +69,7 @@ Prerequisites
 Before building CUDA-QX from source, ensure your system meets the following requirements:
 
 * **CUDA-Q**: The NVIDIA quantum-classical programming model
-* **CMake**: Version 3.28 or higher (``pip install cmake>=3.28``)
+* **CMake**: Version 3.28 or higher (``pip install "cmake<4"``), less than 4.0
 * **GCC**: Version 11 or higher
 * **Python**: Version 3.10, 3.11, or 3.12
 * **NVIDIA GPU**: CUDA-capable GPU with compute capability 12.0 or higher

@@ -1,5 +1,5 @@
 # ============================================================================ #
-# Copyright (c) 2024 NVIDIA Corporation & Affiliates.                          #
+# Copyright (c) 2024 - 2025 NVIDIA Corporation & Affiliates.                   #
 # All rights reserved.                                                         #
 #                                                                              #
 # This source code and the accompanying materials are made available under     #
@@ -8,6 +8,15 @@
 
 # We need 3.28 because of the `EXCLUDE_FROM_ALL` in FetchContent_Declare
 cmake_minimum_required(VERSION 3.28 FATAL_ERROR)
+
+# Set a default build type if none was specified. Must set this before
+# project().
+set(CMAKE_BUILD_TYPE "Release" CACHE STRING
+    "Choose the type of build, options are: None Debug Release RelWithDebInfo MinSizeRel")
+
+# Set a default install prefix if none was specified.
+set(CMAKE_INSTALL_PREFIX "$ENV{HOME}/.cudaqx" CACHE STRING
+    "Install path prefix, prepended onto install directories")
 
 # This policy was added in version 3.30 in which calling `FetchContent_Populate()`
 # with a single argument (the name of a declared dependency) is deprecated.
@@ -63,6 +72,44 @@ option(CUDAQX_SOLVERS_INSTALL_PYTHON
        "Install python files alongside the library."
        ${CUDAQX_INSTALL_PYTHON})
 
+# Check for CUDA Support (ref: cuda-quantum/CMakeLists.txt)
+# ==============================================================================
+include(CheckLanguage)
+check_language(CUDA)
+set(CUDA_FOUND FALSE)
+# Generate -gencode arch=compute_XX,code=sm_XX for list of supported
+# arch values.
+# List should be sorted in increasing order.
+function(CUDA_get_gencode_args out_args_string arch_values)
+  # allow the user to pass the list like a normal variable
+  set(arch_list ${arch_values} ${ARGN})
+  set(out "")
+  foreach(arch IN LISTS arch_list)
+    set(out "${out} -gencode arch=compute_${arch},code=sm_${arch}")
+  endforeach(arch)
+
+  # Repeat the last one as to ensure the generation of PTX for most
+  # recent virtual architecture for forward compatibility
+  list(GET arch_list -1 last_arch)
+  set(out "${out} -gencode arch=compute_${last_arch},code=compute_${last_arch}")
+  set(${out_args_string} ${out} PARENT_SCOPE)
+endfunction()
+
+if(CMAKE_CUDA_COMPILER)
+  if (NOT CUDA_TARGET_ARCHS)
+    # Volta, Ampere, Hopper
+    set(CUDA_TARGET_ARCHS  "70;80;90")
+  endif()
+  CUDA_get_gencode_args(CUDA_gencode_flags ${CUDA_TARGET_ARCHS})
+  set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -shared -std=c++17 ${CUDA_gencode_flags} --compiler-options -fPIC")
+
+  enable_language(CUDA)
+  set(CUDA_FOUND TRUE)
+  set(CMAKE_CUDA_STANDARD 17)
+  set(CMAKE_CUDA_STANDARD_REQUIRED TRUE)
+  message(STATUS "Cuda language found.")
+endif()
+
 # External Dependencies 
 # ==============================================================================
 
@@ -103,6 +150,26 @@ if (SKBUILD)
   set(CMAKE_INSTALL_INCLUDEDIR cudaq_solvers/include)
   set(CMAKE_INSTALL_LIBDIR cudaq_solvers/lib)
 endif()
+
+# Version
+# ==============================================================================
+if (DEFINED ENV{CUDAQX_SOLVERS_VERSION})
+  # The version was defined by the user (likely a bot performing the build), so
+  # use the value provided as is.
+  set(CUDAQX_SOLVERS_VERSION "$ENV{CUDAQX_SOLVERS_VERSION}")
+  message(STATUS "CUDAQX_SOLVERS_VERSION is set to ${CUDAQX_SOLVERS_VERSION}")
+else()
+  # Otherwise, create a 0.0.0 version string.
+  set(CUDAQX_SOLVERS_VERSION "0.0.0")
+endif()
+
+# Retrieve the commit SHA for full revision description
+execute_process(COMMAND git rev-parse --verify HEAD
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    OUTPUT_VARIABLE CUDAQX_SOLVERS_COMMIT_SHA OUTPUT_STRIP_TRAILING_WHITESPACE)
+
+configure_file("${CMAKE_CURRENT_SOURCE_DIR}/lib/version.cpp.in"
+               "${CMAKE_CURRENT_BINARY_DIR}/lib/version.cpp" @ONLY)
 
 # Directory setup
 # ==============================================================================

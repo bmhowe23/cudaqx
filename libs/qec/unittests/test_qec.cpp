@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2024 NVIDIA Corporation & Affiliates.                         *
+ * Copyright (c) 2024 - 2025 NVIDIA Corporation & Affiliates.                  *
  * All rights reserved.                                                        *
  *                                                                             *
  * This source code and the accompanying materials are made available under    *
@@ -11,7 +11,9 @@
 
 #include "cudaq.h"
 
+#include "cudaq/qec/codes/surface_code.h"
 #include "cudaq/qec/experiments.h"
+#include "cudaq/qec/version.h"
 
 TEST(StabilizerTester, checkConstructFromSpinOps) {
   {
@@ -127,6 +129,8 @@ TEST(QECCodeTester, checkSampleMemoryCircuit) {
       auto [syndromes, d] = cudaq::qec::sample_memory_circuit(
           *steane, cudaq::qec::operation::prep0, nShots, nRounds);
       syndromes.dump();
+      EXPECT_EQ(syndromes.shape()[0], nShots * nRounds);
+      EXPECT_EQ(syndromes.shape()[1], 6);
 
       // No noise here, should be all zeros
       int sum = 0;
@@ -417,14 +421,15 @@ TEST(QECCodeTester, checkRepetition) {
     // must provide distance
     EXPECT_THROW(cudaq::qec::get_code("repetition"), std::runtime_error);
   }
-  auto repetition = cudaq::qec::get_code("repetition", {{"distance", 9}});
+  auto repetition = cudaq::qec::get_code(
+      "repetition", cudaqx::heterogeneous_map{{"distance", 9}});
 
   {
     auto stabilizers = repetition->get_stabilizers();
 
     std::vector<std::string> actual_stabs;
     for (auto &s : stabilizers)
-      actual_stabs.push_back(s.to_string(false));
+      actual_stabs.push_back(s.begin()->get_pauli_word());
 
     std::vector<std::string> expected_strings = {
         "ZZIIIIIII", "IZZIIIIII", "IIZZIIIII", "IIIZZIIII",
@@ -488,7 +493,7 @@ TEST(QECCodeTester, checkRepetition) {
         cudaq::qec::sample_memory_circuit(*repetition, nShots, nRounds);
     syndromes.dump();
     data_mz.dump();
-    EXPECT_EQ(nShots * (nRounds - 1), syndromes.shape()[0]);
+    EXPECT_EQ(nShots * nRounds, syndromes.shape()[0]);
     EXPECT_EQ(parity.shape()[0], syndromes.shape()[1]);
     EXPECT_EQ(nShots, data_mz.shape()[0]);
     EXPECT_EQ(parity_z.shape()[1], data_mz.shape()[1]);
@@ -499,6 +504,100 @@ TEST(QECCodeTester, checkRepetition) {
         sum += syndromes.at({i, j});
 
     EXPECT_TRUE(sum == 0);
+  }
+}
+
+TEST(QECCodeTester, checkSurfaceCode) {
+  {
+    // must provide distance
+    EXPECT_THROW(cudaq::qec::get_code("surface_code"), std::runtime_error);
+  }
+  {
+    // with default stabilizers
+    auto surf_code = cudaq::qec::get_code(
+        "surface_code", cudaqx::heterogeneous_map{{"distance", 3}});
+    cudaqx::tensor<uint8_t> parity = surf_code->get_parity();
+    cudaqx::tensor<uint8_t> parity_x = surf_code->get_parity_x();
+    cudaqx::tensor<uint8_t> parity_z = surf_code->get_parity_z();
+    cudaqx::tensor<uint8_t> observables =
+        surf_code->get_pauli_observables_matrix();
+    cudaqx::tensor<uint8_t> Lx = surf_code->get_observables_x();
+    cudaqx::tensor<uint8_t> Lz = surf_code->get_observables_z();
+
+    {
+      // This is just a regression check, this has not been hand tested
+      std::vector<uint8_t> data = {
+          1, 1, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  /* row 0 */
+          0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  /* row 1 */
+          0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,  /* row 2 */
+          0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  /* row 3 */
+          0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0,  /* row 4 */
+          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0,  /* row 5 */
+          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0,  /* row 6 */
+          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1}; /* row 7 */
+
+      std::vector<std::size_t> expected_shape{8, 18};
+      cudaqx::tensor<uint8_t> t(expected_shape);
+      t.borrow(data.data());
+      for (std::size_t i = 0; i < 8; i++)
+        for (std::size_t j = 0; j < 18; j++)
+          EXPECT_EQ(t.at({i, j}), parity.at({i, j}));
+    }
+    {
+      // This is just a regression check, this has not been hand tested
+      std::vector<uint8_t> data = {1, 0, 0, 1, 0, 0, 0, 0, 0,  /* row 0 */
+                                   0, 1, 1, 0, 1, 1, 0, 0, 0,  /* row 1 */
+                                   0, 0, 0, 1, 1, 0, 1, 1, 0,  /* row 2 */
+                                   0, 0, 0, 0, 0, 1, 0, 0, 1}; /* row 3 */
+
+      std::vector<std::size_t> expected_shape{4, 9};
+      cudaqx::tensor<uint8_t> t(expected_shape);
+      t.borrow(data.data());
+      for (std::size_t i = 0; i < 4; i++)
+        for (std::size_t j = 0; j < 9; j++)
+          EXPECT_EQ(t.at({i, j}), parity_x.at({i, j}));
+    }
+    {
+      // This is just a regression check, this has not been hand tested
+      std::vector<uint8_t> data = {1, 1, 0, 1, 1, 0, 0, 0, 0,  /* row 0 */
+                                   0, 1, 1, 0, 0, 0, 0, 0, 0,  /* row 1 */
+                                   0, 0, 0, 0, 1, 1, 0, 1, 1,  /* row 2 */
+                                   0, 0, 0, 0, 0, 0, 1, 1, 0}; /* row 3 */
+
+      std::vector<std::size_t> expected_shape{4, 9};
+      cudaqx::tensor<uint8_t> t(expected_shape);
+      t.borrow(data.data());
+      for (std::size_t i = 0; i < 4; i++)
+        for (std::size_t j = 0; j < 9; j++)
+          EXPECT_EQ(t.at({i, j}), parity_z.at({i, j}));
+    }
+    EXPECT_EQ(2, observables.rank());
+    EXPECT_EQ(2, observables.shape()[0]);
+    EXPECT_EQ(18, observables.shape()[1]);
+    EXPECT_EQ(2, Lx.rank());
+    EXPECT_EQ(1, Lx.shape()[0]);
+    EXPECT_EQ(9, Lx.shape()[1]);
+    EXPECT_EQ(2, Lz.rank());
+    EXPECT_EQ(1, Lz.shape()[0]);
+    EXPECT_EQ(9, Lz.shape()[1]);
+    {
+      std::vector<std::vector<uint8_t>> true_observables = {
+          {1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},  // Z first
+          {0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0}}; // Then X
+      std::vector<std::vector<uint8_t>> true_Lx = {{1, 1, 1, 0, 0, 0, 0, 0, 0}};
+      std::vector<std::vector<uint8_t>> true_Lz = {{1, 0, 0, 1, 0, 0, 1, 0, 0}};
+      for (std::size_t i = 0; i < observables.shape()[0]; ++i)
+        for (std::size_t j = 0; j < observables.shape()[1]; ++j)
+          EXPECT_EQ(true_observables[i][j], observables.at({i, j}));
+
+      for (std::size_t i = 0; i < Lx.shape()[0]; ++i)
+        for (std::size_t j = 0; j < Lx.shape()[1]; ++j)
+          EXPECT_EQ(true_Lx[i][j], Lx.at({i, j}));
+
+      for (std::size_t i = 0; i < Lz.shape()[0]; ++i)
+        for (std::size_t j = 0; j < Lz.shape()[1]; ++j)
+          EXPECT_EQ(true_Lz[i][j], Lz.at({i, j}));
+    }
   }
 }
 
@@ -572,7 +671,8 @@ TEST(QECCodeTester, checkSteaneSPAM) {
 
 TEST(QECCodeTester, checkRepetitionSPAM) {
   // only Z basis for repetition
-  auto repetition = cudaq::qec::get_code("repetition", {{"distance", 9}});
+  auto repetition = cudaq::qec::get_code(
+      "repetition", cudaqx::heterogeneous_map{{"distance", 9}});
   EXPECT_TRUE(noiseless_logical_SPAM_test(*repetition,
                                           cudaq::qec::operation::prep0, 0));
   EXPECT_TRUE(noiseless_logical_SPAM_test(*repetition,
@@ -581,4 +681,105 @@ TEST(QECCodeTester, checkRepetitionSPAM) {
                                            cudaq::qec::operation::prep0, 1));
   EXPECT_FALSE(noiseless_logical_SPAM_test(*repetition,
                                            cudaq::qec::operation::prep1, 0));
+}
+
+TEST(QECCodeTester, checkSurfaceCodeSPAM) {
+  // Must compile with stim for larger distances
+  auto surf_code = cudaq::qec::get_code(
+      "surface_code", cudaqx::heterogeneous_map{{"distance", 3}});
+  EXPECT_TRUE(
+      noiseless_logical_SPAM_test(*surf_code, cudaq::qec::operation::prep0, 0));
+  EXPECT_TRUE(
+      noiseless_logical_SPAM_test(*surf_code, cudaq::qec::operation::prep1, 1));
+  EXPECT_TRUE(
+      noiseless_logical_SPAM_test(*surf_code, cudaq::qec::operation::prepp, 0));
+  EXPECT_TRUE(
+      noiseless_logical_SPAM_test(*surf_code, cudaq::qec::operation::prepm, 1));
+  EXPECT_FALSE(
+      noiseless_logical_SPAM_test(*surf_code, cudaq::qec::operation::prep0, 1));
+  EXPECT_FALSE(
+      noiseless_logical_SPAM_test(*surf_code, cudaq::qec::operation::prep1, 0));
+  EXPECT_FALSE(
+      noiseless_logical_SPAM_test(*surf_code, cudaq::qec::operation::prepp, 1));
+  EXPECT_FALSE(
+      noiseless_logical_SPAM_test(*surf_code, cudaq::qec::operation::prepm, 0));
+}
+
+TEST(QECCodeTester, checkStabilizerGrid) {
+  {
+    int distance = 3;
+
+    cudaq::qec::surface_code::stabilizer_grid grid(distance);
+
+    grid.print_stabilizer_grid();
+    grid.print_stabilizer_coords();
+    grid.print_stabilizer_indices();
+    grid.print_stabilizer_maps();
+    grid.print_data_grid();
+    grid.print_stabilizers();
+
+    EXPECT_EQ(3, grid.distance);
+    EXPECT_EQ(4, grid.grid_length);
+    EXPECT_EQ(16, grid.roles.size());
+    EXPECT_EQ(4, grid.x_stab_coords.size());
+    EXPECT_EQ(4, grid.z_stab_coords.size());
+    EXPECT_EQ(4, grid.x_stab_indices.size());
+    EXPECT_EQ(4, grid.z_stab_indices.size());
+    EXPECT_EQ(9, grid.data_coords.size());
+    EXPECT_EQ(9, grid.data_indices.size());
+    EXPECT_EQ(4, grid.x_stabilizers.size());
+    EXPECT_EQ(4, grid.z_stabilizers.size());
+  }
+  {
+    int distance = 5;
+
+    cudaq::qec::surface_code::stabilizer_grid grid(distance);
+
+    grid.print_stabilizer_grid();
+    grid.print_stabilizer_coords();
+    grid.print_stabilizer_indices();
+    grid.print_stabilizer_maps();
+    grid.print_data_grid();
+    grid.print_stabilizers();
+
+    EXPECT_EQ(5, grid.distance);
+    EXPECT_EQ(6, grid.grid_length);
+    EXPECT_EQ(36, grid.roles.size());
+    EXPECT_EQ(12, grid.x_stab_coords.size());
+    EXPECT_EQ(12, grid.z_stab_coords.size());
+    EXPECT_EQ(12, grid.x_stab_indices.size());
+    EXPECT_EQ(12, grid.z_stab_indices.size());
+    EXPECT_EQ(25, grid.data_coords.size());
+    EXPECT_EQ(25, grid.data_indices.size());
+    EXPECT_EQ(12, grid.x_stabilizers.size());
+    EXPECT_EQ(12, grid.z_stabilizers.size());
+  }
+  {
+    int distance = 17;
+
+    cudaq::qec::surface_code::stabilizer_grid grid(distance);
+
+    EXPECT_EQ(17, grid.distance);
+    EXPECT_EQ(18, grid.grid_length);
+    EXPECT_EQ(324, grid.roles.size());
+    EXPECT_EQ(144, grid.x_stab_coords.size());
+    EXPECT_EQ(144, grid.z_stab_coords.size());
+    EXPECT_EQ(144, grid.x_stab_indices.size());
+    EXPECT_EQ(144, grid.z_stab_indices.size());
+    EXPECT_EQ(289, grid.data_coords.size());
+    EXPECT_EQ(289, grid.data_indices.size());
+    EXPECT_EQ(144, grid.x_stabilizers.size());
+    EXPECT_EQ(144, grid.z_stabilizers.size());
+  }
+}
+
+TEST(QECCodeTester, checkVersion) {
+  std::string version = cudaq::qec::getVersion();
+  EXPECT_FALSE(version.empty());
+  EXPECT_TRUE(version.find("CUDAQX_QEC_VERSION") == std::string::npos);
+
+  std::string fullVersion = cudaq::qec::getFullRepositoryVersion();
+  EXPECT_TRUE(fullVersion.find("NVIDIA/cudaqx") != std::string::npos);
+  EXPECT_TRUE(fullVersion.find("CUDAQX_SOLVERS_COMMIT_SHA") ==
+              std::string::npos);
 }

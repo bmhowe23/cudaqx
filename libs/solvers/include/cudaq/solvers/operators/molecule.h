@@ -1,5 +1,5 @@
 /****************************************************************-*- C++ -*-****
- * Copyright (c) 2024 NVIDIA Corporation & Affiliates.                         *
+ * Copyright (c) 2024 - 2025 NVIDIA Corporation & Affiliates.                  *
  * All rights reserved.                                                        *
  *                                                                             *
  * This source code and the accompanying materials are made available under    *
@@ -103,8 +103,17 @@ struct molecule_options {
   /// default "RESTPySCFDriver"
   std::string driver = "RESTPySCFDriver";
 
+  /// @brief Fully qualified path to Python executable to use (if applicable).
+  /// The CUDA-Q Solvers Python wheel will automatically populate this with the
+  /// current Python executable path.
+  /// default ""
+  std::string python_path = "";
+
   /// @brief Method for mapping fermionic operators to qubit operators
-  /// default "jordan_wigner"
+  ///
+  /// Currently two methods are available:
+  /// - "jordan_wigner": the standard Jordan-Wigner transformation, default.
+  /// - "bravyi_kitaev": Bravyi and Kitaev's mapping.
   std::string fermion_to_spin = "jordan_wigner";
 
   /// @brief Type of molecular system

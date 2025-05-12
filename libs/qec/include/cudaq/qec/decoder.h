@@ -1,5 +1,5 @@
 /****************************************************************-*- C++ -*-****
- * Copyright (c) 2022 - 2024 NVIDIA Corporation & Affiliates.                  *
+ * Copyright (c) 2024 - 2025 NVIDIA Corporation & Affiliates.                  *
  * All rights reserved.                                                        *
  *                                                                             *
  * This source code and the accompanying materials are made available under    *
@@ -19,7 +19,7 @@ namespace cudaq::qec {
 #if defined(CUDAQX_QEC_FLOAT_TYPE)
 using float_t = CUDAQX_QEC_FLOAT_TYPE;
 #else
-using float_t = float;
+using float_t = double;
 #endif
 
 /// @brief Decoder results
@@ -30,6 +30,51 @@ struct decoder_result {
   /// @brief Vector of length `block_size` with soft probabilities of errors in
   /// each index.
   std::vector<float_t> result;
+
+  // Manually define the equality operator
+  bool operator==(const decoder_result &other) const {
+    return std::tie(converged, result) ==
+           std::tie(other.converged, other.result);
+  }
+
+  // Manually define the inequality operator
+  bool operator!=(const decoder_result &other) const {
+    return !(*this == other);
+  }
+};
+
+/// @brief Return type for asynchronous decoding results
+class async_decoder_result {
+public:
+  std::future<cudaq::qec::decoder_result> fut;
+
+  /// @brief Construct an async_decoder_result from a std::future.
+  /// @param f A rvalue reference to a std::future containing a decoder_result.
+  async_decoder_result(std::future<cudaq::qec::decoder_result> &&f)
+      : fut(std::move(f)) {}
+
+  async_decoder_result(async_decoder_result &&other) noexcept
+      : fut(std::move(other.fut)) {}
+
+  async_decoder_result &operator=(async_decoder_result &&other) noexcept {
+    if (this != &other) {
+      fut = std::move(other.fut);
+    }
+
+    return *this;
+  }
+
+  /// @brief Block until the decoder result is ready and retrieve it.
+  /// Wait until the underlying future is ready and then
+  /// return the stored decoder result.
+  /// @return The decoder_result obtained from the asynchronous operation.
+  cudaq::qec::decoder_result get() { return fut.get(); }
+
+  /// @brief Check if the asynchronous result is ready.
+  /// @return `true` if the future is ready, `false` otherwise.
+  bool ready() {
+    return fut.wait_for(std::chrono::seconds(0)) == std::future_status::ready;
+  }
 };
 
 /// @brief The `decoder` base class should be subclassed by specific decoder
@@ -52,8 +97,7 @@ public:
   /// @brief Decode a single syndrome
   /// @param syndrome A vector of syndrome measurements where the floating point
   /// value is the probability that the syndrome measurement is a |1>. The
-  /// length of the syndrome vector should be an integer multiple of the
-  /// decoder's \p syndrome_size.
+  /// length of the syndrome vector should be equal to \p syndrome_size.
   /// @returns Vector of length \p block_size with soft probabilities of errors
   /// in each index.
   virtual decoder_result decode(const std::vector<float_t> &syndrome) = 0;
@@ -61,8 +105,7 @@ public:
   /// @brief Decode a single syndrome
   /// @param syndrome An order-1 tensor of syndrome measurements where a 1 bit
   /// represents that the syndrome measurement is a |1>. The
-  /// length of the syndrome vector should be an integer multiple of the
-  /// decoder's \p syndrome_size.
+  /// length of the syndrome vector should be equal to \p syndrome_size.
   /// @returns Vector of length \p block_size of errors in each index.
   virtual decoder_result decode(const cudaqx::tensor<uint8_t> &syndrome);
 
@@ -81,7 +124,7 @@ public:
   /// @returns 2-D vector of size `N` x `block_size` with soft probabilities of
   /// errors in each index.
   virtual std::vector<decoder_result>
-  decode_multi(const std::vector<std::vector<float_t>> &syndrome);
+  decode_batch(const std::vector<std::vector<float_t>> &syndrome);
 
   /// @brief This `get` overload supports default values.
   static std::unique_ptr<decoder>
@@ -93,6 +136,12 @@ public:
 
   /// @brief Destructor
   virtual ~decoder() {}
+
+  /// @brief Get the version of the decoder. Subclasses that are not part of the
+  /// standard GitHub repo should override this to provide a more tailored
+  /// version string.
+  /// @return A string containing the version of the decoder
+  virtual std::string get_version() const;
 
 protected:
   /// @brief For a classical `[n,k]` code, this is `n`.

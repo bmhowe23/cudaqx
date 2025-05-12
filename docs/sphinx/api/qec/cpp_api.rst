@@ -1,28 +1,54 @@
 CUDA-Q QEC C++ API
 ******************************
 
-.. doxygentypedef:: cudaq::qec::float_t
+Code
+=============
 
-.. doxygenstruct:: cudaq::qec::decoder_result
-    :members:
-
-.. doxygenclass:: cudaq::qec::decoder
+.. doxygenclass:: cudaq::qec::code
     :members:
 
 .. doxygenstruct:: cudaq::qec::patch
     :members:
 
-.. doxygenclass:: cudaq::qec::steane::steane
-    :members:
-
 .. doxygenclass:: cudaq::qec::repetition::repetition
     :members:
 
-.. doxygenclass:: cudaq::qec::code
+.. doxygenclass:: cudaq::qec::steane::steane
     :members:
 
+.. doxygenclass:: cudaq::qec::surface_code::stabilizer_grid
+    :members:
+
+.. doxygenclass:: cudaq::qec::surface_code::surface_code
+    :members:
+
+
+Decoder Interfaces
+==================
+
+.. doxygenclass:: cudaq::qec::decoder
+    :members:
+
+.. doxygenstruct:: cudaq::qec::decoder_result
+    :members:
+
+Built-in Decoders
+=================
+
+.. _nv_qldpc_decoder_api_cpp:
+
+NVIDIA QLDPC Decoder
+--------------------
+
+.. include:: nv_qldpc_decoder_api.rst
+
+Common
+=============
+
+.. doxygentypedef:: cudaq::qec::float_t
+
 .. doxygenenum:: cudaq::qec::operation
-    
+
 .. doxygenfunction:: cudaq::qec::sample_code_capacity(const cudaqx::tensor<uint8_t> &, std::size_t, double)
 .. doxygenfunction:: cudaq::qec::sample_code_capacity(const cudaqx::tensor<uint8_t> &, std::size_t, double, unsigned)
 .. doxygenfunction:: cudaq::qec::sample_code_capacity(const code &, std::size_t, double)

@@ -1,3 +1,11 @@
+# ============================================================================ #
+# Copyright (c) 2025 NVIDIA Corporation & Affiliates.                          #
+# All rights reserved.                                                         #
+#                                                                              #
+# This source code and the accompanying materials are made available under     #
+# the terms of the Apache License 2.0 which accompanies this distribution.     #
+# ============================================================================ #
+# [Begin Documentation]
 import numpy as np
 import cudaq
 import cudaq_qec as qec
@@ -22,7 +30,7 @@ nRounds = 4
 # error probabily
 p = 0.01
 noise = cudaq.NoiseModel()
-noise.add_all_qubit_channel("x", qec.TwoQubitDepolarization(p), 1)
+noise.add_all_qubit_channel("x", cudaq.Depolarization2(p), 1)
 
 # prepare logical |0> state, tells the sampler to do z-basis experiment
 statePrep = qec.operation.prep0
@@ -48,12 +56,15 @@ logical_measurements = (Lz @ data.transpose()) % 2
 logical_measurements = logical_measurements.flatten()
 print("LMz:\n", logical_measurements)
 
+# organize data by shot and round if desired
+syndromes = syndromes.reshape((nShots, nRounds, syndromes.shape[1]))
+
 # initialize a Pauli frame to track logical flips
 # through the stabilizer rounds
 pauli_frame = np.array([0, 0], dtype=np.uint8)
 for shot in range(0, nShots):
     print("shot:", shot)
-    for syndrome in syndromes:
+    for syndrome in syndromes[shot]:
         print("syndrome:", syndrome)
         # decode the syndrome
         convergence, result = decoder.decode(syndrome)

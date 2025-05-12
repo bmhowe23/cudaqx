@@ -1,5 +1,5 @@
 # ============================================================================ #
-# Copyright (c) 2024 NVIDIA Corporation & Affiliates.                          #
+# Copyright (c) 2024 - 2025 NVIDIA Corporation & Affiliates.                   #
 # All rights reserved.                                                         #
 #                                                                              #
 # This source code and the accompanying materials are made available under     #
@@ -15,6 +15,7 @@ add_library(cudaq-solvers SHARED
   operators/molecule/drivers/pyscf_driver.cpp
   operators/molecule/fermion_compilers/fermion_compiler.cpp
   operators/molecule/fermion_compilers/jordan_wigner.cpp
+  operators/molecule/fermion_compilers/bravyi_kitaev.cpp
   operators/molecule/molecule.cpp
   operators/graph/max_cut.cpp
   operators/graph/clique.cpp
@@ -22,7 +23,7 @@ add_library(cudaq-solvers SHARED
   operators/operator_pools/spin_complement_gsd.cpp
   operators/operator_pools/uccsd_operator_pool.cpp
   operators/operator_pools/qaoa_operator_pool.cpp
-
+  version.cpp
 )
 
 add_subdirectory(adapt)
@@ -45,7 +46,7 @@ target_link_libraries(cudaq-solvers
   PUBLIC
     cudaqx-core
     cudaq::cudaq
-    cudaq::cudaq-spin
+    cudaq::cudaq-operator
   PRIVATE
     cudaq::cudaq-common
     nlohmann_json::nlohmann_json

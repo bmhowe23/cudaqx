@@ -384,13 +384,14 @@ To use an implemented code:
         // The code can now be used for various numerical
         // experiments - see section below.
 
-Pre-built Quantum Error Correction Codes
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Pre-built QEC Codes
+-------------------
 
 CUDA-Q QEC provides several well-studied quantum error correction codes out of the box. Here's a detailed overview of each:
 
 Steane Code
-~~~~~~~~~~~
+^^^^^^^^^^^
 
 The Steane code is a ``[[7,1,3]]`` CSS (Calderbank-Shor-Steane) code that encodes
 one logical qubit into seven physical qubits with a code distance of 3.
@@ -428,7 +429,7 @@ Usage:
         auto steane = cudaq::qec::get_code("steane");
 
 Repetition Code
-~~~~~~~~~~~~~~~
+^^^^^^^^^^^^^^^
 The repetition code is a simple [[n,1,n]] code that protects against
 bit-flip (X) errors by encoding one logical qubit into n physical qubits, where n is the code distance.
 
@@ -486,20 +487,20 @@ The decoder base class defines the core interface for syndrome decoding:
 
     class decoder {
     protected:
-        std::size_t block_size;     // For [n,k] code, this is n
-        std::size_t syndrome_size;   // For [n,k] code, this is n-k
-        tensor<uint8_t> H;          // Parity check matrix
+        std::size_t block_size;       // For [n,k] code, this is n
+        std::size_t syndrome_size;    // For [n,k] code, this is n-k
+        tensor<uint8_t> H;            // Parity check matrix
 
     public:
         struct decoder_result {
-            bool converged;                  // Decoder convergence status
-            std::vector<float_t> result;     // Soft error probabilities
+            bool converged;                 // Decoder convergence status
+            std::vector<float_t> result;    // Soft error probabilities
         };
 
         virtual decoder_result decode(
             const std::vector<float_t>& syndrome) = 0;
 
-        virtual std::vector<decoder_result> decode_multi(
+        virtual std::vector<decoder_result> decode_batch(
             const std::vector<std::vector<float_t>>& syndrome);
     };
 
@@ -658,20 +659,22 @@ Usage Example
         import cudaq_qec as qec
 
         # Get a code instance
-        code = qec.get_code('steane')
+        steane = qec.get_code("steane")
 
         # Create decoder with code's parity matrix
-        decoder = qec.get_decoder('single_error_lut',
-                                H=code.get_parity())
+        decoder = qec.get_decoder('single_error_lut', steane.get_parity())
 
         # Run stabilizer measurements
-        syndromes, dataQubitResults = qec.sample_memory_circuit(steane, numShots, numRounds)
+        syndromes, dataQubitResults = qec.sample_memory_circuit(steane, numShots=1, numRounds=1)
 
-        # Decode syndrome
+        # Decode a syndrome
         result = decoder.decode(syndromes[0])
         if result.converged:
             print("Error locations:",
                 [i for i,p in enumerate(result.result) if p > 0.5])
+            # No errors as we did not include a noise model and
+            # thus prints:
+            # Error locations: []
 
 .. tab:: C++
 
@@ -691,6 +694,67 @@ Usage Example
 
         // Decode syndrome
         auto result = decoder->decode(syndromes[0]);
+
+
+Pre-built QEC Decoders
+----------------------
+
+CUDA-Q QEC provides pre-built decoders. Here's a detailed overview of each:
+
+Quantum Low-Density Parity-Check Decoder
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The Quantum Low-Density Parity-Check (QLDPC) decoder leverages GPU-accelerated belief propagation (BP) for efficient error correction. 
+Since belief propagation is an iterative method which may not converge, decoding can be improved with a second-stage post-processing step. The `nv-qldpc-decoder`
+API provides various post-processing options, which can be selected through its parameters.
+
+The QLDPC decoder `nv-qldpc-decoder` requires a CUDA-Q compatible GPU. See the list below for dependencies and compatibility:
+https://nvidia.github.io/cuda-quantum/latest/using/install/local_installation.html#dependencies-and-compatibility
+
+The decoder is based on the following references:
+
+* https://arxiv.org/pdf/2005.07016 
+* https://github.com/quantumgizmos/ldpc
+
+
+Usage:
+
+.. tab:: Python
+
+    .. code-block:: python
+
+        import cudaq_qec as qec
+
+        H_list = [
+                    [1, 0, 0, 1, 0, 1, 1], 
+                    [0, 1, 0, 1, 1, 0, 1],
+                    [0, 0, 1, 0, 1, 1, 1]
+                 ]
+
+        H_np = np.array(H_list, dtype=np.uint8)
+
+        decoder = qec.get_decoder("nv-qldpc-decoder", H_np)
+
+.. tab:: C++
+
+    .. code-block:: cpp
+
+        std::size_t block_size = 7;
+        std::size_t syndrome_size = 3;
+        cudaqx::tensor<uint8_t> H;
+
+        std::vector<uint8_t> H_vec = {1, 0, 0, 1, 0, 1, 1, 
+                                      0, 1, 0, 1, 1, 0, 1,
+                                      0, 0, 1, 0, 1, 1, 1};
+        H.copy(H_vec.data(), {syndrome_size, block_size});
+
+        cudaqx::heterogeneous_map nv_custom_args;
+        nv_custom_args.insert("use_osd", true);
+
+        auto d1 = cudaq::qec::get_decoder("nv-qldpc-decoder", H, nv_custom_args);
+
+        // Alternatively, configure the decoder without instantiating a heterogeneous_map 
+        auto d2 = cudaq::qec::get_decoder("nv-qldpc-decoder", H, {{"use_osd", true}, {"bp_batch_size", 100}});
 
 
 Numerical Experiments
@@ -783,31 +847,39 @@ Function Variants
 
     .. code-block:: python
 
+        import cudaq
         import cudaq_qec as qec
+
+        # Use the stim backend for performance in QEC settings
+        cudaq.set_target("stim")
+
+        # Get a code instance
+        code = qec.get_code("steane")
 
         # Basic memory circuit with |0⟩ state
         syndromes, measurements = qec.sample_memory_circuit(
             code,           # QEC code instance
-            numShots=1000, # Number of circuit executions
-            numRounds=1    # Number of stabilizer rounds
+            numShots=1000,  # Number of circuit executions
+            numRounds=1     # Number of stabilizer rounds
         )
 
         # Memory circuit with custom initial state
         syndromes, measurements = qec.sample_memory_circuit(
-            code,                       # QEC code instance
-            state_prep=qec.operation.prep1,  # Initial state
+            code,                     # QEC code instance
+            op=qec.operation.prep1,   # Initial state
             numShots=1000,            # Number of shots
             numRounds=1               # Number of rounds
         )
 
         # Memory circuit with noise model
-        noise = cudaq.noise_model()
-        noise.add_channel(...)  # Configure noise
+        noise = cudaq.NoiseModel()
+        # Configure noise
+        noise.add_all_qubit_channel("x", cudaq.Depolarization2(0.01), 1)
         syndromes, measurements = qec.sample_memory_circuit(
-            code,           # QEC code instance
-            numShots=1000, # Number of shots
-            numRounds=1,   # Number of rounds
-            noise=noise     # Noise model
+            code,             # QEC code instance
+            numShots=1000,    # Number of shots
+            numRounds=1,      # Number of rounds
+            noise=noise       # Noise model
         )
 
 .. tab:: C++
@@ -816,27 +888,27 @@ Function Variants
 
         // Basic memory circuit with |0⟩ state
         auto [syndromes, measurements] = qec::sample_memory_circuit(
-            code,           // QEC code instance
-            numShots,       // Number of circuit executions
-            numRounds       // Number of stabilizer rounds
+            code,       // QEC code instance
+            numShots,   // Number of circuit executions
+            numRounds   // Number of stabilizer rounds
         );
 
         // Memory circuit with custom initial state
         auto [syndromes, measurements] = qec::sample_memory_circuit(
-            code,                    // QEC code instance
-            operation::prep1,  // Initial state preparation
-            numShots,                // Number of circuit executions
-            numRounds               // Number of stabilizer rounds
+            code,               // QEC code instance
+            operation::prep1,   // Initial state preparation
+            numShots,           // Number of circuit executions
+            numRounds           // Number of stabilizer rounds
         );
 
         // Memory circuit with noise model
         auto noise_model = cudaq::noise_model();
         noise_model.add_channel(...);  // Configure noise
         auto [syndromes, measurements] = qec::sample_memory_circuit(
-            code,           // QEC code instance
-            numShots,       // Number of circuit executions
-            numRounds,      // Number of stabilizer rounds
-            noise_model     // Noise model to apply
+            code,         // QEC code instance
+            numShots,     // Number of circuit executions
+            numRounds,    // Number of stabilizer rounds
+            noise_model   // Noise model to apply
         );
 
 Return Values
@@ -846,7 +918,7 @@ The functions return a tuple containing:
 
 1. **Syndrome Measurements** (:code:`tensor<uint8_t>`):
 
-   * Shape: :code:`(num_shots, (num_rounds-1) * syndrome_size)`
+   * Shape: :code:`(num_shots, num_rounds * syndrome_size)`
    * Contains stabilizer measurement results
    * Values are 0 or 1 representing measurement outcomes
 
@@ -859,7 +931,7 @@ The functions return a tuple containing:
 Example Usage
 ~~~~~~~~~~~~~
 
-Here's a complete example of running a memory experiment:
+Example of running a memory experiment:
 
 .. tab:: Python
 
@@ -868,21 +940,24 @@ Here's a complete example of running a memory experiment:
         import cudaq
         import cudaq_qec as qec
 
+        # Use the stim backend for performance in QEC settings
+        cudaq.set_target("stim")
+
         # Create code and decoder
         code = qec.get_code('steane')
-        decoder = qec.get_decoder('steane_lut',
-                                code.get_parity())
+        decoder = qec.get_decoder('single_error_lut',
+                                  code.get_parity())
 
         # Configure noise
-        noise = cudaq.noise_model()
-        noise.add_channel('x', depolarizing=0.001)
+        noise = cudaq.NoiseModel()
+        noise.add_all_qubit_channel("x", cudaq.Depolarization2(0.01), 1)
 
         # Run memory experiment
         syndromes, measurements = qec.sample_memory_circuit(
             code,
-            state_prep=qec.operation.prep0,
-            num_shots=1000,
-            num_rounds=10,
+            op=qec.operation.prep0,
+            numShots=1000,
+            numRounds=10,
             noise=noise
         )
 
@@ -901,42 +976,50 @@ Here's a complete example of running a memory experiment:
 
     .. code-block:: cpp
 
-        // Top of file
+        // Compile and run with:
+        // nvq++ --enable-mlir --target=stim -lcudaq-qec example.cpp
+        // ./a.out
+
+        #include "cudaq.h"
+        #include "cudaq/qec/decoder.h"
         #include "cudaq/qec/experiments.h"
+        #include "cudaq/qec/noise_model.h"
 
-        // Create a Steane code instance
-        auto code = cudaq::qec::get_code("steane");
+        int main(){
+          // Create a Steane code instance
+          auto code = cudaq::qec::get_code("steane");
 
-        // Configure noise model
-        auto noise = cudaq::noise_model();
-        noise.add_all_qubit_channel("x", cudaq::qec::two_qubit_depolarization(0.1),
-                            /*num_controls=*/1);
+          // Configure noise model
+          cudaq::noise_model noise;
+          noise.add_all_qubit_channel("x", cudaq::depolarization2(0.1),
+                              /*num_controls=*/1);
 
-        // Run memory experiment
-        auto [syndromes, measurements] = qec::sample_memory_circuit(
-            code,                    // Code instance
-            operation::prep0,  // Prepare |0⟩ state
-            1000,                    // 1000 shots
-            10,                      // 10 rounds
-            noise                    // Apply noise
-        );
+          // Run memory experiment
+          auto [syndromes, data] = cudaq::qec::sample_memory_circuit(
+              *code,                          // Code instance
+              cudaq::qec::operation::prep0,   // Prepare |0⟩ state
+              1000,                           // 1000 shots
+              1,                              // 1 rounds
+              noise                           // Apply noise
+          );
 
-        // Analyze results
-        auto decoder = qec::get_decoder("single_error_lut", code->get_parity());
-        for (std::size_t shot = 0; shot < 1000; shot++) {
+          // Analyze results
+          auto decoder = cudaq::qec::get_decoder("single_error_lut", code->get_parity());
+          for (std::size_t shot = 0; shot < 1000; shot++) {
             // Get syndrome for this shot
-            std::vector<float> syndrome(code->get_syndrome_size());
+            std::vector<cudaq::qec::float_t> syndrome(syndromes.shape()[1]);
             for (std::size_t i = 0; i < syndrome.size(); i++)
-                syndrome[i] = syndromes.at({shot, i});
+              syndrome[i] = syndromes.at({shot, i});
 
             // Decode syndrome
-            auto result = decoder->decode(syndrome);
+            auto [converged, v_result] = decoder->decode(syndrome);
             // Process correction
             // ...
+          }
         }
 
-Additional Noise Models:
-~~~~~~~~~~~~~~~~~~~~~~~~
+Additional Noise Models
+~~~~~~~~~~~~~~~~~~~~~~~
 
 .. tab:: Python
 
@@ -948,7 +1031,7 @@ Additional Noise Models:
      noise.add_all_qubit_channel('h', cudaq.BitFlipChannel(0.001))
 
      # Specify two qubit errors
-     noise.add_all_qubit_channel("x", qec.TwoQubitDepolarization(p), 1)
+     noise.add_all_qubit_channel("x", cudaq.Depolarization2(p), 1)
 
 .. tab:: C++
 
@@ -956,12 +1039,12 @@ Additional Noise Models:
 
       cudaq::noise_model noise;
 
-      # Add multiple error channels
+      // Add multiple error channels
       noise.add_all_qubit_channel(
-          "x", cudaq::BitFlipChannel(/*probability*/ 0.01));
+          "x", cudaq::bit_flip_channel(/*probability*/ 0.01));
 
-      # Specify two qubit errors
+      // Specify two qubit errors
       noise.add_all_qubit_channel(
-          "x", cudaq::qec::two_qubit_depolarization(/*probability*/ 0.01),
+          "x", cudaq::depolarization2(/*probability*/ 0.01),
           /*numControls*/ 1);
 

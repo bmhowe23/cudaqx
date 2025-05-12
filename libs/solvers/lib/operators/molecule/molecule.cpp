@@ -1,11 +1,12 @@
 /*******************************************************************************
- * Copyright (c) 2024 NVIDIA Corporation & Affiliates.                         *
+ * Copyright (c) 2024 - 2025 NVIDIA Corporation & Affiliates.                  *
  * All rights reserved.                                                        *
  *                                                                             *
  * This source code and the accompanying materials are made available under    *
  * the terms of the Apache License 2.0 which accompanies this distribution.    *
  ******************************************************************************/
 #include "cudaq/solvers/operators/molecule/molecule_package_driver.h"
+#include "cudaq/utils/cudaq_utils.h"
 
 #include <fstream>
 #include <iostream>
@@ -76,7 +77,7 @@ molecular_hamiltonian create_molecule(const molecular_geometry &geometry,
                              options.driver + ")");
   auto driver = MoleculePackageDriver::get(options.driver);
   if (!driver->is_available()) {
-    auto tearDownRoutine = driver->make_available();
+    auto tearDownRoutine = driver->make_available(options.python_path);
     if (!tearDownRoutine)
       throw std::runtime_error("invalid molecule generator.");
 
@@ -88,6 +89,7 @@ molecular_hamiltonian create_molecule(const molecular_geometry &geometry,
 
 void molecule_options::dump() {
   std::cout << "\tmolecule_options dump() [\n";
+  std::cout << "\tpython_path: " << python_path << "\n";
   std::cout << "\tfermion_to_spin: " << fermion_to_spin << "\n";
   std::cout << "\ttype: " << type << "\n";
   std::cout << "\tsymmetry: " << symmetry << "\n";
@@ -115,7 +117,7 @@ cudaq::spin_op one_particle_op(std::size_t numQubits, std::size_t p,
   using namespace cudaq;
 
   if (p == q)
-    return 0.5 * spin::i(numQubits - 1) * spin::i(p) - 0.5 * spin::z(p);
+    return 0.5 - 0.5 * spin::z(p);
 
   std::complex<double> coeff(0., 1.);
   double m = -.25;
@@ -133,12 +135,12 @@ cudaq::spin_op one_particle_op(std::size_t numQubits, std::size_t p,
     parity *= spin::z(i);
   }
 
-  auto ret = m * spin::x(p) * parity * spin::x(q);
+  cudaq::spin_op ret = m * spin::x(p) * parity * spin::x(q);
 
   ret += m * spin::y(p) * parity * spin::y(q);
   ret -= coeff * m * spin::y(p) * parity * spin::x(q);
   ret += coeff * m * spin::x(p) * parity * spin::y(q);
-  return spin::i(numQubits - 1) * ret;
+  return ret.canonicalize().trim();
 }
 
 } // namespace cudaq::solvers

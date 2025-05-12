@@ -1,5 +1,5 @@
 # ============================================================================ #
-# Copyright (c) 2024 NVIDIA Corporation & Affiliates.                          #
+# Copyright (c) 2024 - 2025 NVIDIA Corporation & Affiliates.                   #
 # All rights reserved.                                                         #
 #                                                                              #
 # This source code and the accompanying materials are made available under     #
@@ -22,7 +22,7 @@ def test_simple_qaoa():
          0.5 * spin.z(0) * spin.z(3) + 0.5 * spin.z(2) * spin.z(3)
     Href = spin.x(0) + spin.x(1) + spin.x(2) + spin.x(3)
 
-    n_qubits = Hp.get_qubit_count()
+    n_qubits = Hp.qubit_count
     n_layers = 2
     n_params = 2 * n_layers
     initial_parameters = np.random.uniform(-np.pi / 2, np.pi / 2, n_params)
@@ -98,8 +98,8 @@ def test_maxcut_single_edge():
     ham = solvers.get_maxcut_hamiltonian(G)
 
     # Should have two terms: 0.5*Z0Z1 and -0.5*I0I1
-    assert ham.get_term_count() == 2
-    expected_ham = 0.5 * spin.z(0) * spin.z(1) - 0.5 * spin.i(0) * spin.i(1)
+    assert ham.term_count == 2
+    expected_ham = 0.5 * spin.z(0) * spin.z(1) - 0.5
     assert ham == expected_ham
 
 
@@ -112,39 +112,11 @@ def test_maxcut_triangle():
     print(ham)
 
     # Should have 4 terms
-    assert ham.get_term_count() == 4
+    assert ham.term_count == 4
 
     # Create expected Hamiltonian using the exact structure
-    expected_data = [
-        # ZIZ term
-        2,
-        0,
-        2,
-        0.5,
-        0.0,
-        # ZZI term
-        2,
-        2,
-        0,
-        0.5,
-        0.0,
-        # IZZ term
-        0,
-        2,
-        2,
-        0.5,
-        0.0,
-        # III term
-        0,
-        0,
-        0,
-        -1.5,
-        0.0,
-        4
-    ]
-
-    # Convert to spin operator
-    expected_ham = cudaq.SpinOperator(expected_data, 3)
+    expected_ham = 0.5 * spin.z(0) * spin.z(2) + 0.5 * spin.z(0) * spin.z(
+        1) + 0.5 * spin.z(1) * spin.z(2) - 1.5
 
     # Compare Hamiltonians
     assert ham == expected_ham
@@ -158,36 +130,11 @@ def test_maxcut_disconnected():
     ham = solvers.get_maxcut_hamiltonian(G)
 
     # Should have 3 terms
-    assert ham.get_term_count() == 3
+    assert ham.term_count == 3
 
     # Create expected Hamiltonian using the exact structure
-    expected_data = [
-        # ZZII term
-        2,
-        2,
-        0,
-        0,
-        0.5,
-        0.0,
-        # IIZZ term
-        0,
-        0,
-        2,
-        2,
-        0.5,
-        0.0,
-        # IIII term
-        0,
-        0,
-        0,
-        0,
-        -1.0,
-        0.0,
-        3
-    ]
-
-    # Convert to spin operator
-    expected_ham = cudaq.SpinOperator(expected_data, 4)
+    expected_ham = 0.5 * spin.z(0) * spin.z(1) + 0.5 * spin.z(2) * spin.z(
+        3) - 1.0
 
     # Compare Hamiltonians
     assert ham == expected_ham
@@ -199,8 +146,8 @@ def test_clique_single_node():
 
     ham = solvers.get_clique_hamiltonian(G)
 
-    assert ham.get_term_count() == 2
-    expected_ham = 0.75 * spin.z(0) - 0.75 * spin.i(0)
+    assert ham.term_count == 2
+    expected_ham = 0.75 * spin.z(0) - 0.75
     assert ham == expected_ham
 
 
@@ -214,32 +161,9 @@ def test_clique_complete_graph():
 
     ham = solvers.get_clique_hamiltonian(G, penalty=4.0)
 
-    assert ham.get_term_count() == 4
+    assert ham.term_count == 4
 
-    expected_data = [
-        2,
-        0,
-        0,
-        1.0,
-        0.0,  # ZII
-        0,
-        2,
-        0,
-        0.75,
-        0.0,  # IZI
-        0,
-        0,
-        2,
-        0.5,
-        0.0,  # IIZ
-        0,
-        0,
-        0,
-        -2.25,
-        0.0,  # III
-        4
-    ]
-    expected_ham = cudaq.SpinOperator(expected_data, 3)
+    expected_ham = spin.z(0) + 0.75 * spin.z(1) + 0.5 * spin.z(2) - 2.25
     assert ham == expected_ham
 
 
@@ -249,28 +173,9 @@ def test_clique_disconnected_nodes():
 
     ham = solvers.get_clique_hamiltonian(G, penalty=2.0)
 
-    assert ham.get_term_count() == 4
+    assert ham.term_count == 2
 
-    expected_data = [
-        2,
-        2,
-        0.5,
-        0.0,  # ZZ
-        2,
-        0,
-        0.0,
-        0.0,  # ZI
-        0,
-        2,
-        0.0,
-        0.0,  # IZ
-        0,
-        0,
-        -0.5,
-        0.0,  # II
-        4
-    ]
-    expected_ham = cudaq.SpinOperator(expected_data, 2)
+    expected_ham = 0.5 * spin.z(0) * spin.z(1) - 0.5
     assert ham == expected_ham
 
 
@@ -283,60 +188,18 @@ def test_clique_triangle_with_disconnected():
 
     ham = solvers.get_clique_hamiltonian(G, penalty=4.0)
 
-    assert ham.get_term_count() == 8
+    assert ham.term_count == 8
 
-    expected_data = [
-        0,
-        0,
-        2,
-        2,
-        1.0,
-        0.0,  # IIZZ
-        0,
-        2,
-        0,
-        2,
-        1.0,
-        0.0,  # IZIZ
-        2,
-        0,
-        0,
-        2,
-        1.0,
-        0.0,  # ZIIZ
-        0,
-        0,
-        0,
-        2,
-        -2.5,
-        0.,  # IIIZ
-        0,
-        2,
-        0,
-        0,
-        -0.5,
-        0.0,  # IZII
-        0,
-        0,
-        0,
-        0,
-        1.0,
-        0.0,  # IIII
-        0,
-        0,
-        2,
-        0,
-        -0.5,
-        0.0,  # IIZI
-        2,
-        0,
-        0,
-        0,
-        -0.5,
-        0.0,  # ZIII
-        8
-    ]
-    expected_ham = cudaq.SpinOperator(expected_data, 4)
+    # yapf: disable
+    expected_ham  =        spin.z(2) * spin.z(3)  # IIZZ
+    expected_ham +=        spin.z(1) * spin.z(3)  # IZIZ
+    expected_ham +=  1.0 * spin.z(0) * spin.z(3)  # ZIIZ
+    expected_ham += -2.5 * spin.z(3)              # IIIZ
+    expected_ham += -0.5 * spin.z(1)              # IZII
+    expected_ham +=  1.0                          # IIII
+    expected_ham += -0.5 * spin.z(2)              # IIZI
+    expected_ham += -0.5 * spin.z(0)              # ZIII
+    # yapf: enable
     assert ham == expected_ham
 
 
@@ -347,7 +210,10 @@ def test_clique_different_penalties():
     ham1 = solvers.get_clique_hamiltonian(G, penalty=2.0)
     ham2 = solvers.get_clique_hamiltonian(G, penalty=4.0)
 
-    assert ham1.get_term_count() == ham2.get_term_count()
+    # Note, they *would* have the same number of terms except terms with
+    # 0-valued coefficients will get trimmed, so that makes the results
+    # have a different number of terms.
+    assert ham1.term_count != ham2.term_count
     assert str(ham1) != str(ham2)
 
 
@@ -358,22 +224,7 @@ def test_clique_weighted_nodes():
 
     ham = solvers.get_clique_hamiltonian(G)
 
-    assert ham.get_term_count() == 3
+    assert ham.term_count == 3
 
-    expected_data = [
-        2,
-        0,
-        1.0,
-        0.0,  # ZI
-        0,
-        2,
-        1.5,
-        0.0,  # IZ
-        0,
-        0,
-        -2.5,
-        0.0,  # II
-        3
-    ]
-    expected_ham = cudaq.SpinOperator(expected_data, 2)
+    expected_ham = spin.z(0) + 1.5 * spin.z(1) - 2.5
     assert ham == expected_ham

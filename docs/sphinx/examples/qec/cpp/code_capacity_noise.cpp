@@ -5,14 +5,13 @@
  * This source code and the accompanying materials are made available under    *
  * the terms of the Apache License 2.0 which accompanies this distribution.    *
  ******************************************************************************/
-
+// [Begin Documentation]
 // This example shows the primary cudaq::qec types:
 // decoder, code
 //
 // Compile and run with
-// nvq++ --enable-mlir -lcudaq-qec code_capacity_noise.cpp -o
-// code_capacity_noise
-// ./code_capacity_noise
+// nvq++ --enable-mlir --target=stim -lcudaq-qec code_capacity_noise.cpp
+// ./a.out
 
 #include <algorithm>
 #include <cmath>

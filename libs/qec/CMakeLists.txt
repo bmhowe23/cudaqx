@@ -1,13 +1,22 @@
 # ============================================================================ #
-# Copyright (c) 2024 NVIDIA Corporation & Affiliates.                          #
+# Copyright (c) 2024 - 2025 NVIDIA Corporation & Affiliates.                   #
 # All rights reserved.                                                         #
 #                                                                              #
 # This source code and the accompanying materials are made available under     #
 # the terms of the Apache License 2.0 which accompanies this distribution.     #
 # ============================================================================ #
 
-# Requering the same version as the others.
+# Requiring the same version as the others.
 cmake_minimum_required(VERSION 3.28 FATAL_ERROR)
+
+# Set a default build type if none was specified. Must set this before
+# project().
+set(CMAKE_BUILD_TYPE "Release" CACHE STRING
+    "Choose the type of build, options are: None Debug Release RelWithDebInfo MinSizeRel")
+
+# Set a default install prefix if none was specified.
+set(CMAKE_INSTALL_PREFIX "$ENV{HOME}/.cudaqx" CACHE STRING
+    "Install path prefix, prepended onto install directories")
 
 # Project setup
 # ==============================================================================
@@ -52,6 +61,44 @@ option(CUDAQX_QEC_INSTALL_PYTHON
        "Install python files alongside the library."
        ${CUDAQX_INSTALL_PYTHON})
 
+# Check for CUDA Support (ref: cuda-quantum/CMakeLists.txt)
+# ==============================================================================
+include(CheckLanguage)
+check_language(CUDA)
+set(CUDA_FOUND FALSE)
+# Generate -gencode arch=compute_XX,code=sm_XX for list of supported
+# arch values.
+# List should be sorted in increasing order.
+function(CUDA_get_gencode_args out_args_string arch_values)
+  # allow the user to pass the list like a normal variable
+  set(arch_list ${arch_values} ${ARGN})
+  set(out "")
+  foreach(arch IN LISTS arch_list)
+    set(out "${out} -gencode arch=compute_${arch},code=sm_${arch}")
+  endforeach(arch)
+
+  # Repeat the last one as to ensure the generation of PTX for most
+  # recent virtual architecture for forward compatibility
+  list(GET arch_list -1 last_arch)
+  set(out "${out} -gencode arch=compute_${last_arch},code=compute_${last_arch}")
+  set(${out_args_string} ${out} PARENT_SCOPE)
+endfunction()
+
+if(CMAKE_CUDA_COMPILER)
+  if (NOT CUDA_TARGET_ARCHS)
+    # Volta, Ampere, Hopper
+    set(CUDA_TARGET_ARCHS  "70;80;90")
+  endif()
+  CUDA_get_gencode_args(CUDA_gencode_flags ${CUDA_TARGET_ARCHS})
+  set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -shared -std=c++17 ${CUDA_gencode_flags} --compiler-options -fPIC")
+
+  enable_language(CUDA)
+  set(CUDA_FOUND TRUE)
+  set(CMAKE_CUDA_STANDARD 17)
+  set(CMAKE_CUDA_STANDARD_REQUIRED TRUE)
+  message(STATUS "Cuda language found.")
+endif()
+
 # External Dependencies 
 # ==============================================================================
 
@@ -72,6 +119,26 @@ if (SKBUILD)
   set(CMAKE_INSTALL_INCLUDEDIR cudaq_qec/include)
   set(CMAKE_INSTALL_LIBDIR cudaq_qec/lib)
 endif()
+
+# Version
+# ==============================================================================
+if (DEFINED ENV{CUDAQX_QEC_VERSION})
+  # The version was defined by the user (likely a bot performing the build), so
+  # use the value provided as is.
+  set(CUDAQX_QEC_VERSION "$ENV{CUDAQX_QEC_VERSION}")
+  message(STATUS "CUDAQX_QEC_VERSION is set to ${CUDAQX_QEC_VERSION}")
+else()
+  # Otherwise, create a 0.0.0 version string.
+  set(CUDAQX_QEC_VERSION "0.0.0")
+endif()
+
+# Retrieve the commit SHA for full revision description
+execute_process(COMMAND git rev-parse --verify HEAD
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    OUTPUT_VARIABLE CUDAQX_QEC_COMMIT_SHA OUTPUT_STRIP_TRAILING_WHITESPACE)
+
+configure_file("${CMAKE_CURRENT_SOURCE_DIR}/lib/version.cpp.in"
+               "${CMAKE_CURRENT_BINARY_DIR}/lib/version.cpp" @ONLY)
 
 # Directory setup
 # ==============================================================================
@@ -108,4 +175,40 @@ if (CUDAQX_QEC_INCLUDE_TESTS)
     add_dependencies(CUDAQXUnitTests CUDAQXQECUnitTests)
   endif()
   add_subdirectory(unittests)
+endif()
+
+# External decoder setup
+# ==============================================================================
+# Make an external decoder available inside wheel. This will modify the rpath of
+# any .so files provided.
+function(add_target_libs_to_wheel decoder_lib)
+  if (NOT EXISTS "${decoder_lib}")
+    message(FATAL_ERROR "Invalid file path to external decoder: ${decoder_lib}.")
+  endif()
+  message(STATUS "Installing external decoder '${decoder_lib}'")
+  # Patch the file's rpath during configuration time
+  execute_process(
+    COMMAND patchelf --set-rpath $ORIGIN/.. "${decoder_lib}"
+    RESULT_VARIABLE patchelf_result
+    OUTPUT_VARIABLE patchelf_output
+    ERROR_VARIABLE patchelf_error
+  )
+  if (NOT patchelf_result EQUAL 0)
+    message(FATAL_ERROR "Failed to patch rpath on ${decoder_lib}: ${patchelf_error}")
+  endif()
+  message(STATUS "Successfully patched rpath on ${decoder_lib}")
+  install(FILES ${decoder_lib}
+          DESTINATION ${CMAKE_INSTALL_LIBDIR}/decoder-plugins
+          COMPONENT qec-lib-plugins)
+endfunction()
+
+if(NOT QEC_EXTERNAL_DECODERS)
+  SET(QEC_EXTERNAL_DECODERS $ENV{QEC_EXTERNAL_DECODERS})
+endif()
+
+if (QEC_EXTERNAL_DECODERS)
+  while(QEC_EXTERNAL_DECODERS)
+    list(POP_FRONT QEC_EXTERNAL_DECODERS LIB_FILE)
+    add_target_libs_to_wheel(${LIB_FILE})
+  endwhile()
 endif()

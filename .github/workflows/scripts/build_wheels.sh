@@ -1,13 +1,14 @@
 #!/bin/sh
 
 # ============================================================================ #
-# Copyright (c) 2022 - 2024 NVIDIA Corporation & Affiliates.                   #
+# Copyright (c) 2024 - 2025 NVIDIA Corporation & Affiliates.                   #
 # All rights reserved.                                                         #
 #                                                                              #
 # This source code and the accompanying materials are made available under     #
 # the terms of the Apache License 2.0 which accompanies this distribution.     #
 # ============================================================================ #
 
+set -e  # Exit immediately if a command exits with a non-zero status
 
 # ==============================================================================
 # Handling options
@@ -19,6 +20,12 @@ show_help() {
     echo "  --build-type      Build type (e.g., Release)"
     echo "  --cudaq-prefix    Path to CUDA-Q's install prefix"
     echo "                    (default: \$HOME/.cudaq)"
+    echo "  --python-version  Python version to build wheel for (e.g. 3.10)"
+    echo "  --devdeps         Build wheels suitable for internal testing"
+    echo "                    (not suitable for distribution but sometimes"
+    echo "                    helpful for debugging)"
+    echo "  --version         Specify version of wheels to produce"
+    echo "                    (default: 0.0.0)"
 }
 
 parse_options() {
@@ -42,6 +49,28 @@ parse_options() {
                     exit 1
                 fi
                 ;;
+            --python-version)
+                if [[ -n "$2" && "$2" != -* ]]; then
+                    python_version=("$2")
+                    shift 2
+                else
+                    echo "Error: Argument for $1 is missing" >&2
+                    exit 1
+                fi
+                ;;
+            --devdeps)
+                devdeps=true
+                shift 1
+                ;;
+            --version)
+                if [[ -n "$2" && "$2" != -* ]]; then
+                    wheels_version=("$2")
+                    shift 2
+                else
+                    echo "Error: Argument for $1 is missing" >&2
+                    exit 1
+                fi
+                ;;
             -*)
                 echo "Error: Unknown option $1" >&2
                 show_help
@@ -56,25 +85,38 @@ parse_options() {
     done
 }
 
-# Initialize an empty array to store libs names
+# Defaults
 cudaq_prefix=$HOME/.cudaq
 build_type=Release
+python_version=3.10
+devdeps=false
+wheels_version=0.0.0
 
 # Parse options
 parse_options "$@"
+
+echo "Building in $build_type mode for Python $python_version, version $wheels_version"
 
 # ==============================================================================
 # Helpers
 # ==============================================================================
 
-python_version=3.10
 python=python${python_version}
+ARCH=$(uname -m)
+PLAT_STR=""
 
-# We need to use a newer toolchain because CUDA-QX libraries rely on c++20
-source /opt/rh/gcc-toolset-11/enable
+if $devdeps; then
+  PLAT_STR="--plat manylinux_2_34_x86_64"
+else
+  # We need to use a newer toolchain because CUDA-QX libraries rely on c++20
+  source /opt/rh/gcc-toolset-11/enable
+fi
 
 export CC=gcc
 export CXX=g++
+export SETUPTOOLS_SCM_PRETEND_VERSION=$wheels_version
+export CUDAQX_QEC_VERSION=$wheels_version
+export CUDAQX_SOLVERS_VERSION=$wheels_version
 
 # ==============================================================================
 # QEC library
@@ -82,22 +124,20 @@ export CXX=g++
 
 cd libs/qec
 
-SKBUILD_CMAKE_ARGS="-DCUDAQ_DIR=$cudaq_prefix/lib/cmake/cudaq;-DCMAKE_CXX_COMPILER_EXTERNAL_TOOLCHAIN=/opt/rh/gcc-toolset-11/root/usr/lib/gcc/x86_64-redhat-linux/11/" \
+SKBUILD_CMAKE_ARGS="-DCUDAQ_DIR=$cudaq_prefix/lib/cmake/cudaq"
+if ! $devdeps; then
+  SKBUILD_CMAKE_ARGS+=";-DCMAKE_CXX_COMPILER_EXTERNAL_TOOLCHAIN=/opt/rh/gcc-toolset-11/root/usr/lib/gcc/${ARCH}-redhat-linux/11/"
+fi
+SKBUILD_CMAKE_ARGS+=";-DCMAKE_BUILD_TYPE=$build_type"
+export SKBUILD_CMAKE_ARGS
 $python -m build --wheel
 
+CUDAQ_EXCLUDE_LIST=$(for f in $(find $cudaq_prefix/lib -name "*.so" -printf "%P\n" | sort); do echo "--exclude $f"; done | tr '\n' ' ')
+
 LD_LIBRARY_PATH="$LD_LIBRARY_PATH:$(pwd)/_skbuild/lib" \
-$python -m auditwheel -v repair dist/*.whl \
-  --exclude libcudaq-em-default.so \
-  --exclude libcudaq-python-interop.so \
-  --exclude libcudaq-ensmallen.so \
-  --exclude libcudaq-common.so \
-  --exclude libcudaq-platform-default.so \
-  --exclude libnvqir-qpp.so \
-  --exclude libnvqir.so \
-  --exclude libcudaq.so \
-  --exclude libcudaq-spin.so \
-  --exclude libcudaq-nlopt.so \
-  --wheel-dir /wheels
+$python -m auditwheel -v repair dist/*.whl $CUDAQ_EXCLUDE_LIST \
+  --wheel-dir /wheels \
+  ${PLAT_STR}
 
 # ==============================================================================
 # Solvers library
@@ -105,23 +145,22 @@ $python -m auditwheel -v repair dist/*.whl \
 
 cd ../solvers
 
-SKBUILD_CMAKE_ARGS="-DCUDAQ_DIR=$cudaq_prefix/lib/cmake/cudaq;-DCMAKE_CXX_COMPILER_EXTERNAL_TOOLCHAIN=/opt/rh/gcc-toolset-11/root/usr/lib/gcc/x86_64-redhat-linux/11/" \
+SKBUILD_CMAKE_ARGS="-DCUDAQ_DIR=$cudaq_prefix/lib/cmake/cudaq"
+if ! $devdeps; then
+  SKBUILD_CMAKE_ARGS+=";-DCMAKE_CXX_COMPILER_EXTERNAL_TOOLCHAIN=/opt/rh/gcc-toolset-11/root/usr/lib/gcc/${ARCH}-redhat-linux/11/;"
+fi
+SKBUILD_CMAKE_ARGS+=";-DCMAKE_BUILD_TYPE=$build_type" \
+export SKBUILD_CMAKE_ARGS
 $python -m build --wheel
 
 LD_LIBRARY_PATH="$LD_LIBRARY_PATH:$(pwd)/_skbuild/lib" \
-$python -m auditwheel -v repair dist/*.whl \
-  --exclude libcudaq-em-default.so \
-  --exclude libcudaq-python-interop.so \
-  --exclude libcudaq-ensmallen.so \
-  --exclude libcudaq-common.so \
-  --exclude libcudaq-platform-default.so \
-  --exclude libnvqir-qpp.so \
-  --exclude libnvqir.so \
-  --exclude libcudaq.so \
-  --exclude libcudaq-spin.so \
-  --exclude libcudaq-nlopt.so \
+$python -m auditwheel -v repair dist/*.whl $CUDAQ_EXCLUDE_LIST \
   --exclude libgfortran.so.5 \
   --exclude libquadmath.so.0 \
   --exclude libmvec.so.1 \
-  --wheel-dir /wheels
+  --wheel-dir /wheels \
+  ${PLAT_STR}
 
+
+echo "Wheel builds are complete: "
+ls -la /wheels

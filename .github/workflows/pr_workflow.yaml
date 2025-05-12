@@ -19,6 +19,8 @@ jobs:
       build-all: ${{ steps.filter.outputs.build-all }}
       build-qec: ${{ steps.filter.outputs.build-qec }}
       build-solvers: ${{ steps.filter.outputs.build-solvers }}
+      build-examples-qec: ${{ steps.filter.outputs.build-examples-qec }}
+      build-examples-solvers: ${{ steps.filter.outputs.build-examples-solvers }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -40,6 +42,7 @@ jobs:
             build-cudaq:
               - '.github/workflows/cudaq_bump.yml'
               - '.github/actions/get-cudaq-build/**'
+              - '.github/workflows/scripts/build_cudaq.sh'
               - '.cudaq_version'
             build-docs:
               - '.github/workflows/docs.yaml'
@@ -79,12 +82,20 @@ jobs:
               - 'libs/solvers/**/*.in'
               - 'libs/solvers/**/*.py'
               - 'libs/solvers/**/CMakeLists.txt'
+            build-examples-qec:
+              - 'docs/sphinx/examples/qec/**'
+            build-examples-solvers:
+              - 'docs/sphinx/examples/solvers/**'
 
   build-cudaq:
     name: Build CUDAQ
     needs: [check-changes]
     if: needs.check-changes.outputs.build-cudaq == 'true'
-    runs-on: ${{ startsWith(github.repository, 'NVIDIA/cudaqx') && 'linux-amd64-cpu32' || 'ubuntu-latest' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: ['amd64', 'arm64']
+    runs-on: ${{ startsWith(github.repository, 'NVIDIA/cudaqx') && format('linux-{0}-cpu32', matrix.platform) || 'ubuntu-latest' }}
     container: ghcr.io/nvidia/cuda-quantum-devdeps:ext-cu12.0-gcc11-main
     permissions:
       actions: write
@@ -115,6 +126,7 @@ jobs:
           pr-number: ${{ fromJSON(steps.get-pr-info.outputs.pr-info).number }}
           save-build: true
           save-ccache: false
+          platform: ${{ matrix.platform }}
 
   build-docs:
     name: Docs
@@ -137,7 +149,11 @@ jobs:
     needs: [check-changes, build-cudaq]
     if: |
       !failure() && !cancelled() &&
-      (needs.check-changes.outputs.build-qec == 'true' || needs.check-changes.outputs.build-cudaq == 'true')
+      (
+        needs.check-changes.outputs.build-qec == 'true' || 
+        needs.check-changes.outputs.build-cudaq == 'true' ||
+        needs.check-changes.outputs.build-examples-qec == 'true'
+      )
     uses: ./.github/workflows/lib_qec.yaml
 
   build-solvers:
@@ -145,7 +161,11 @@ jobs:
     needs: [check-changes, build-cudaq]
     if: |
       !failure() && !cancelled() &&
-      (needs.check-changes.outputs.build-solvers == 'true' || needs.check-changes.outputs.build-cudaq == 'true')
+      (
+        needs.check-changes.outputs.build-solvers == 'true' || 
+        needs.check-changes.outputs.build-cudaq == 'true' ||
+        needs.check-changes.outputs.build-examples-solvers == 'true'
+      )
     uses: ./.github/workflows/lib_solvers.yaml
 
   # This job is used for branch protection checks.

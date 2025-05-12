@@ -1,5 +1,5 @@
 # ============================================================================ #
-# Copyright (c) 2024 NVIDIA Corporation & Affiliates.                          #
+# Copyright (c) 2024 - 2025 NVIDIA Corporation & Affiliates.                   #
 # All rights reserved.                                                         #
 #                                                                              #
 # This source code and the accompanying materials are made available under     #
@@ -44,7 +44,7 @@ def test_code_stabilizers():
     assert isinstance(stabilizers, list)
     assert len(stabilizers) == 6
     assert all(isinstance(stab, cudaq.Operator) for stab in stabilizers)
-    stabStrings = [s.to_string(False) for s in stabilizers]
+    stabStrings = [term.get_pauli_word() for s in stabilizers for term in s]
     expected = [
         "ZZZZIII", "XXXXIII", "IXXIXXI", "IIXXIXX", "IZZIZZI", "IIZZIZZ"
     ]
@@ -58,14 +58,14 @@ def test_sample_memory_circuit():
                                                        numShots=10,
                                                        numRounds=4)
     assert isinstance(syndromes, np.ndarray)
-    assert syndromes.shape == (30, 6)
+    assert syndromes.shape == (40, 6)
     print(syndromes)
 
     syndromes_with_op, dataResults = qec.sample_memory_circuit(
         steane, qec.operation.prep1, 10, 4)
     assert isinstance(syndromes_with_op, np.ndarray)
     print(syndromes_with_op)
-    assert syndromes_with_op.shape == (30, 6)
+    assert syndromes_with_op.shape == (40, 6)
 
 
 def test_custom_steane_code():
@@ -99,7 +99,7 @@ def test_noisy_simulation():
                                                        numRounds=4,
                                                        noise=noise)
     assert isinstance(syndromes, np.ndarray)
-    assert syndromes.shape == (30, 6)
+    assert syndromes.shape == (40, 6)
     print(syndromes)
     assert np.any(syndromes)
     cudaq.reset_target()
@@ -111,7 +111,7 @@ def test_python_code():
                                                        numShots=10,
                                                        numRounds=4)
     assert isinstance(syndromes, np.ndarray)
-    assert syndromes.shape == (30, 6)
+    assert syndromes.shape == (40, 6)
     print(syndromes)
     assert not np.any(syndromes)
 
@@ -222,6 +222,15 @@ def test_steane_code_capacity():
 
     assert np.array_equal(data, seeded_data)
     assert np.array_equal(syndromes, checked_syndromes)
+
+
+def test_het_map_from_kwargs_bool():
+    steane = qec.get_code("steane", bool_true=True, bool_false=False)
+    assert isinstance(steane, qec.Code)
+
+
+def test_version():
+    assert "CUDA-Q QEC" in qec.__version__
 
 
 if __name__ == "__main__":

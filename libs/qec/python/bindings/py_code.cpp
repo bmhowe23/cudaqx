@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2022 - 2023 NVIDIA Corporation & Affiliates.                  *
+ * Copyright (c) 2022 - 2025 NVIDIA Corporation & Affiliates.                  *
  * All rights reserved.                                                        *
  *                                                                             *
  * This source code and the accompanying materials are made available under    *
@@ -12,13 +12,14 @@
 #include <pybind11/stl.h>
 
 #include "common/Logger.h"
+
 #include "cudaq/python/PythonCppInterop.h"
+#include "cudaq/qec/experiments.h"
+#include "cudaq/qec/version.h"
 #include "cudaq/utils/registry.h"
 
-#include "cudaq/qec/experiments.h"
-
+#include "cuda-qx/core/kwargs_utils.h"
 #include "type_casters.h"
-#include "utils.h"
 
 namespace py = pybind11;
 using namespace cudaqx;
@@ -75,9 +76,14 @@ public:
           "{...}. Please provide the CUDA-Q kernels for the operation "
           "encodings.");
 
-    // Get the stabilizers
-    m_stabilizers =
-        registeredCode.attr("stabilizers").cast<std::vector<cudaq::spin_op>>();
+    // Get the stabilizers. First convert to spin_op_term's and then convert to
+    // spin_op's.
+    auto stab_terms = registeredCode.attr("stabilizers")
+                          .cast<std::vector<cudaq::spin_op_term>>();
+    m_stabilizers.reserve(stab_terms.size());
+    for (auto &term : stab_terms)
+      m_stabilizers.emplace_back(std::move(term));
+
     // Get the CUDA-Q kernels for the operation encodings
     auto opsDict = registeredCode.attr("operation_encodings").cast<py::dict>();
 
@@ -448,5 +454,10 @@ void bindCode(py::module &mod) {
       },
       "Sample syndrome measurements with code capacity noise.", py::arg("H"),
       py::arg("numShots"), py::arg("errorProb"), py::arg("seed") = py::none());
+
+  std::stringstream ss;
+  ss << "CUDA-Q QEC " << cudaq::qec::getVersion() << " ("
+     << cudaq::qec::getFullRepositoryVersion() << ")";
+  qecmod.attr("__version__") = ss.str();
 }
 } // namespace cudaq::qec

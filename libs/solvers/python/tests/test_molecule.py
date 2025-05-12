@@ -1,5 +1,5 @@
 # ============================================================================ #
-# Copyright (c) 2024 NVIDIA Corporation & Affiliates.                          #
+# Copyright (c) 2024 - 2025 NVIDIA Corporation & Affiliates.                   #
 # All rights reserved.                                                         #
 #                                                                              #
 # This source code and the accompanying materials are made available under     #
@@ -23,7 +23,7 @@ def test_operators():
                                        0,
                                        verbose=True,
                                        casci=True)
-    print(molecule.hamiltonian.to_string())
+    print(molecule.hamiltonian)
     print(molecule.energies)
     assert np.isclose(-1.11, molecule.energies['hf_energy'], atol=1e-2)
     assert np.isclose(-1.13, molecule.energies['fci_energy'], atol=1e-2)
@@ -53,21 +53,48 @@ def test_jordan_wigner():
                                        0,
                                        verbose=True,
                                        casci=True)
-    op = solvers.jordan_wigner(molecule.hpq, molecule.hpqrs,
-                               molecule.energies['nuclear_energy'])
+
+    op = solvers.jordan_wigner(molecule.hpq,
+                               molecule.hpqrs,
+                               core_energy=molecule.energies['nuclear_energy'],
+                               tol=1e-15)
     assert molecule.hamiltonian == op
     hpq = np.array(molecule.hpq)
     hpqrs = np.array(molecule.hpqrs)
     hpqJw = solvers.jordan_wigner(hpq, molecule.energies['nuclear_energy'])
     hpqrsJw = solvers.jordan_wigner(hpqrs)
     op2 = hpqJw + hpqrsJw
-    assert op2 == molecule.hamiltonian
+    assert np.allclose(op2.to_matrix(),
+                       molecule.hamiltonian.to_matrix(),
+                       atol=1e-12)
 
     spin_ham_matrix = molecule.hamiltonian.to_matrix()
     e, c = np.linalg.eig(spin_ham_matrix)
     assert np.isclose(np.min(e), -1.13717, rtol=1e-4)
 
     spin_ham_matrix = op2.to_matrix()
+    e, c = np.linalg.eig(spin_ham_matrix)
+    assert np.isclose(np.min(e), -1.13717, rtol=1e-4)
+
+
+def test_bravyi_kitaev():
+    geometry = [('H', (0., 0., 0.)), ('H', (0., 0., .7474))]
+    molecule = solvers.create_molecule(geometry,
+                                       'sto-3g',
+                                       0,
+                                       0,
+                                       verbose=True,
+                                       casci=True)
+
+    op = solvers.bravyi_kitaev(molecule.hpq,
+                               molecule.hpqrs,
+                               core_energy=molecule.energies['nuclear_energy'],
+                               tol=1e-15)
+    spin_ham_matrix = molecule.hamiltonian.to_matrix()
+    e, c = np.linalg.eig(spin_ham_matrix)
+    assert np.isclose(np.min(e), -1.13717, rtol=1e-4)
+
+    spin_ham_matrix = op.to_matrix()
     e, c = np.linalg.eig(spin_ham_matrix)
     assert np.isclose(np.min(e), -1.13717, rtol=1e-4)
 
@@ -110,12 +137,14 @@ def test_jordan_wigner_as():
     op = solvers.jordan_wigner(molecule.hpq, molecule.hpqrs,
                                molecule.energies['core_energy'])
 
-    print(op.to_string())
+    print(op)
     assert molecule.hamiltonian == op
 
     hpq = np.array(molecule.hpq)
     hpqrs = np.array(molecule.hpqrs)
-    hpqJw = solvers.jordan_wigner(hpq, molecule.energies['core_energy'])
+    hpqJw = solvers.jordan_wigner(hpq,
+                                  core_energy=molecule.energies['core_energy'],
+                                  tolerance=1e-15)
     hpqrsJw = solvers.jordan_wigner(hpqrs)
     op2 = hpqJw + hpqrsJw
 
@@ -127,6 +156,31 @@ def test_jordan_wigner_as():
     spin_ham_matrix = op2.to_matrix()
     e, c = np.linalg.eig(spin_ham_matrix)
     print(np.min(e))
+    assert np.isclose(np.min(e), -107.542198, rtol=1e-4)
+
+
+def test_bravyi_kitaev_as():
+    geometry = [('N', (0.0, 0.0, 0.5600)), ('N', (0.0, 0.0, -0.5600))]
+    molecule = solvers.create_molecule(geometry,
+                                       'sto-3g',
+                                       0,
+                                       0,
+                                       nele_cas=4,
+                                       norb_cas=4,
+                                       ccsd=True,
+                                       casci=True,
+                                       verbose=True)
+
+    op = solvers.bravyi_kitaev(molecule.hpq,
+                               molecule.hpqrs,
+                               core_energy=molecule.energies['core_energy'],
+                               tol=1e-15)
+    spin_ham_matrix = molecule.hamiltonian.to_matrix()
+    e, c = np.linalg.eig(spin_ham_matrix)
+    assert np.isclose(np.min(e), -107.542198, rtol=1e-4)
+
+    spin_ham_matrix = op.to_matrix()
+    e, c = np.linalg.eig(spin_ham_matrix)
     assert np.isclose(np.min(e), -107.542198, rtol=1e-4)
 
 

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2022 - 2023 NVIDIA Corporation & Affiliates.                  *
+ * Copyright (c) 2022 - 2025 NVIDIA Corporation & Affiliates.                  *
  * All rights reserved.                                                        *
  *                                                                             *
  * This source code and the accompanying materials are made available under    *
@@ -14,9 +14,10 @@
 #include "common/Logger.h"
 
 #include "cudaq/qec/decoder.h"
+#include "cudaq/qec/plugin_loader.h"
 
+#include "cuda-qx/core/kwargs_utils.h"
 #include "type_casters.h"
-#include "utils.h"
 
 namespace py = pybind11;
 using namespace cudaqx;
@@ -70,10 +71,18 @@ std::unordered_map<std::string, std::function<py::object(
     PyDecoderRegistry::registry;
 
 void bindDecoder(py::module &mod) {
+  // Required by all plugin classes
+  auto cleanup_callback = []() {
+    // Change the type to the correct plugin type
+    cleanup_plugins(PluginType::DECODER);
+  };
+  // This ensures the correct shutdown sequence
+  mod.add_object("_cleanup", py::capsule(cleanup_callback));
 
   auto qecmod = py::hasattr(mod, "qecrt")
                     ? mod.attr("qecrt").cast<py::module_>()
                     : mod.def_submodule("qecrt");
+
   py::class_<decoder_result>(qecmod, "DecoderResult", R"pbdoc(
     A class representing the results of a quantum error correction decoding operation.
 
@@ -115,6 +124,19 @@ void bindDecoder(py::module &mod) {
         return py::iter(py::make_tuple(r.converged, r.result));
       });
 
+  py::class_<async_decoder_result>(qecmod, "AsyncDecoderResult",
+                                   R"pbdoc(
+      A future-like object that holds the result of an asynchronous decoder call.
+      Call get() to block until the result is available.
+    )pbdoc")
+      .def("get", &async_decoder_result::get,
+           py::call_guard<py::gil_scoped_release>(),
+           "Return the decoder result (blocking until ready)")
+      .def("ready", &async_decoder_result::ready,
+           py::call_guard<py::gil_scoped_release>(),
+           "Return True if the asynchronous decoder result is ready, False "
+           "otherwise");
+
   py::class_<decoder, PyDecoder>(
       qecmod, "Decoder", "Represents a decoder for quantum error correction")
       .def(py::init_alias<const py::array_t<uint8_t> &>())
@@ -125,10 +147,29 @@ void bindDecoder(py::module &mod) {
           },
           "Decode the given syndrome to determine the error correction",
           py::arg("syndrome"))
+      .def(
+          "decode_async",
+          [](decoder &dec,
+             const std::vector<float_t> &syndrome) -> async_decoder_result {
+            // Release the GIL while launching asynchronous work.
+            py::gil_scoped_release release;
+            return async_decoder_result(dec.decode_async(syndrome));
+          },
+          "Asynchronously decode the given syndrome", py::arg("syndrome"))
+      .def(
+          "decode_batch",
+          [](decoder &decoder,
+             const std::vector<std::vector<float_t>> &syndrome) {
+            return decoder.decode_batch(syndrome);
+          },
+          "Decode multiple syndromes and return the results",
+          py::arg("syndrome"))
       .def("get_block_size", &decoder::get_block_size,
            "Get the size of the code block")
       .def("get_syndrome_size", &decoder::get_syndrome_size,
-           "Get the size of the syndrome");
+           "Get the size of the syndrome")
+      .def("get_version", &decoder::get_version,
+           "Get the version of the decoder");
 
   // Expose decorator function that handles inheritance
   qecmod.def("decoder", [&](const std::string &name) {
@@ -170,6 +211,22 @@ void bindDecoder(py::module &mod) {
 
         py::buffer_info buf = H.request();
 
+        if (buf.ndim != 2) {
+          throw std::runtime_error(
+              "Parity check matrix must be 2-dimensional.");
+        }
+
+        if (buf.itemsize != sizeof(uint8_t)) {
+          throw std::runtime_error(
+              "Parity check matrix must be an array of uint8_t.");
+        }
+
+        if (buf.strides[0] == buf.itemsize) {
+          throw std::runtime_error(
+              "Parity check matrix must be in row-major order, but "
+              "column-major order was detected.");
+        }
+
         // Create a vector of the array dimensions
         std::vector<std::size_t> shape;
         for (py::ssize_t d : buf.shape) {
@@ -183,7 +240,8 @@ void bindDecoder(py::module &mod) {
         return get_decoder(name, tensor_H, hetMapFromKwargs(options));
       },
       "Get a decoder by name with a given parity check matrix"
-      "and optional decoder-specific parameters");
+      "and optional decoder-specific parameters. Note: the parity check matrix "
+      "must be in row-major order.");
 }
 
 } // namespace cudaq::qec

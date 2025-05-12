@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2022 - 2024 NVIDIA Corporation & Affiliates.                  *
+ * Copyright (c) 2022 - 2025 NVIDIA Corporation & Affiliates.                  *
  * All rights reserved.                                                        *
  *                                                                             *
  * This source code and the accompanying materials are made available under    *
@@ -7,7 +7,12 @@
  ******************************************************************************/
 
 #include "cudaq/qec/decoder.h"
+#include "cuda-qx/core/library_utils.h"
+#include "cudaq/qec/plugin_loader.h"
+#include "cudaq/qec/version.h"
 #include <cassert>
+#include <dlfcn.h>
+#include <filesystem>
 #include <vector>
 
 INSTANTIATE_REGISTRY(cudaq::qec::decoder, const cudaqx::tensor<uint8_t> &)
@@ -42,7 +47,7 @@ decoder_result decoder::decode(const cudaqx::tensor<uint8_t> &syndrome) {
 // Provide a trivial implementation of the multi-syndrome decoder. Child classes
 // should override this if they can do it more efficiently than this.
 std::vector<decoder_result>
-decoder::decode_multi(const std::vector<std::vector<float_t>> &syndrome) {
+decoder::decode_batch(const std::vector<std::vector<float_t>> &syndrome) {
   std::vector<decoder_result> result;
   result.reserve(syndrome.size());
   for (auto &s : syndrome)
@@ -50,9 +55,17 @@ decoder::decode_multi(const std::vector<std::vector<float_t>> &syndrome) {
   return result;
 }
 
+std::string decoder::get_version() const {
+  std::stringstream ss;
+  ss << "CUDA-Q QEC Base Decoder Interface " << cudaq::qec::getVersion() << " ("
+     << cudaq::qec::getFullRepositoryVersion() << ")";
+  return ss.str();
+}
+
 std::future<decoder_result>
 decoder::decode_async(const std::vector<float_t> &syndrome) {
-  return std::async(std::launch::async, [&] { return this->decode(syndrome); });
+  return std::async(std::launch::async,
+                    [this, syndrome] { return this->decode(syndrome); });
 }
 
 std::unique_ptr<decoder>
@@ -69,5 +82,20 @@ std::unique_ptr<decoder> get_decoder(const std::string &name,
                                      const cudaqx::tensor<uint8_t> &H,
                                      const cudaqx::heterogeneous_map options) {
   return decoder::get(name, H, options);
+}
+
+// Constructor function for auto-loading plugins
+__attribute__((constructor)) void load_decoder_plugins() {
+  // Load plugins from the decoder-specific plugin directory
+  std::filesystem::path libPath{cudaqx::__internal__::getCUDAQXLibraryPath(
+      cudaqx::__internal__::CUDAQXLibraryType::QEC)};
+  auto pluginPath = libPath.parent_path() / "decoder-plugins";
+  load_plugins(pluginPath.string(), PluginType::DECODER);
+}
+
+// Destructor function to clean up only decoder plugins
+__attribute__((destructor)) void cleanup_decoder_plugins() {
+  // Clean up decoder-specific plugins
+  cleanup_plugins(PluginType::DECODER);
 }
 } // namespace cudaq::qec

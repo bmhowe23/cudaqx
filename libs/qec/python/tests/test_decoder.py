@@ -1,5 +1,5 @@
 # ============================================================================ #
-# Copyright (c) 2024 NVIDIA Corporation & Affiliates.                          #
+# Copyright (c) 2024 - 2025 NVIDIA Corporation & Affiliates.                   #
 # All rights reserved.                                                         #
 #                                                                              #
 # This source code and the accompanying materials are made available under     #
@@ -29,6 +29,40 @@ def test_decoder_initialization():
     assert hasattr(decoder, 'decode')
 
 
+def test_decoder_initialization_with_error():
+    # We do not support column-major order (Fortran order)
+    H_bad = np.zeros((10, 20), dtype=np.uint8, order='F')
+    with pytest.raises(RuntimeError) as e:
+        decoder = qec.get_decoder('single_error_lut_example', H_bad)
+
+
+def test_decoder_api():
+    # Test decode_batch
+    decoder = qec.get_decoder('example_byod', H)
+    result = decoder.decode_batch(
+        [create_test_syndrome(), create_test_syndrome()])
+    assert len(result) == 2
+    for r in result:
+        assert hasattr(r, 'converged')
+        assert hasattr(r, 'result')
+        assert isinstance(r.converged, bool)
+        assert isinstance(r.result, list)
+        assert len(r.result) == 10
+
+    # Test decode_async
+    decoder = qec.get_decoder('example_byod', H)
+    result_async = decoder.decode_async(create_test_syndrome())
+    assert hasattr(result_async, 'get')
+    assert hasattr(result_async, 'ready')
+
+    result = result_async.get()
+    assert hasattr(result, 'converged')
+    assert hasattr(result, 'result')
+    assert isinstance(result.converged, bool)
+    assert isinstance(result.result, list)
+    assert len(result.result) == 10
+
+
 def test_decoder_result_structure():
     decoder = qec.get_decoder('example_byod', H)
     result = decoder.decode(create_test_syndrome())
@@ -38,6 +72,57 @@ def test_decoder_result_structure():
     assert isinstance(result.converged, bool)
     assert isinstance(result.result, list)
     assert len(result.result) == 10
+
+
+def test_decoder_plugin_initialization():
+    decoder = qec.get_decoder('single_error_lut_example', H)
+    assert decoder is not None
+    assert hasattr(decoder, 'decode')
+
+
+def test_decoder_plugin_initialization_with_double_vec():
+    vec = np.array([1, 2, 3], dtype=np.float64)
+    decoder = qec.get_decoder('single_error_lut_example', H, vec=vec)
+    assert decoder is not None
+    assert hasattr(decoder, 'decode')
+
+
+def test_decoder_plugin_initialization_with_float_vec():
+    vec = np.array([1, 2, 3], dtype=np.float32)
+    decoder = qec.get_decoder('single_error_lut_example', H, vec=vec)
+    assert decoder is not None
+    assert hasattr(decoder, 'decode')
+
+
+def test_decoder_plugin_initialization_with_uint8_vec():
+    vec = np.array([1, 2, 3], dtype=np.uint8)
+    decoder = qec.get_decoder('single_error_lut_example', H, vec=vec)
+    assert decoder is not None
+    assert hasattr(decoder, 'decode')
+
+
+def test_decoder_plugin_initialization_with_int32_vec():
+    vec = np.array([1, 2, 3], dtype=np.int32)
+    decoder = qec.get_decoder('single_error_lut_example', H, vec=vec)
+    assert decoder is not None
+    assert hasattr(decoder, 'decode')
+
+
+def test_decoder_plugin_initialization_with_int16_vec():
+    vec = np.array([1, 2, 3], dtype=np.int16)
+    with pytest.raises(RuntimeError) as e:
+        decoder = qec.get_decoder('single_error_lut_example', H, vec=vec)
+    assert "Unsupported array data type" in repr(e)
+
+
+def test_decoder_plugin_result_structure():
+    decoder = qec.get_decoder('single_error_lut_example', H)
+    result = decoder.decode(create_test_syndrome())
+
+    assert hasattr(result, 'converged')
+    assert hasattr(result, 'result')
+    assert isinstance(result.converged, bool)
+    assert isinstance(result.result, list)
 
 
 def test_decoder_result_values():
@@ -101,6 +186,11 @@ def test_pass_weights():
         (1 - error_probability) / error_probability)
     decoder = qec.get_decoder('example_byod', H, weights=weights)
     # Test is that no error is thrown
+
+
+def test_version():
+    decoder = qec.get_decoder('example_byod', H)
+    assert "CUDA-Q QEC Base Decoder" in decoder.get_version()
 
 
 if __name__ == "__main__":

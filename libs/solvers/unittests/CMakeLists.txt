@@ -1,5 +1,5 @@
 # ============================================================================ #
-# Copyright (c) 2024 NVIDIA Corporation & Affiliates.                          #
+# Copyright (c) 2024 - 2025 NVIDIA Corporation & Affiliates.                   #
 # All rights reserved.                                                         #
 #                                                                              #
 # This source code and the accompanying materials are made available under     #
@@ -12,7 +12,7 @@
 FetchContent_Declare(
   googletest
   GIT_REPOSITORY https://github.com/google/googletest.git
-  GIT_TAG v1.15.2
+  GIT_TAG v1.17.0
   EXCLUDE_FROM_ALL
 )
 FetchContent_MakeAvailable(googletest)
@@ -43,6 +43,11 @@ add_executable(test_molecule test_molecule.cpp)
 target_link_libraries(test_molecule PRIVATE GTest::gtest_main cudaq-solvers)
 add_dependencies(CUDAQXSolversUnitTests test_molecule)
 gtest_discover_tests(test_molecule)
+
+add_executable(test_bravyi_kitaev test_bravyi_kitaev.cpp)
+target_link_libraries(test_bravyi_kitaev PRIVATE GTest::gtest_main cudaq-solvers)
+add_dependencies(CUDAQXSolversUnitTests test_bravyi_kitaev)
+gtest_discover_tests(test_bravyi_kitaev)
 
 add_executable(test_optimizers test_optimizers.cpp)
 target_link_libraries(test_optimizers PRIVATE GTest::gtest_main cudaq-solvers)

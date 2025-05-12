@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2022 - 2023 NVIDIA Corporation & Affiliates.                  *
+ * Copyright (c) 2022 - 2025 NVIDIA Corporation & Affiliates.                  *
  * All rights reserved.                                                        *
  *                                                                             *
  * This source code and the accompanying materials are made available under    *
@@ -8,11 +8,11 @@
 
 #include "nlohmann/json.hpp"
 
+#include "cuda-qx/core/library_utils.h"
 #include "cuda-qx/core/tensor.h"
+#include "process.h"
 #include "cudaq/solvers/operators/molecule/fermion_compiler.h"
 #include "cudaq/solvers/operators/molecule/molecule_package_driver.h"
-#include "library_utils.h"
-#include "process.h"
 
 #include "common/Logger.h"
 #include "common/RestClient.h"
@@ -59,13 +59,17 @@ public:
     return true;
   }
 
-  std::unique_ptr<tear_down> make_available() const override {
+  std::unique_ptr<tear_down>
+  make_available(const std::string &python_path) const override {
 
     // Start up the web service, if failed, return nullptr
-    std::filesystem::path libPath{cudaqx::__internal__::getCUDAQXLibraryPath()};
+    std::filesystem::path libPath{cudaqx::__internal__::getCUDAQXLibraryPath(
+        cudaqx::__internal__::CUDAQXLibraryType::Solvers)};
     auto cudaqLibPath = libPath.parent_path();
     auto cudaqPySCFTool = cudaqLibPath.parent_path() / "bin" / "cudaq-pyscf";
     auto argString = cudaqPySCFTool.string() + " --server-mode";
+    if (!python_path.empty())
+      argString = python_path + " " + argString;
     int a0, a1;
     auto [ret, msg] = cudaqx::launchProcess(argString.c_str());
     if (ret == -1)
@@ -173,7 +177,7 @@ public:
       hpqrsValues.push_back(
           {element[0].get<double>(), element[1].get<double>()});
 
-    tensor hpq, hpqrs;
+    cudaqx::tensor hpq, hpqrs;
     hpq.copy(hpqValues.data(), {numQubits, numQubits});
     hpqrs.copy(hpqrsValues.data(),
                {numQubits, numQubits, numQubits, numQubits});

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2022 - 2023 NVIDIA Corporation & Affiliates.                  *
+ * Copyright (c) 2024 - 2025 NVIDIA Corporation & Affiliates.                  *
  * All rights reserved.                                                        *
  *                                                                             *
  * This source code and the accompanying materials are made available under    *
@@ -16,6 +16,7 @@
 #include "cudaq/solvers/adapt.h"
 #include "cudaq/solvers/qaoa.h"
 #include "cudaq/solvers/stateprep/uccsd.h"
+#include "cudaq/solvers/version.h"
 #include "cudaq/solvers/vqe.h"
 
 #include "cudaq/solvers/operators/graph/clique.h"
@@ -24,8 +25,8 @@
 #include "cudaq/solvers/operators/molecule/fermion_compiler.h"
 #include "cudaq/solvers/operators/operator_pool.h"
 
-#include "bindings/utils/kwargs_utils.h"
 #include "bindings/utils/type_casters.h"
+#include "cuda-qx/core/kwargs_utils.h"
 
 namespace py = pybind11;
 
@@ -132,6 +133,9 @@ public:
     if (kwargs.contains("verbose"))
       kwargs.attr("pop")("verbose");
 
+    if (kwargs.contains("shots"))
+      kwargs.attr("pop")("shots");
+
     if (initParams.empty())
       initParams.resize(dim);
 
@@ -203,7 +207,8 @@ void bindOperators(py::module &mod) {
 
   mod.def(
       "jordan_wigner",
-      [](py::buffer hpq, py::buffer hpqrs, double core_energy = 0.0) {
+      [](py::buffer hpq, py::buffer hpqrs, double core_energy = 0.0,
+         py::kwargs options) {
         auto hpqInfo = hpq.request();
         auto hpqrsInfo = hpqrs.request();
         auto *hpqData = reinterpret_cast<std::complex<double> *>(hpqInfo.ptr);
@@ -216,7 +221,7 @@ void bindOperators(py::module &mod) {
                       {hpqrsInfo.shape.begin(), hpqrsInfo.shape.end()});
 
         return fermion_compiler::get("jordan_wigner")
-            ->generate(core_energy, hpqT, hpqrsT);
+            ->generate(core_energy, hpqT, hpqrsT, hetMapFromKwargs(options));
       },
       py::arg("hpq"), py::arg("hpqrs"), py::arg("core_energy") = 0.0,
       R"#(
@@ -235,6 +240,11 @@ hpqrs : numpy.ndarray
     Shape should be (N, N, N, N) where N is the number of spin molecular orbitals.
 core_energy : float, optional
     The core energy of the system when using active space Hamiltonian, nuclear energy otherwise. Default is 0.0.
+tolerance : float, optional
+    The threshold value for ignoring small coefficients.
+    Can also be specified using 'tol'.
+    Coefficients with absolute values smaller than this tolerance are considered as zero.
+    Default is 1e-15.
 
 Returns:
 --------
@@ -254,7 +264,7 @@ Examples:
 >>> h1 = np.array([[0, 1], [1, 0]], dtype=np.complex128)
 >>> h2 = np.zeros((2, 2, 2, 2), dtype=np.complex128)
 >>> h2[0, 1, 1, 0] = h2[1, 0, 0, 1] = 0.5
->>> qubit_op = jordan_wigner(h1, h2, core_energy=0.1)
+>>> qubit_op = jordan_wigner(h1, h2, core_energy=0.1, tolerance=1e-14)
 
 Notes:
 ------
@@ -267,7 +277,7 @@ Notes:
 
   mod.def(
       "jordan_wigner",
-      [](py::buffer buffer, double core_energy = 0.0) {
+      [](py::buffer buffer, double core_energy = 0.0, py::kwargs options) {
         auto info = buffer.request();
         auto *data = reinterpret_cast<std::complex<double> *>(info.ptr);
         std::size_t size = 1;
@@ -279,14 +289,14 @@ Notes:
           cudaqx::tensor hpq, hpqrs({dim, dim, dim, dim});
           hpq.borrow(data, {info.shape.begin(), info.shape.end()});
           return fermion_compiler::get("jordan_wigner")
-              ->generate(core_energy, hpq, hpqrs);
+              ->generate(core_energy, hpq, hpqrs, hetMapFromKwargs(options));
         }
 
         std::size_t dim = info.shape[0];
         cudaqx::tensor hpq({dim, dim}), hpqrs;
         hpqrs.borrow(data, {info.shape.begin(), info.shape.end()});
         return fermion_compiler::get("jordan_wigner")
-            ->generate(core_energy, hpq, hpqrs);
+            ->generate(core_energy, hpq, hpqrs, hetMapFromKwargs(options));
       },
       py::arg("hpq"), py::arg("core_energy") = 0.0,
       R"#(
@@ -304,6 +314,11 @@ hpq : numpy.ndarray
     where N is the number of orbitals.
 core_energy : float, optional
     The core energy of the system. Default is 0.0.
+tolerance : float, optional
+    The threshold value for ignoring small coefficients.
+    Can also be specified using 'tol'.
+    Coefficients with absolute values smaller than this tolerance are considered as zero.
+    Default is 1e-15.
 
 Returns:
 --------
@@ -322,7 +337,7 @@ Examples:
 >>> import numpy as np
 >>> # One-body integrals
 >>> h1 = np.array([[0, 1], [1, 0]], dtype=np.complex128)
->>> qubit_op1 = jordan_wigner(h1, core_energy=0.1)
+>>> qubit_op1 = jordan_wigner(h1, core_energy=0.1, tolerance=1e-14)
 
 >>> # Two-body integrals
 >>> h2 = np.zeros((2, 2, 2, 2), dtype=np.complex128)
@@ -337,6 +352,158 @@ Notes:
 - For one-body integrals input, a zero-initialized two-body tensor is used internally.
 - For two-body integrals input, a zero-initialized one-body tensor is used internally.
 - This function uses the "jordan_wigner" fermion compiler internally to perform
+  the transformation.
+- The resulting qubit operator can be used directly in quantum algorithms or
+  further manipulated using CUDA Quantum operations.
+)#");
+
+  mod.def(
+      "bravyi_kitaev",
+      [](py::buffer hpq, py::buffer hpqrs, double core_energy = 0.0,
+         py::kwargs options) {
+        auto hpqInfo = hpq.request();
+        auto hpqrsInfo = hpqrs.request();
+        auto *hpqData = reinterpret_cast<std::complex<double> *>(hpqInfo.ptr);
+        auto *hpqrsData =
+            reinterpret_cast<std::complex<double> *>(hpqrsInfo.ptr);
+
+        cudaqx::tensor hpqT, hpqrsT;
+        hpqT.borrow(hpqData, {hpqInfo.shape.begin(), hpqInfo.shape.end()});
+        hpqrsT.borrow(hpqrsData,
+                      {hpqrsInfo.shape.begin(), hpqrsInfo.shape.end()});
+
+        return fermion_compiler::get("bravyi_kitaev")
+            ->generate(core_energy, hpqT, hpqrsT, hetMapFromKwargs(options));
+      },
+      py::arg("hpq"), py::arg("hpqrs"), py::arg("core_energy") = 0.0,
+      R"#(
+Perform the Bravyi-Kitaev transformation on fermionic operators.
+
+This function applies the Bravyi-Kitaev transformation to convert fermionic operators
+(represented by one- and two-body integrals) into qubit operators.
+
+Parameters:
+-----------
+hpq : numpy.ndarray
+    A 2D complex numpy array representing the one-body integrals.
+    Shape should be (N, N) where N is the number of spin molecular orbitals.
+hpqrs : numpy.ndarray
+    A 4D complex numpy array representing the two-body integrals.
+    Shape should be (N, N, N, N) where N is the number of spin molecular orbitals.
+core_energy : float, optional
+    The core energy of the system when using active space Hamiltonian, nuclear energy otherwise. Default is 0.0.
+tolerance : float, optional
+    The threshold value for ignoring small coefficients.
+    Can also be specified using 'tol'.
+    Coefficients with absolute values smaller than this tolerance are considered as zero.
+    Default is 1e-15.
+
+Returns:
+--------
+cudaq.SpinOperator
+    A qubit operator (spin operator) resulting from the Bravyi-Kitaev transformation.
+
+Raises:
+-------
+ValueError
+    If the input arrays have incorrect shapes or types.
+RuntimeError
+    If the Bravyi-Kitaev transformation fails for any reason.
+
+Examples:
+---------
+>>> import numpy as np
+>>> h1 = np.array([[0, 1], [1, 0]], dtype=np.complex128)
+>>> h2 = np.zeros((2, 2, 2, 2), dtype=np.complex128)
+>>> h2[0, 1, 1, 0] = h2[1, 0, 0, 1] = 0.5
+>>> qubit_op = bravyi_kitaev(h1, h2, core_energy=0.1, tolerance=1e-14)
+
+Notes:
+------
+- The input arrays `hpq` and `hpqrs` must be contiguous and in row-major order.
+- This function uses the "bravyi_kitaev" fermion compiler internally to perform
+  the transformation.
+- The resulting qubit operator can be used directly in quantum algorithms or
+  further manipulated using CUDA Quantum operations.
+)#");
+
+  mod.def(
+      "bravyi_kitaev",
+      [](py::buffer buffer, double core_energy = 0.0, py::kwargs options) {
+        auto info = buffer.request();
+        auto *data = reinterpret_cast<std::complex<double> *>(info.ptr);
+        std::size_t size = 1;
+        for (auto &s : info.shape)
+          size *= s;
+        std::vector<std::complex<double>> vec(data, data + size);
+        if (info.shape.size() == 2) {
+          std::size_t dim = info.shape[0];
+          cudaqx::tensor hpq, hpqrs({dim, dim, dim, dim});
+          hpq.borrow(data, {info.shape.begin(), info.shape.end()});
+          return fermion_compiler::get("bravyi_kitaev")
+              ->generate(core_energy, hpq, hpqrs, hetMapFromKwargs(options));
+        }
+
+        std::size_t dim = info.shape[0];
+        cudaqx::tensor hpq({dim, dim}), hpqrs;
+        hpqrs.borrow(data, {info.shape.begin(), info.shape.end()});
+        return fermion_compiler::get("bravyi_kitaev")
+            ->generate(core_energy, hpq, hpqrs, hetMapFromKwargs(options));
+      },
+      py::arg("hpq"), py::arg("core_energy") = 0.0,
+      R"#(
+Perform the Bravyi-Kitaev transformation on fermionic operators.
+
+This function applies the Bravyi-Kitaev transformation to convert fermionic operators
+(represented by either one-body or two-body integrals) into qubit operators.
+
+Parameters:
+-----------
+hpq : numpy.ndarray
+    A complex numpy array representing either:
+    - One-body integrals: 2D array with shape (N, N)
+    - Two-body integrals: 4D array with shape (N, N, N, N)
+    where N is the number of orbitals.
+core_energy : float, optional
+    The core energy of the system. Default is 0.0.
+tolerance : float, optional
+    The threshold value for ignoring small coefficients.
+    Can also be specified using 'tol'.
+    Coefficients with absolute values smaller than this tolerance are considered as zero.
+    Default is 1e-15.
+
+Returns:
+--------
+cudaq.SpinOperator
+    A qubit operator (spin operator) resulting from the Bravyi-Kitaev transformation.
+
+Raises:
+-------
+ValueError
+    If the input array has an incorrect shape or type.
+RuntimeError
+    If the Bravyi-Kitaev transformation fails for any reason.
+
+Examples:
+---------
+>>> import numpy as np
+>>> # One-body integrals
+>>> h1 = np.array([[0, 1], [1, 0]], dtype=np.complex128)
+>>> qubit_op1 = bravyi_kitaev(h1, core_energy=0.1, tolerance=1e-14)
+
+>>> # Two-body integrals
+>>> h2 = np.zeros((2, 2, 2, 2), dtype=np.complex128)
+>>> h2[0, 1, 1, 0] = h2[1, 0, 0, 1] = 0.5
+>>> qubit_op2 = bravyi_kitaev(h2)
+
+Notes:
+------
+- The input array must be contiguous and in row-major order.
+- This function automatically detects whether the input represents one-body or 
+  two-body integrals based on its shape.
+- For one-body integrals input, a zero-initialized two-body tensor is used internally.
+- For two-body integrals input, a zero-initialized one-body tensor is used internally.
+- This function uses the "bravyi_kitaev" fermion compiler internally to perform
   the transformation.
 - The resulting qubit operator can be used directly in quantum algorithms or
   further manipulated using CUDA Quantum operations.
@@ -423,6 +590,15 @@ Notes:
     inOptions.integrals_casscf =
         getValueOr<bool>(options, "integrals_casscf", false);
     inOptions.verbose = getValueOr<bool>(options, "verbose", false);
+
+    // We are already running in a specific Python environment. Get the fully
+    // qualified path to the executable and populate it here so that we don't
+    // accidentally use the wrong Python environment for any child processes
+    // that may be spawned.
+    inOptions.python_path = []() {
+      auto sys = py::module::import("sys");
+      return sys.attr("executable").cast<std::string>();
+    }();
 
     if (inOptions.verbose)
       inOptions.dump();
@@ -632,6 +808,8 @@ The exact set of possible types may depend on the specific optimization algorith
           optOptions.insert(
               "max_iterations",
               cudaqx::getValueOr<int>(options, "max_iterations", -1));
+        // in case the privded optimizer is not a scipy one
+        optOptions.insert("tol", getValueOr<double>(options, "tol", 1e-12));
 
         optOptions.insert("verbose",
                           cudaqx::getValueOr<bool>(options, "verbose", false));
@@ -701,6 +879,7 @@ options : dict
     - verbose : bool, optional Whether to print verbose output. Default is False.
     - optimizer : str, optional Name of the classical optimizer to use. Default is 'cobyla'.
     - gradient : str, optional Method for gradient computation (for gradient-based optimizers). Default is 'parameter_shift'.
+    - tol (double): Tolerance value for the optimizer. Default 1e-12.
 
 Returns:
 --------
@@ -755,8 +934,25 @@ Notes:
         auto *p = reinterpret_cast<void *>(fptr);
         cudaq::registry::__cudaq_registerLinkableKernel(p, baseName.c_str(), p);
         heterogeneous_map optOptions;
+        optOptions.insert("max_iter", getValueOr<int>(options, "max_iter", 30));
+        optOptions.insert(
+            "grad_norm_tolerance",
+            getValueOr<double>(options, "grad_norm_tolerance", 1e-5));
+        optOptions.insert(
+            "grad_norm_diff_tolerance",
+            getValueOr<double>(options, "grad_norm_diff_tolerance", 1e-5));
+        optOptions.insert(
+            "threshold_energy",
+            getValueOr<double>(options, "threshold_energy", 1e-6));
+        optOptions.insert("initial_theta",
+                          getValueOr<double>(options, "initial_theta", 0.0));
         optOptions.insert("verbose",
                           getValueOr<bool>(options, "verbose", false));
+        optOptions.insert("shots", getValueOr<int>(options, "shots", -1));
+        optOptions.insert("tol", getValueOr<double>(options, "tol", 1e-12));
+        optOptions.insert(
+            "dynamic_start",
+            getValueOr<std::string>(options, "dynamic_start", "cold"));
 
         // Handle the case where the user has provided a SciPy optimizer
         if (options.contains("optimizer") &&
@@ -792,6 +988,19 @@ Notes:
     Keyword Args:
         optimizer (str): Optional name of the optimizer to use. Defaults to cobyla.
         gradient (str): Optional name of the gradient method to use. Defaults to empty.
+    
+    Options Dictionary:
+        The following keys are supported in the options dictionary:
+        - max_iter (int): Maximum number of iterations. Default: 30
+        - grad_norm_tolerance (float): Convergence tolerance for gradient norm. Default: 1e-5
+        - grad_norm_diff_tolerance (float): Tolerance for difference between gradient norms. Default: 1e-5
+        - threshold_energy (float): Energy convergence threshold. Default: 1e-6
+        - initial_theta (float): Initial value for theta parameter. Default: 0.0
+        - verbose (bool): Enable detailed output logging. Default: False
+        - shots (int): Number of measurement shots (-1 for exact simulation). Default: -1
+        - tol (double): Tolerance value for the optimizer. Default 1e-12
+        - dynamic_start (string): Optimization mode for the theta parameters at each iteration. It can be either "warm", or "cold". Default: "cold"
+
 
     Returns:
         The result of the ADAPT-VQE optimization.
@@ -933,6 +1142,11 @@ Notes:
       },
       "Generate Clique Hamiltonian from a NetworkX graph", py::arg("graph"),
       py::arg("penalty") = 4.0);
+
+  std::stringstream ss;
+  ss << "CUDA-Q Solvers " << cudaq::solvers::getVersion() << " ("
+     << cudaq::solvers::getFullRepositoryVersion() << ")";
+  solvers.attr("__version__") = ss.str();
 }
 
 } // namespace cudaq::solvers

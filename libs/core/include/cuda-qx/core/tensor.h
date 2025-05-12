@@ -1,5 +1,5 @@
 /****************************************************************-*- C++ -*-****
- * Copyright (c) 2024 NVIDIA Corporation & Affiliates.                         *
+ * Copyright (c) 2024 - 2025 NVIDIA Corporation & Affiliates.                  *
  * All rights reserved.                                                        *
  *                                                                             *
  * This source code and the accompanying materials are made available under    *
@@ -13,7 +13,9 @@
 
 namespace cudaqx {
 
-/// @brief A tensor class implementing the PIMPL idiom.
+/// @brief A tensor class implementing the PIMPL idiom. The flattened data is
+/// stored where the strides grow from right to left (similar to a
+/// multi-dimensional C array).
 template <typename Scalar = std::complex<double>>
 class tensor {
 private:
@@ -35,14 +37,15 @@ private:
 
 public:
   /// @brief Type alias for the scalar type used in the tensor
-  using scalar_type = details::tensor_impl<Scalar>::scalar_type;
+  using scalar_type = typename details::tensor_impl<Scalar>::scalar_type;
   static constexpr auto ScalarAsString = type_to_string<Scalar>();
 
   /// @brief Construct an empty tensor
   tensor()
       : pimpl(std::shared_ptr<details::tensor_impl<Scalar>>(
-            details::tensor_impl<Scalar>::get(
-                std::string("xtensor") + std::string(ScalarAsString), {})
+            details::tensor_impl<Scalar>::get(std::string("xtensor") +
+                                                  std::string(ScalarAsString),
+                                              std::vector<std::size_t>())
                 .release())) {}
 
   /// @brief Construct a tensor with the given shape
@@ -54,13 +57,23 @@ public:
                 .release())) {}
 
   /// @brief Construct a tensor with the given data and shape
-  /// @param data Pointer to the tensor data
+  /// @param data Pointer to the tensor data. This takes ownership of the data.
   /// @param shape The shape of the tensor
   tensor(const scalar_type *data, const std::vector<std::size_t> &shape)
       : pimpl(std::shared_ptr<details::tensor_impl<Scalar>>(
             details::tensor_impl<Scalar>::get(std::string("xtensor") +
                                                   std::string(ScalarAsString),
                                               data, shape)
+                .release())) {}
+
+  /// @brief Construct a tensor with the given bitstrings
+  /// @param data Bitstrings from which to construct tensor
+  template <typename T, typename = std::enable_if_t<
+                            std::is_convertible<T, std::string>::value>>
+  tensor(const std::vector<T> &data)
+      : pimpl(std::shared_ptr<details::tensor_impl<Scalar>>(
+            details::tensor_impl<Scalar>::get(
+                std::string("xtensor") + std::string(ScalarAsString), data)
                 .release())) {}
 
   /// @brief Get the rank of the tensor
@@ -89,7 +102,8 @@ public:
   /// @param indices The indices of the element to access
   /// @return A const reference to the element at the specified indices
   const scalar_type &at(const std::vector<size_t> &indices) const {
-    return pimpl->at(indices);
+    return const_cast<const details::tensor_impl<Scalar> *>(pimpl.get())
+        ->at(indices);
   }
 
   /// @brief Copy data into the tensor
@@ -226,6 +240,10 @@ public:
   const scalar_type *data() const { return pimpl->data(); }
 
   void dump() const { pimpl->dump(); }
+
+  /// @brief Dump tensor as bits, where non-zero elements are shown as '1' and
+  /// zero-elements are shown as '.'.
+  void dump_bits() const { pimpl->dump_bits(); }
 };
 
 } // namespace cudaqx
