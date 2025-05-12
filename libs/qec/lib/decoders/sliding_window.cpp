@@ -54,7 +54,7 @@ public:
     num_syndromes_per_round = params.get<std::size_t>("num_syndromes_per_round",
                                                       num_syndromes_per_round);
     error_vec =
-        params.get<std::vector<cudaq::qec::float_t>>("error_vec", error_vec);
+        params.get<std::vector<cudaq::qec::float_t>>("error_rate_vec", error_vec);
     inner_decoder_name =
         params.get<std::string>("inner_decoder_name", inner_decoder_name);
     inner_decoder_params = params.get<cudaqx::heterogeneous_map>(
@@ -112,7 +112,7 @@ public:
       std::vector<cudaq::qec::float_t> error_vec_mod(
           error_vec.begin() + first_column,
           error_vec.begin() + last_column + 1);
-      inner_decoder_params_mod.insert("error_vec", error_vec_mod);
+      inner_decoder_params_mod.insert("error_rate_vec", error_vec_mod);
 
       printf("Creating a decoder for window %zu-%zu (dims %zu x %zu) "
              "first_column = %u, last_column = %u\n",
