@@ -1080,7 +1080,8 @@ TEST(PCMUtilsTester, SlidingWindowDecoderTest) {
     syndromes[i] = cudaqx::tensor<uint8_t>(std::vector<std::size_t>{n_rows});
     for (int e = 0; e < num_error_mechanisms_to_set; ++e) {
       auto col = dist(rng);
-      // printf("For syndrome %zu, setting error mechanism %d at column %u\n", i, e, col);
+      // printf("For syndrome %zu, setting error mechanism %d at column %u\n",
+      // i, e, col);
       for (std::size_t r = 0; r < n_rows; ++r)
         syndromes[i].at({r}) ^= pcm.at({r, col});
       // syndromes[i].dump_bits();
