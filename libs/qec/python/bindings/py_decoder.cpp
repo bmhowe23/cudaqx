@@ -333,8 +333,9 @@ void bindDecoder(py::module &mod) {
          std::uint32_t start_round, std::uint32_t end_round) {
         auto tensor_H = pcmToTensor(H);
 
-        auto H_new = cudaq::qec::get_pcm_for_rounds(
-            tensor_H, num_syndromes_per_round, start_round, end_round);
+        auto [H_new, first_column, last_column] =
+            cudaq::qec::get_pcm_for_rounds(tensor_H, num_syndromes_per_round,
+                                           start_round, end_round);
 
         // Construct a new py_array_t<uint8_t> from H_new.
         // FIXME - is this necessary

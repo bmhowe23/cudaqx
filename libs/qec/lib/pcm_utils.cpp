@@ -19,11 +19,13 @@ namespace cudaq::qec {
 /// @param num_syndromes_per_round The number of syndromes per round. (Defaults
 /// to 0, which means that no secondary per-round sorting will occur.)
 /// @details This function tries to make a matrix that is close to a block
-/// diagonal matrix from its input. Columns are first sorted by the index of the
-/// first non-zero entry in the column, and if those match, then they are sorted
-/// by the index of the last non-zero entry in the column. This ping pong
-/// continues for the indices of the second non-zero element and the
-/// second-to-last non-zero element, and so forth.
+/// diagonal matrix from its input. If \p num_syndromes_per_round is > 0, then
+/// the columns are first sorted by rounds numbers in which the checks are
+/// performed. Columns are then sorted by the index of the first non-zero entry
+/// in the column, and if those match, then they are sorted by the index of the
+/// last non-zero entry in the column. This ping pong continues for the indices
+/// of the second non-zero element and the second-to-last non-zero element, and
+/// so forth.
 std::vector<std::uint32_t> get_sorted_pcm_column_indices(
     const std::vector<std::vector<std::uint32_t>> &row_indices,
     std::uint32_t num_syndromes_per_round) {
@@ -113,6 +115,25 @@ std::vector<std::uint32_t> get_sorted_pcm_column_indices(
             });
 
   return column_order;
+}
+
+/// @brief Check if a PCM is sorted.
+/// @param pcm The PCM to check.
+/// @param num_syndromes_per_round The number of syndromes per round.
+/// @return True if the PCM is sorted, false otherwise.
+bool pcm_is_sorted(const cudaqx::tensor<uint8_t> &pcm,
+                   std::uint32_t num_syndromes_per_round) {
+  if (pcm.rank() != 2) {
+    throw std::invalid_argument("pcm_is_sorted: PCM must be a 2D tensor");
+  }
+
+  auto column_indices =
+      get_sorted_pcm_column_indices(pcm, num_syndromes_per_round);
+  auto num_cols = pcm.shape()[1];
+  for (std::size_t c = 0; c < num_cols; c++)
+    if (column_indices[c] != c)
+      return false;
+  return true;
 }
 
 /// @brief Return a sparse representation of the PCM.
@@ -272,10 +293,11 @@ simplify_pcm(const cudaqx::tensor<uint8_t> &pcm,
   return std::make_pair(new_pcm, new_weights);
 }
 
-cudaqx::tensor<uint8_t>
+std::tuple<cudaqx::tensor<uint8_t>, std::uint32_t, std::uint32_t>
 get_pcm_for_rounds(const cudaqx::tensor<uint8_t> &pcm,
                    std::uint32_t num_syndromes_per_round,
-                   std::uint32_t start_round, std::uint32_t end_round) {
+                   std::uint32_t start_round, std::uint32_t end_round,
+                   bool straddle_start_round, bool straddle_end_round) {
   if (num_syndromes_per_round == 0) {
     throw std::invalid_argument(
         "get_pcm_for_rounds: num_syndromes_per_round must be greater than 0");
@@ -304,7 +326,8 @@ get_pcm_for_rounds(const cudaqx::tensor<uint8_t> &pcm,
   // Get a sparse representation of the PCM.
   auto row_indices = get_sparse_pcm(pcm);
 
-  // Get the columns that are in the range [start_round, end_round].
+  // Get the columns that have any non-zero data in the range [start_round,
+  // end_round]. Use straddle_start_round and straddle_end_round accordingly.
   std::vector<std::uint32_t> columns_in_range;
   for (std::size_t c = 0; c < row_indices.size(); c++) {
     auto &rows_for_this_column = row_indices[c];
@@ -312,12 +335,35 @@ get_pcm_for_rounds(const cudaqx::tensor<uint8_t> &pcm,
       continue;
     auto first_round = rows_for_this_column.front() / num_syndromes_per_round;
     auto last_round = rows_for_this_column.back() / num_syndromes_per_round;
+    // If the first_round/last_round is fully within the range [start_round,
+    // end_round], then we include this column.
     if (first_round >= start_round && last_round <= end_round)
+      columns_in_range.push_back(c);
+    // If it straddles the start_round, then we only include it if
+    // straddle_start_round is true.
+    else if (straddle_start_round && first_round < start_round &&
+             last_round >= start_round)
+      columns_in_range.push_back(c);
+    // If it straddles the end_round, then we only include it if
+    // straddle_end_round is true.
+    else if (straddle_end_round && first_round < end_round &&
+             last_round >= end_round)
       columns_in_range.push_back(c);
   }
 
-  return reorder_pcm_columns(pcm, columns_in_range, first_row_to_keep,
-                             last_row_to_keep);
+  // Traverse columns_in_range to find the first and last columns that were
+  // included.
+  uint32_t first_column = std::numeric_limits<uint32_t>::max();
+  uint32_t last_column = std::numeric_limits<uint32_t>::min();
+  for (auto c : columns_in_range) {
+    first_column = std::min(first_column, c);
+    last_column = std::max(last_column, c);
+  }
+
+  return std::make_tuple(reorder_pcm_columns(pcm, columns_in_range,
+                                             first_row_to_keep,
+                                             last_row_to_keep),
+                         first_column, last_column);
 }
 
 /// @brief Generate a random PCM with the given parameters.

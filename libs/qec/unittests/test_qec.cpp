@@ -968,15 +968,17 @@ TEST(PCMUtilsTester, checkGetPCMForRounds) {
       std::mt19937_64(13));
 
   pcm = cudaq::qec::sort_pcm_columns(pcm, n_syndromes_per_round);
-  auto pcm_for_rounds = cudaq::qec::get_pcm_for_rounds(
-      pcm, n_syndromes_per_round, 0, n_rounds - 1);
+  auto [pcm_for_rounds, first_column, last_column] =
+      cudaq::qec::get_pcm_for_rounds(pcm, n_syndromes_per_round, 0,
+                                     n_rounds - 1);
   check_pcm_equality(pcm_for_rounds, pcm);
 
   // Try all possible combinations of start and end rounds.
   for (int start_round = 0; start_round < n_rounds; ++start_round) {
     for (int end_round = start_round; end_round < n_rounds; ++end_round) {
-      auto pcm_test = cudaq::qec::get_pcm_for_rounds(pcm, n_syndromes_per_round,
-                                                     start_round, end_round);
+      auto [pcm_test, first_column_test, last_column_test] =
+          cudaq::qec::get_pcm_for_rounds(pcm, n_syndromes_per_round,
+                                         start_round, end_round);
       // I don't have a good test criteria for this yet. It mainly just runs to
       // see if it runs without errors.
       printf("pcm_test for start_round = %u, end_round = %u:\n", start_round,
