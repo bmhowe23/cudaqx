@@ -13,6 +13,7 @@
 #include "cudaq/qec/decoder.h"
 #include "cudaq/qec/experiments.h"
 #include "cudaq/qec/pcm_utils.h"
+#include "cudaq/qec/version.h"
 
 TEST(StabilizerTester, checkConstructFromSpinOps) {
   {
@@ -1079,7 +1080,8 @@ TEST(PCMUtilsTester, SlidingWindowDecoderTest) {
     syndromes[i] = cudaqx::tensor<uint8_t>(std::vector<std::size_t>{n_rows});
     for (int e = 0; e < num_error_mechanisms_to_set; ++e) {
       auto col = dist(rng);
-      // printf("For syndrome %zu, setting error mechanism %d at column %u\n", i, e, col);
+      // printf("For syndrome %zu, setting error mechanism %d at column %u\n",
+      // i, e, col);
       for (std::size_t r = 0; r < n_rows; ++r)
         syndromes[i].at({r}) ^= pcm.at({r, col});
       // syndromes[i].dump_bits();
@@ -1184,4 +1186,15 @@ TEST(PCMUtilsTester, SlidingWindowDecoderTest) {
              print_as_bits(windowed_decoded_results[i]).c_str());
     }
   }
+}
+
+TEST(QECCodeTester, checkVersion) {
+  std::string version = cudaq::qec::getVersion();
+  EXPECT_FALSE(version.empty());
+  EXPECT_TRUE(version.find("CUDAQX_QEC_VERSION") == std::string::npos);
+
+  std::string fullVersion = cudaq::qec::getFullRepositoryVersion();
+  EXPECT_TRUE(fullVersion.find("NVIDIA/cudaqx") != std::string::npos);
+  EXPECT_TRUE(fullVersion.find("CUDAQX_SOLVERS_COMMIT_SHA") ==
+              std::string::npos);
 }

@@ -9,6 +9,7 @@
 from .patch import patch
 from ._pycudaqx_qec_the_suffix_matters_cudaq_qec import *
 
+__version__ = qecrt.__version__
 code = qecrt.code
 Code = qecrt.Code
 decoder = qecrt.decoder
