@@ -43,7 +43,6 @@ expected_value = 0
 # For large runs, set verbose to False to suppress output
 verbose = nShots <= 10
 
-
 # sample the steane memory circuit with noise on each cx gate
 # reading out the syndromes after each stabilizer round (xor'd against the previous)
 # and readout out the data qubits at the end of the experiment
