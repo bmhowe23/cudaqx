@@ -231,10 +231,10 @@ dem_from_memory_circuit(const code &code, operation statePrep,
 
   std::size_t numCols = numAncx + numAncz;
 
-  cudaq::ExecutionContext ctx_pcm_size("pcm_size");
-  ctx_pcm_size.noiseModel = &noise;
+  cudaq::ExecutionContext ctx_msm_size("msm_size");
+  ctx_msm_size.noiseModel = &noise;
   auto &platform = cudaq::get_platform();
-  platform.set_exec_ctx(&ctx_pcm_size);
+  platform.set_exec_ctx(&ctx_msm_size);
 
   bool is_x = statePrep == operation::prepp || statePrep == operation::prepm;
   bool is_z = statePrep == operation::prep0 || statePrep == operation::prep1;
@@ -253,10 +253,10 @@ dem_from_memory_circuit(const code &code, operation statePrep,
 
   platform.reset_exec_ctx();
 
-  cudaq::ExecutionContext ctx_pcm("pcm");
-  ctx_pcm.noiseModel = &noise;
-  ctx_pcm.pcm_dimensions = ctx_pcm_size.pcm_dimensions;
-  platform.set_exec_ctx(&ctx_pcm);
+  cudaq::ExecutionContext ctx_msm("msm");
+  ctx_msm.noiseModel = &noise;
+  ctx_msm.msm_dimensions = ctx_msm_size.msm_dimensions;
+  platform.set_exec_ctx(&ctx_msm);
 
   // Run the memory circuit experiment
   if (is_z) {
@@ -272,12 +272,12 @@ dem_from_memory_circuit(const code &code, operation statePrep,
 
   platform.reset_exec_ctx();
 
-  auto pcm_as_strings = ctx_pcm.result.sequential_data();
-  auto &pcm_probabilities = ctx_pcm.pcm_probabilities.value();
-  cudaqx::tensor<uint8_t> pcm_data(
-      std::vector<std::size_t>({ctx_pcm_size.pcm_dimensions->first,
-                                ctx_pcm_size.pcm_dimensions->second}));
-  cudaqx::tensor<uint8_t> mzTable(pcm_as_strings);
+  auto msm_as_strings = ctx_msm.result.sequential_data();
+  auto &msm_probabilities = ctx_msm.msm_probabilities.value();
+  cudaqx::tensor<uint8_t> msm_data(
+      std::vector<std::size_t>({ctx_msm_size.msm_dimensions->first,
+                                ctx_msm_size.msm_dimensions->second}));
+  cudaqx::tensor<uint8_t> mzTable(msm_as_strings);
   mzTable = mzTable.transpose();
   std::size_t numNoiseMechs = mzTable.shape()[1];
   std::size_t numSyndromesPerRound = numCols;
@@ -331,9 +331,9 @@ dem_from_memory_circuit(const code &code, operation statePrep,
     }
   }
   auto [simplified_pcm_x, simplified_pcm_probabilities_x] =
-      simplify_pcm(mzTableXORed_x, pcm_probabilities, numSyndromesPerRound);
+      simplify_pcm(mzTableXORed_x, msm_probabilities, numSyndromesPerRound);
   auto [simplified_pcm_z, simplified_pcm_probabilities_z] =
-      simplify_pcm(mzTableXORed_z, pcm_probabilities, numSyndromesPerRound);
+      simplify_pcm(mzTableXORed_z, msm_probabilities, numSyndromesPerRound);
 
   dem.detector_error_matrix = is_z ? simplified_pcm_z : simplified_pcm_x;
   dem.error_rates =
@@ -394,10 +394,10 @@ x_or_z_dem_from_memory_circuit(const code &code, operation statePrep,
 
   std::size_t numCols = numAncx + numAncz;
 
-  cudaq::ExecutionContext ctx_pcm_size("pcm_size");
-  ctx_pcm_size.noiseModel = &noise;
+  cudaq::ExecutionContext ctx_msm_size("msm_size");
+  ctx_msm_size.noiseModel = &noise;
   auto &platform = cudaq::get_platform();
-  platform.set_exec_ctx(&ctx_pcm_size);
+  platform.set_exec_ctx(&ctx_msm_size);
   if (is_x) {
     memory_circuit_mx(stabRound, prep, numData, numAncx, numAncz, numRounds,
                       xVec, zVec);
@@ -407,10 +407,10 @@ x_or_z_dem_from_memory_circuit(const code &code, operation statePrep,
   }
   platform.reset_exec_ctx();
 
-  cudaq::ExecutionContext ctx_pcm("pcm");
-  ctx_pcm.noiseModel = &noise;
-  ctx_pcm.pcm_dimensions = ctx_pcm_size.pcm_dimensions;
-  platform.set_exec_ctx(&ctx_pcm);
+  cudaq::ExecutionContext ctx_msm("msm");
+  ctx_msm.noiseModel = &noise;
+  ctx_msm.msm_dimensions = ctx_msm_size.msm_dimensions;
+  platform.set_exec_ctx(&ctx_msm);
   if (is_x) {
     memory_circuit_mx(stabRound, prep, numData, numAncx, numAncz, numRounds,
                       xVec, zVec);
@@ -420,12 +420,12 @@ x_or_z_dem_from_memory_circuit(const code &code, operation statePrep,
   }
   platform.reset_exec_ctx();
 
-  auto pcm_as_strings = ctx_pcm.result.sequential_data();
-  auto &pcm_probabilities = ctx_pcm.pcm_probabilities.value();
-  cudaqx::tensor<uint8_t> pcm_data(
-      std::vector<std::size_t>({ctx_pcm_size.pcm_dimensions->first,
-                                ctx_pcm_size.pcm_dimensions->second}));
-  cudaqx::tensor<uint8_t> mzTable(pcm_as_strings);
+  auto msm_as_strings = ctx_msm.result.sequential_data();
+  auto &msm_probabilities = ctx_msm.msm_probabilities.value();
+  cudaqx::tensor<uint8_t> msm_data(
+      std::vector<std::size_t>({ctx_msm_size.msm_dimensions->first,
+                                ctx_msm_size.msm_dimensions->second}));
+  cudaqx::tensor<uint8_t> mzTable(msm_as_strings);
   mzTable = mzTable.transpose();
   std::size_t numNoiseMechs = mzTable.shape()[1];
   std::size_t numSyndromesPerRound = numCols;
@@ -481,10 +481,10 @@ x_or_z_dem_from_memory_circuit(const code &code, operation statePrep,
 
   if (is_x) {
     std::tie(dem.detector_error_matrix, dem.error_rates) =
-        simplify_pcm(mzTableXORed_x, pcm_probabilities, numXZPerRound);
+        simplify_pcm(mzTableXORed_x, msm_probabilities, numXZPerRound);
   } else {
     std::tie(dem.detector_error_matrix, dem.error_rates) =
-        simplify_pcm(mzTableXORed_z, pcm_probabilities, numXZPerRound);
+        simplify_pcm(mzTableXORed_z, msm_probabilities, numXZPerRound);
   }
 
   return dem;
