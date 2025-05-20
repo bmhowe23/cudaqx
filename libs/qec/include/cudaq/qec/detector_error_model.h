@@ -12,24 +12,29 @@
 namespace cudaq::qec {
 
 struct detector_error_model {
-  // Detector error models (DEMs) can be represented in a variety of ways,
-  // here a dense matrix representation is chosen, but this is not
-  // required as long as we can transform to a dense matrix
-  // representation to initialize our decoders.
+  /// Detector error models (DEMs) can be represented in a variety of ways,
+  /// here a dense matrix representation is chosen, but this is not
+  /// required as long as we can transform to a dense matrix
+  /// representation to initialize our decoders.
   cudaqx::tensor<uint8_t> detector_error_matrix;
 
-  // The vector of weights along with the detector_error_matrix form
-  // the two components needs for the DEM.
+  /// The vector of weights along with the detector_error_matrix form
+  /// the two components needs for the DEM.
   std::vector<double> error_rates;
 
-  // While not required, most usecases will want a notion of Pauli observables
-  // at the circuit-level
+  /// While not required, most usecases will want a notion of Pauli observables
+  /// at the circuit-level
   cudaqx::tensor<uint8_t> observables_flips_matrix;
 
-  // Shared size parameters among the matrix types
-  std::size_t num_detectors();
-  std::size_t num_error_mechanisms();
-  std::size_t num_measurements();
+  /// Shared size parameters among the matrix types
+  std::size_t num_detectors() const;
+  std::size_t num_error_mechanisms() const;
+  std::size_t num_measurements() const;
+
+  /// Put the detector_error_matrix into canonical form, where the rows and
+  /// columns are ordered in a way that is amenable to the round-based decoding
+  /// process.
+  void canonicalize(uint32_t num_syndromes_per_round);
 };
 
 } // namespace cudaq::qec
