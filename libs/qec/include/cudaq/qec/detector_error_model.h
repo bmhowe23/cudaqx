@@ -26,12 +26,19 @@ struct detector_error_model {
   /// at the circuit-level
   cudaqx::tensor<uint8_t> observables_flips_matrix;
 
-  /// Shared size parameters among the matrix types.
-  /// - detector_error_matrix: num_detectors x num_error_mechanisms [d, e]
-  /// - error_rates: num_error_mechanisms
-  /// - observables_flips_matrix: num_observables x num_error_mechanisms [k, e]
+  // Shared size parameters among the matrix types.
+  // - detector_error_matrix: num_detectors x num_error_mechanisms [d, e]
+  // - error_rates: num_error_mechanisms
+  // - observables_flips_matrix: num_observables x num_error_mechanisms [k, e]
+
+  /// Return the number of rows in the detector_error_matrix.
   std::size_t num_detectors() const;
+
+  /// Return the number of columns in the detector_error_matrix, error_rates,
+  /// and observables_flips_matrix.
   std::size_t num_error_mechanisms() const;
+
+  /// Return the number of rows in the observables_flips_matrix.
   std::size_t num_observables() const;
 
   /// Put the detector_error_matrix into canonical form, where the rows and

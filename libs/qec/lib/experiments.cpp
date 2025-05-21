@@ -8,7 +8,6 @@
 
 #include "cudaq/qec/experiments.h"
 #include "device/memory_circuit.h"
-#include "cudaq/qec/pcm_utils.h"
 
 using namespace cudaqx;
 
@@ -183,7 +182,7 @@ sample_memory_circuit(const code &code, operation statePrep,
 std::tuple<cudaqx::tensor<uint8_t>, cudaqx::tensor<uint8_t>>
 sample_memory_circuit(const code &code, operation op, std::size_t numShots,
                       std::size_t numRounds) {
-  cudaq::noise_model noise; // empty noise model
+  cudaq::noise_model noise;
   return sample_memory_circuit(code, op, numShots, numRounds, noise);
 }
 
@@ -378,13 +377,40 @@ dem_from_memory_circuit(const code &code, operation statePrep,
 }
 
 /// @brief Given a memory circuit setup, generate a DEM. Overload for Pauli
+/// observable matrix
+detector_error_model
+dem_from_memory_circuit(const code &code, operation statePrep,
+                        const cudaqx::tensor<uint8_t> &obs_matrix,
+                        std::size_t numRounds, cudaq::noise_model &noise) {
+  constexpr bool keep_x_stabilizers = true;
+  constexpr bool keep_z_stabilizers = true;
+  const bool is_z =
+      statePrep == operation::prep0 || statePrep == operation::prep1;
+  return details::dem_from_memory_circuit(code, statePrep, numRounds, noise,
+                                          obs_matrix, is_z, keep_x_stabilizers,
+                                          keep_z_stabilizers);
+}
+
+/// @brief Given a memory circuit setup, generate a DEM. Overload for Pauli
 /// observables.
 detector_error_model
 dem_from_memory_circuit(const code &code, operation statePrep,
                         const std::vector<spin_op_term> &observables,
                         std::size_t numRounds, cudaq::noise_model &noise) {
-  // TODO-spin_op_term
-  return detector_error_model();
+  constexpr bool keep_x_stabilizers = true;
+  constexpr bool keep_z_stabilizers = true;
+  const bool is_z =
+      statePrep == operation::prep0 || statePrep == operation::prep1;
+  // FIXME - no need for this conversion once the other PR is merged.
+  std::vector<cudaq::spin_op> observables_as_spin_ops;
+  for (const auto &obs : observables) {
+    observables_as_spin_ops.push_back(cudaq::spin_op(obs));
+  }
+  // FIXME - confirm this is the correct behavior for this overload.
+  const auto obs_matrix =
+      is_z ? to_parity_matrix(observables_as_spin_ops, stabilizer_type::Z)
+           : to_parity_matrix(observables_as_spin_ops, stabilizer_type::X);
+  return dem_from_memory_circuit(code, statePrep, obs_matrix, numRounds, noise);
 }
 
 // For CSS codes, may want to partition x vs z decoding
@@ -444,16 +470,36 @@ detector_error_model
 x_dem_from_memory_circuit(const code &code, operation statePrep,
                           const std::vector<spin_op_term> &observables,
                           std::size_t numRounds, cudaq::noise_model &noise) {
-  // TODO-spin_op_term
-  return detector_error_model();
+  const bool is_z =
+      statePrep == operation::prep0 || statePrep == operation::prep1;
+  // FIXME - no need for this conversion once the other PR is merged.
+  std::vector<cudaq::spin_op> observables_as_spin_ops;
+  for (const auto &obs : observables) {
+    observables_as_spin_ops.push_back(cudaq::spin_op(obs));
+  }
+  // FIXME - confirm this is the correct behavior for this overload.
+  const auto obs_matrix =
+      is_z ? to_parity_matrix(observables_as_spin_ops, stabilizer_type::Z)
+           : to_parity_matrix(observables_as_spin_ops, stabilizer_type::X);
+  return x_dem_from_memory_circuit(code, statePrep, obs_matrix, numRounds, noise);
 }
 
 detector_error_model
 z_dem_from_memory_circuit(const code &code, operation statePrep,
                           const std::vector<spin_op_term> &observables,
                           std::size_t numRounds, cudaq::noise_model &noise) {
-  // TODO-spin_op_term
-  return detector_error_model();
+  const bool is_z =
+      statePrep == operation::prep0 || statePrep == operation::prep1;
+  // FIXME - no need for this conversion once the other PR is merged.
+  std::vector<cudaq::spin_op> observables_as_spin_ops;
+  for (const auto &obs : observables) {
+    observables_as_spin_ops.push_back(cudaq::spin_op(obs));
+  }
+  // FIXME - confirm this is the correct behavior for this overload.
+  const auto obs_matrix =
+      is_z ? to_parity_matrix(observables_as_spin_ops, stabilizer_type::Z)
+           : to_parity_matrix(observables_as_spin_ops, stabilizer_type::X);
+  return z_dem_from_memory_circuit(code, statePrep, obs_matrix, numRounds, noise);
 }
 
 } // namespace cudaq::qec

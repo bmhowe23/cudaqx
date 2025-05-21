@@ -61,8 +61,8 @@ dense_to_sparse(const cudaqx::tensor<uint8_t> &pcm) {
 void detector_error_model::canonicalize_for_rounds(
     uint32_t num_syndromes_per_round) {
   auto row_indices = dense_to_sparse(detector_error_matrix);
-  auto column_order = get_sorted_pcm_column_indices(detector_error_matrix,
-                                                    num_syndromes_per_round);
+  auto column_order =
+      get_sorted_pcm_column_indices(row_indices, num_syndromes_per_round);
   std::vector<std::uint32_t> final_column_order;
   // March through the columns in topological order, and combine the probability
   // weight vectors if the columns have the same row indices.
@@ -84,8 +84,9 @@ void detector_error_model::canonicalize_for_rounds(
     } else {
       auto &prev_row_indices = new_row_indices.back();
       if (prev_row_indices == curr_row_indices) {
-        // The current column has the same row indices as the previous column,
-        // so we update the error_rates and do NOT add the duplicate column.
+        // The current column has the same row indices as the previous column
+        // (i.e. has the same syndrome signature) so we update the error_rates
+        // and do NOT add the duplicate column.
         auto prev_weight = new_weights.back();
         auto curr_weight = error_rates[column_index];
         auto new_weight = 1.0 - (1.0 - prev_weight) * (1.0 - curr_weight);
@@ -116,17 +117,13 @@ void detector_error_model::canonicalize_for_rounds(
     }
   }
 
-  auto old_shape = detector_error_matrix.shape();
-
   // Create the reordered, reduced Detector Error Matrix.
   this->detector_error_matrix = cudaq::qec::reorder_pcm_columns(
       this->detector_error_matrix, final_column_order);
 
   // Create the reordered, reduced Observables Flips Matrix.
-  if (this->observables_flips_matrix.rank() == 2) {
-    this->observables_flips_matrix = cudaq::qec::reorder_pcm_columns(
-        this->observables_flips_matrix, final_column_order);
-  }
+  this->observables_flips_matrix = cudaq::qec::reorder_pcm_columns(
+      this->observables_flips_matrix, final_column_order);
 }
 
 } // namespace cudaq::qec
