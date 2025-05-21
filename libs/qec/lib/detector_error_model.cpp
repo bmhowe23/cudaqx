@@ -25,9 +25,8 @@ std::size_t detector_error_model::num_error_mechanisms() const {
   return 0;
 }
 
-// FIXME - likely not correct
-std::size_t detector_error_model::num_measurements() const {
-  auto shape = detector_error_matrix.shape();
+std::size_t detector_error_model::num_observables() const {
+  auto shape = observables_flips_matrix.shape();
   if (shape.size() == 2)
     return shape[0];
   return 0;
@@ -59,18 +58,17 @@ dense_to_sparse(const cudaqx::tensor<uint8_t> &pcm) {
   return row_indices;
 }
 
-void detector_error_model::canonicalize(uint32_t num_syndromes_per_round) {
+void detector_error_model::canonicalize_for_rounds(
+    uint32_t num_syndromes_per_round) {
   auto row_indices = dense_to_sparse(detector_error_matrix);
   auto column_order = get_sorted_pcm_column_indices(detector_error_matrix,
                                                     num_syndromes_per_round);
-  decltype(column_order) obs_matrix_column_order;
+  std::vector<std::uint32_t> final_column_order;
   // March through the columns in topological order, and combine the probability
   // weight vectors if the columns have the same row indices.
   std::vector<std::vector<std::uint32_t>> new_row_indices;
   std::vector<double> new_weights;
-  std::size_t num_obs = 0;
-  if (this->observables_flips_matrix.rank() == 2)
-    num_obs = this->observables_flips_matrix.shape()[0];
+  const std::size_t num_obs = this->num_observables();
   const auto num_cols = column_order.size();
   for (std::size_t c = 0; c < num_cols; c++) {
     auto column_index = column_order[c];
@@ -82,7 +80,7 @@ void detector_error_model::canonicalize(uint32_t num_syndromes_per_round) {
     if (new_row_indices.empty()) {
       new_row_indices.push_back(curr_row_indices);
       new_weights.push_back(error_rates[column_index]);
-      obs_matrix_column_order.push_back(column_index);
+      final_column_order.push_back(column_index);
     } else {
       auto &prev_row_indices = new_row_indices.back();
       if (prev_row_indices == curr_row_indices) {
@@ -103,9 +101,9 @@ void detector_error_model::canonicalize(uint32_t num_syndromes_per_round) {
           }
         }
         if (!match) {
-          throw std::runtime_error("detector_error_model::canonicalize: "
-                                   "observables_flips_matrix is not "
-                                   "consistent");
+          throw std::runtime_error(
+              "detector_error_model::canonicalize_for_rounds: "
+              "observables_flips_matrix is not consistent");
         }
       } else {
         // The current column has different row indices than the previous
@@ -113,31 +111,22 @@ void detector_error_model::canonicalize(uint32_t num_syndromes_per_round) {
         // error_rates.
         new_row_indices.push_back(curr_row_indices);
         new_weights.push_back(error_rates[column_index]);
-        obs_matrix_column_order.push_back(column_index);
+        final_column_order.push_back(column_index);
       }
     }
   }
 
   auto old_shape = detector_error_matrix.shape();
 
-  // The new PCM may have fewer columns than the original PCM.
-  this->detector_error_matrix = cudaqx::tensor<uint8_t>(
-      std::vector<std::size_t>{old_shape[0], new_row_indices.size()});
-  for (std::size_t c = 0; c < new_row_indices.size(); c++)
-    for (auto r : new_row_indices[c])
-      this->detector_error_matrix.at({r, c}) = 1;
+  // Create the reordered, reduced Detector Error Matrix.
+  this->detector_error_matrix = cudaq::qec::reorder_pcm_columns(
+      this->detector_error_matrix, final_column_order);
 
-  // Reorder the observables_flips_matrix by making a copy of the original and
-  // then creating the new, reordered version.
-  cudaqx::tensor<uint8_t> obs_save(this->observables_flips_matrix.shape());
-  obs_save.copy(this->observables_flips_matrix.data(),
-                this->observables_flips_matrix.shape());
-  this->observables_flips_matrix = cudaqx::tensor<uint8_t>(
-      std::vector<std::size_t>{num_obs, obs_matrix_column_order.size()});
-  for (std::size_t c = 0; c < obs_matrix_column_order.size(); c++)
-    for (std::size_t r = 0; r < num_obs; r++)
-      this->observables_flips_matrix.at({r, c}) =
-          obs_save.at({r, obs_matrix_column_order[c]});
+  // Create the reordered, reduced Observables Flips Matrix.
+  if (this->observables_flips_matrix.rank() == 2) {
+    this->observables_flips_matrix = cudaq::qec::reorder_pcm_columns(
+        this->observables_flips_matrix, final_column_order);
+  }
 }
 
 } // namespace cudaq::qec

@@ -26,15 +26,18 @@ struct detector_error_model {
   /// at the circuit-level
   cudaqx::tensor<uint8_t> observables_flips_matrix;
 
-  /// Shared size parameters among the matrix types
+  /// Shared size parameters among the matrix types.
+  /// - detector_error_matrix: num_detectors x num_error_mechanisms [d, e]
+  /// - error_rates: num_error_mechanisms
+  /// - observables_flips_matrix: num_observables x num_error_mechanisms [k, e]
   std::size_t num_detectors() const;
   std::size_t num_error_mechanisms() const;
-  std::size_t num_measurements() const;
+  std::size_t num_observables() const;
 
   /// Put the detector_error_matrix into canonical form, where the rows and
   /// columns are ordered in a way that is amenable to the round-based decoding
   /// process.
-  void canonicalize(uint32_t num_syndromes_per_round);
+  void canonicalize_for_rounds(uint32_t num_syndromes_per_round);
 };
 
 } // namespace cudaq::qec

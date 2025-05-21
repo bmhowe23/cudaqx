@@ -560,9 +560,11 @@ TEST(QECCodeTester, checkDemFromMemoryCircuit) {
   printf("dem:\n");
   dem.detector_error_matrix.dump_bits();
   // Print the error probabilities
-  printf("error probabilities: {");
+  printf("error probabilities: { ");
   for (std::size_t i = 0; i < dem.error_rates.size(); i++) {
     printf("%f ", dem.error_rates[i]);
   }
   printf("}\n");
+  printf("observables_flips_matrix:\n");
+  dem.observables_flips_matrix.dump_bits();
 }
