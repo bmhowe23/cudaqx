@@ -401,15 +401,10 @@ dem_from_memory_circuit(const code &code, operation statePrep,
   constexpr bool keep_z_stabilizers = true;
   const bool is_z =
       statePrep == operation::prep0 || statePrep == operation::prep1;
-  // FIXME - no need for this conversion once the other PR is merged.
-  std::vector<cudaq::spin_op> observables_as_spin_ops;
-  for (const auto &obs : observables) {
-    observables_as_spin_ops.push_back(cudaq::spin_op(obs));
-  }
   // FIXME - confirm this is the correct behavior for this overload.
   const auto obs_matrix =
-      is_z ? to_parity_matrix(observables_as_spin_ops, stabilizer_type::Z)
-           : to_parity_matrix(observables_as_spin_ops, stabilizer_type::X);
+      is_z ? to_parity_matrix(observables, stabilizer_type::Z)
+           : to_parity_matrix(observables, stabilizer_type::X);
   return dem_from_memory_circuit(code, statePrep, obs_matrix, numRounds, noise);
 }
 
@@ -472,15 +467,10 @@ x_dem_from_memory_circuit(const code &code, operation statePrep,
                           std::size_t numRounds, cudaq::noise_model &noise) {
   const bool is_z =
       statePrep == operation::prep0 || statePrep == operation::prep1;
-  // FIXME - no need for this conversion once the other PR is merged.
-  std::vector<cudaq::spin_op> observables_as_spin_ops;
-  for (const auto &obs : observables) {
-    observables_as_spin_ops.push_back(cudaq::spin_op(obs));
-  }
   // FIXME - confirm this is the correct behavior for this overload.
   const auto obs_matrix =
-      is_z ? to_parity_matrix(observables_as_spin_ops, stabilizer_type::Z)
-           : to_parity_matrix(observables_as_spin_ops, stabilizer_type::X);
+      is_z ? to_parity_matrix(observables, stabilizer_type::Z)
+           : to_parity_matrix(observables, stabilizer_type::X);
   return x_dem_from_memory_circuit(code, statePrep, obs_matrix, numRounds, noise);
 }
 
@@ -490,15 +480,10 @@ z_dem_from_memory_circuit(const code &code, operation statePrep,
                           std::size_t numRounds, cudaq::noise_model &noise) {
   const bool is_z =
       statePrep == operation::prep0 || statePrep == operation::prep1;
-  // FIXME - no need for this conversion once the other PR is merged.
-  std::vector<cudaq::spin_op> observables_as_spin_ops;
-  for (const auto &obs : observables) {
-    observables_as_spin_ops.push_back(cudaq::spin_op(obs));
-  }
   // FIXME - confirm this is the correct behavior for this overload.
   const auto obs_matrix =
-      is_z ? to_parity_matrix(observables_as_spin_ops, stabilizer_type::Z)
-           : to_parity_matrix(observables_as_spin_ops, stabilizer_type::X);
+      is_z ? to_parity_matrix(observables, stabilizer_type::Z)
+           : to_parity_matrix(observables, stabilizer_type::X);
   return z_dem_from_memory_circuit(code, statePrep, obs_matrix, numRounds, noise);
 }
 
