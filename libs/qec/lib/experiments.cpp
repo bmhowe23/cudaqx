@@ -345,7 +345,7 @@ cudaq::qec::detector_error_model dem_from_memory_circuit(
 
   // Populate dem.observables_flips_matrix by converting the physical data qubit
   // measurements to logical observables.
-  dem.observables_flips_matrix = obs_matrix.dot(msm_obs);
+  dem.observables_flips_matrix = obs_matrix.dot(msm_obs) % 2;
 
   // printf("dem.detector_error_matrix Before canonicalization:\n");
   // dem.detector_error_matrix.dump_bits();

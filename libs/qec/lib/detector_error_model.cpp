@@ -7,6 +7,7 @@
  ******************************************************************************/
 
 #include "cudaq/qec/detector_error_model.h"
+#include "common/Logger.h"
 #include "cudaq/qec/pcm_utils.h"
 
 namespace cudaq::qec {
@@ -102,9 +103,16 @@ void detector_error_model::canonicalize_for_rounds(
           }
         }
         if (!match) {
-          throw std::runtime_error(
-              "detector_error_model::canonicalize_for_rounds: "
-              "observables_flips_matrix is not consistent");
+          // printf("detector_error_matrix:\n");
+          // this->detector_error_matrix.dump_bits();
+          // printf("observables_flips_matrix:\n");
+          // this->observables_flips_matrix.dump_bits();
+          // fflush(stdout);
+          cudaq::warn(
+              "detector_error_model::canonicalize_for_rounds: identical "
+              "syndromes exist in detector_error_matrix but have different "
+              "observables in observables_flips_matrix (columns {} and {})",
+              previous_column, column_index);
         }
       } else {
         // The current column has different row indices than the previous

@@ -188,7 +188,7 @@ void bindDecoder(py::module &mod) {
                 t.data());
           },
           "The detector error matrix of the detector error model")
-      .def_readwrite("error_rate", &detector_error_model::error_rates,
+      .def_readwrite("error_rates", &detector_error_model::error_rates,
                      "The error rate of the detector error model")
       .def_property_readonly(
           "observables_flips_matrix",
