@@ -24,6 +24,9 @@ DecoderResult = qecrt.DecoderResult
 generate_random_bit_flips = qecrt.generate_random_bit_flips
 sample_memory_circuit = qecrt.sample_memory_circuit
 sample_code_capacity = qecrt.sample_code_capacity
+dem_from_memory_circuit = qecrt.dem_from_memory_circuit
+x_dem_from_memory_circuit = qecrt.x_dem_from_memory_circuit
+z_dem_from_memory_circuit = qecrt.z_dem_from_memory_circuit
 
 dump_pcm = qecrt.dump_pcm
 generate_random_pcm = qecrt.generate_random_pcm

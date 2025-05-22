@@ -16,6 +16,7 @@
 #include "cudaq/qec/decoder.h"
 #include "cudaq/qec/pcm_utils.h"
 #include "cudaq/qec/plugin_loader.h"
+#include "cudaq/qec/detector_error_model.h"
 
 #include "cuda-qx/core/kwargs_utils.h"
 #include "type_casters.h"
@@ -171,6 +172,44 @@ void bindDecoder(py::module &mod) {
            "Get the size of the syndrome")
       .def("get_version", &decoder::get_version,
            "Get the version of the decoder");
+
+  py::class_<detector_error_model>(qecmod, "DetectorErrorModel",
+                                   R"pbdoc(
+      A class representing a detector error model for quantum error correction.
+    )pbdoc")
+      .def(py::init<>())
+      .def_property_readonly(
+          "detector_error_matrix",
+          [](const detector_error_model &self) {
+            const auto &t = self.detector_error_matrix;
+            // Question: do you need py::cast(&self) here?
+            return py::array_t<uint8_t>(
+                t.shape(), {t.shape()[1] * sizeof(uint8_t), sizeof(uint8_t)},
+                t.data());
+          },
+          "The detector error matrix of the detector error model")
+      .def_readwrite("error_rate", &detector_error_model::error_rates,
+                     "The error rate of the detector error model")
+      .def_property_readonly(
+          "observables_flips_matrix",
+          [](const detector_error_model &self) {
+            const auto &t = self.observables_flips_matrix;
+            // Question: do you need py::cast(&self) here?
+            return py::array_t<uint8_t>(
+                t.shape(), {t.shape()[1] * sizeof(uint8_t), sizeof(uint8_t)},
+                t.data());
+          },
+          "The observables flips matrix of the detector error model")
+      .def("num_detectors", &detector_error_model::num_detectors,
+           "The number of detectors in the detector error model")
+      .def("num_error_mechanisms", &detector_error_model::num_error_mechanisms,
+           "The number of error mechanisms in the detector error model")
+      .def("num_observables", &detector_error_model::num_observables,
+           "The number of observables in the detector error model")
+      .def("canonicalize_for_rounds",
+           &detector_error_model::canonicalize_for_rounds,
+           "Canonicalize the detector error model for a given number of rounds",
+           py::arg("num_syndromes_per_round"));
 
   // Expose decorator function that handles inheritance
   qecmod.def("decoder", [&](const std::string &name) {
