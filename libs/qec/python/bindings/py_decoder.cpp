@@ -14,9 +14,9 @@
 #include "common/Logger.h"
 
 #include "cudaq/qec/decoder.h"
+#include "cudaq/qec/detector_error_model.h"
 #include "cudaq/qec/pcm_utils.h"
 #include "cudaq/qec/plugin_loader.h"
-#include "cudaq/qec/detector_error_model.h"
 
 #include "cuda-qx/core/kwargs_utils.h"
 #include "type_casters.h"

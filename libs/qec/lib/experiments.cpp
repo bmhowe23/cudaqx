@@ -319,10 +319,11 @@ cudaq::qec::detector_error_model dem_from_memory_circuit(
              noise_mech++) {
           dem.detector_error_matrix.at(
               {round * numReturnSynPerRound + syndrome, noise_mech}) =
+              mzTable.at({round * numSyndromesPerRound + syndrome + offset,
+                          noise_mech}) ^
               mzTable.at(
-                  {round * numSyndromesPerRound + syndrome + offset, noise_mech}) ^
-              mzTable.at(
-                  {(round - 1) * numSyndromesPerRound + syndrome + offset, noise_mech});
+                  {(round - 1) * numSyndromesPerRound + syndrome + offset,
+                   noise_mech});
         }
       }
     }
@@ -471,7 +472,8 @@ x_dem_from_memory_circuit(const code &code, operation statePrep,
   const auto obs_matrix =
       is_z ? to_parity_matrix(observables, stabilizer_type::Z)
            : to_parity_matrix(observables, stabilizer_type::X);
-  return x_dem_from_memory_circuit(code, statePrep, obs_matrix, numRounds, noise);
+  return x_dem_from_memory_circuit(code, statePrep, obs_matrix, numRounds,
+                                   noise);
 }
 
 detector_error_model
@@ -484,7 +486,8 @@ z_dem_from_memory_circuit(const code &code, operation statePrep,
   const auto obs_matrix =
       is_z ? to_parity_matrix(observables, stabilizer_type::Z)
            : to_parity_matrix(observables, stabilizer_type::X);
-  return z_dem_from_memory_circuit(code, statePrep, obs_matrix, numRounds, noise);
+  return z_dem_from_memory_circuit(code, statePrep, obs_matrix, numRounds,
+                                   noise);
 }
 
 } // namespace cudaq::qec
