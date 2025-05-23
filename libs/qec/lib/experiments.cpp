@@ -255,6 +255,16 @@ cudaq::qec::detector_error_model dem_from_memory_circuit(
 
   platform.reset_exec_ctx();
 
+  if (!ctx_msm_size.msm_dimensions.has_value()) {
+    throw std::runtime_error(
+        "dem_from_memory_circuit error: no MSM dimensions found");
+  }
+  if (ctx_msm_size.msm_dimensions.value().second == 0) {
+    throw std::runtime_error(
+        "dem_from_memory_circuit error: no noise mechanisms found in circuit. "
+        "Cannot generate a DEM. Did you forget to enable noise?");
+  }
+
   cudaq::ExecutionContext ctx_msm("msm");
   ctx_msm.noiseModel = &noise;
   ctx_msm.msm_dimensions = ctx_msm_size.msm_dimensions;
