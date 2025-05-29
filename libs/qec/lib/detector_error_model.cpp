@@ -90,7 +90,11 @@ void detector_error_model::canonicalize_for_rounds(
         // and do NOT add the duplicate column.
         auto prev_weight = new_weights.back();
         auto curr_weight = error_rates[column_index];
-        auto new_weight = 1.0 - (1.0 - prev_weight) * (1.0 - curr_weight);
+        // The new weight is the probability that exactly ONE of the two errors
+        // occurs. This is given by the formula: P(A or B) = P(A) + P(B) - P(A
+        // and B) Where A is the error in the previous round, and B is the error
+        // in the current round.
+        auto new_weight = prev_weight + curr_weight - prev_weight * curr_weight;
         new_weights.back() = new_weight;
         // Verify that the observables are the same for the duplicate column.
         auto previous_column = column_order[c - 1];
@@ -124,6 +128,8 @@ void detector_error_model::canonicalize_for_rounds(
       }
     }
   }
+
+  std::swap(this->error_rates, new_weights);
 
   // Create the reordered, reduced Detector Error Matrix.
   this->detector_error_matrix = cudaq::qec::reorder_pcm_columns(
