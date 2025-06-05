@@ -22,7 +22,7 @@ private:
   std::size_t window_size = 1;
   std::size_t step_size = 1;
   std::size_t num_syndromes_per_round = 0;
-  std::vector<cudaq::qec::float_t> error_vec;
+  std::vector<cudaq::qec::float_t> error_rate_vec;
   std::string inner_decoder_name;
   cudaqx::heterogeneous_map inner_decoder_params;
 
@@ -53,8 +53,8 @@ public:
     step_size = params.get<std::size_t>("step_size", step_size);
     num_syndromes_per_round = params.get<std::size_t>("num_syndromes_per_round",
                                                       num_syndromes_per_round);
-    error_vec =
-        params.get<std::vector<cudaq::qec::float_t>>("error_rate_vec", error_vec);
+    error_rate_vec = params.get<std::vector<cudaq::qec::float_t>>(
+        "error_rate_vec", error_rate_vec);
     inner_decoder_name =
         params.get<std::string>("inner_decoder_name", inner_decoder_name);
     inner_decoder_params = params.get<cudaqx::heterogeneous_map>(
@@ -82,9 +82,9 @@ public:
       throw std::invalid_argument(
           "sliding_window constructor: step_size must be non-zero");
     }
-    if (error_vec.empty()) {
+    if (error_rate_vec.empty()) {
       throw std::invalid_argument(
-          "sliding_window constructor: error_vec must be non-empty");
+          "sliding_window constructor: error_rate_vec must be non-empty");
     }
 
     // Enforce that H is already sorted.
@@ -110,8 +110,8 @@ public:
       // Slice the error vector to only include the current window.
       auto inner_decoder_params_mod = inner_decoder_params;
       std::vector<cudaq::qec::float_t> error_vec_mod(
-          error_vec.begin() + first_column,
-          error_vec.begin() + last_column + 1);
+          error_rate_vec.begin() + first_column,
+          error_rate_vec.begin() + last_column + 1);
       inner_decoder_params_mod.insert("error_rate_vec", error_vec_mod);
 
       printf("Creating a decoder for window %zu-%zu (dims %zu x %zu) "

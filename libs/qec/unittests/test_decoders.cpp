@@ -282,7 +282,7 @@ void SlidingWindowDecoderTest(bool run_batched) {
   sliding_window_params.insert("step_size", step_size);
   sliding_window_params.insert("num_syndromes_per_round",
                                n_syndromes_per_round);
-  sliding_window_params.insert("error_vec", simplified_weights);
+  sliding_window_params.insert("error_rate_vec", simplified_weights);
   sliding_window_params.insert("inner_decoder_name", inner_decoder_name);
 
   cudaqx::heterogeneous_map inner_decoder_params;
@@ -326,7 +326,8 @@ void SlidingWindowDecoderTest(bool run_batched) {
       auto dec_results = global_decoder->decode_batch(syndromes);
       for (std::size_t i = 0; i < num_syndromes; ++i) {
         ASSERT_TRUE(dec_results[i].converged);
-        cudaq::qec::convert_vec_soft_to_hard(dec_results[i].result, global_decoded_results[i]);
+        cudaq::qec::convert_vec_soft_to_hard(dec_results[i].result,
+                                             global_decoded_results[i]);
       }
     } else {
       for (std::size_t i = 0; i < num_syndromes; ++i) {
@@ -335,7 +336,8 @@ void SlidingWindowDecoderTest(bool run_batched) {
         auto d = global_decoder->decode(syndromes[i]);
         ASSERT_TRUE(d.converged);
         ASSERT_GT(d.result.size(), 0);
-        cudaq::qec::convert_vec_soft_to_hard(d.result, global_decoded_results[i]);
+        cudaq::qec::convert_vec_soft_to_hard(d.result,
+                                             global_decoded_results[i]);
       }
     }
   }
@@ -355,7 +357,8 @@ void SlidingWindowDecoderTest(bool run_batched) {
     for (std::size_t i = 0; i < num_syndromes; ++i) {
       // ASSERT_TRUE(dec_results[i].converged);
       ASSERT_GT(dec_results[i].result.size(), 0);
-      cudaq::qec::convert_vec_soft_to_hard(dec_results[i].result, windowed_decoded_results[i]);
+      cudaq::qec::convert_vec_soft_to_hard(dec_results[i].result,
+                                           windowed_decoded_results[i]);
     }
   } else {
     for (std::size_t i = 0; i < num_syndromes; ++i) {
@@ -364,7 +367,7 @@ void SlidingWindowDecoderTest(bool run_batched) {
       ASSERT_GT(decoded_result.result.size(), 0);
       // ASSERT_TRUE(decoded_result.converged);
       cudaq::qec::convert_vec_soft_to_hard(decoded_result.result,
-                                          windowed_decoded_results[i]);
+                                           windowed_decoded_results[i]);
     }
   }
   auto t3 = std::chrono::high_resolution_clock::now();
