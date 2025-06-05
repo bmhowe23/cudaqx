@@ -68,29 +68,12 @@ TEST(QECCodeTester, checkSteaneNoiseStim) {
 
   auto steane = cudaq::qec::get_code("steane");
   int nShots = 10;
-  int nRounds = []() {
-    if (getenv("CUDAQ_TEST_STIM_N_ROUNDS"))
-      return atoi(getenv("CUDAQ_TEST_STIM_N_ROUNDS"));
-    return 3;
-  }();
+  int nRounds = 3;
   {
     // two qubit bitflip
     cudaq::set_random_seed(13);
     cudaq::noise_model noise;
     noise.add_all_qubit_channel("x", cudaq::qec::two_qubit_bitflip(0.1), 1);
-
-    printf("Running nShots = %d\n", nShots);
-    auto [pcm_data_x, pcm_probabilities_x, pcm_data_z, pcm_probabilities_z] =
-        cudaq::qec::pcm_memory_circuit(*steane, cudaq::qec::operation::prep0,
-                                       nShots, nRounds, noise);
-    printf("BMH GOT HERE %s:%d\n", __FILE__, __LINE__);
-    pcm_data_x.dump_bits();
-    for (auto p : pcm_probabilities_x)
-      printf("%.6f\n", p);
-    printf("BMH GOT HERE %s:%d\n", __FILE__, __LINE__);
-    pcm_data_z.dump_bits();
-    for (auto p : pcm_probabilities_z)
-      printf("%.6f\n", p);
 
     auto [syndromes, d] =
         cudaq::qec::sample_memory_circuit(*steane, nShots, nRounds, noise);
@@ -100,7 +83,6 @@ TEST(QECCodeTester, checkSteaneNoiseStim) {
     d.dump();
     EXPECT_EQ(syndromes.shape()[0], nShots * nRounds);
     EXPECT_EQ(syndromes.shape()[1], 6);
-    return;
 
     // Should have some 1s since it's noisy
     // bitflip should only trigger x syndromes

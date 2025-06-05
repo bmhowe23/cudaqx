@@ -77,6 +77,8 @@ public:
       }
     }
 
+    // Build a lookup table for an error on each possible qubit
+
     // For each qubit with a possible error, calculate an error signature.
     for (std::size_t qErr = 0; qErr < block_size; qErr++) {
       std::string err_sig(syndrome_size, '0');
