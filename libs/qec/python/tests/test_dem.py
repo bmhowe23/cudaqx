@@ -24,14 +24,12 @@ def mat_to_str(mat):
     return s
 
 
-# All of these tests need to be run with stim target
-cudaq.set_target("stim")
-
-
 # Use the fixture to set the target
-@pytest.fixture(scope="session", autouse=True)
+@pytest.fixture(scope="module", autouse=True)
 def set_target():
     cudaq.set_target("stim")
+    yield
+    cudaq.reset_target()
 
 
 def test_dem_from_memory_circuit():
