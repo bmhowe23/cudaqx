@@ -269,16 +269,16 @@ void bindCode(py::module &mod) {
           if (py::isinstance<py::str>(obj.cast<py::list>()[0])) {
             options.attr("pop")("stabilizers");
             auto words = obj.cast<std::vector<std::string>>();
-            std::vector<cudaq::spin_op> ops;
+            std::vector<cudaq::spin_op_term> ops;
             for (auto &os : words)
               ops.emplace_back(cudaq::spin_op::from_word(os));
             sortStabilizerOps(ops);
             return get_code(name, ops, hetMapFromKwargs(options));
           }
 
-          if (py::isinstance<cudaq::spin_op>(obj[0])) {
+          if (py::isinstance<cudaq::spin_op_term>(obj[0])) {
             options.attr("pop")("stabilizers");
-            return get_code(name, obj.cast<std::vector<cudaq::spin_op>>(),
+            return get_code(name, obj.cast<std::vector<cudaq::spin_op_term>>(),
                             hetMapFromKwargs(options));
           }
 
@@ -416,6 +416,108 @@ void bindCode(py::module &mod) {
       "Sample the memory circuit of the code with a specific initial "
       "operation",
       py::arg("code"), py::arg("op"), py::arg("numShots"), py::arg("numRounds"),
+      py::arg("noise") = std::nullopt);
+
+  qecmod.def(
+      "dem_from_memory_circuit",
+      [](code &code, operation op, std::size_t numRounds,
+         std::optional<cudaq::noise_model> noise = std::nullopt) {
+        return dem_from_memory_circuit(code, op, numRounds, *noise);
+      },
+      "Generate a detector error model from a memory circuit", py::arg("code"),
+      py::arg("op"), py::arg("numRounds"), py::arg("noise") = std::nullopt);
+
+  qecmod.def(
+      "dem_from_memory_circuit",
+      [](code &code, operation op, const py::array_t<uint8_t> &obs_matrix,
+         std::size_t numRounds,
+         std::optional<cudaq::noise_model> noise = std::nullopt) {
+        return dem_from_memory_circuit(code, op, toTensor(obs_matrix),
+                                       numRounds, *noise);
+      },
+      "Generate a detector error model from a memory circuit", py::arg("code"),
+      py::arg("op"), py::arg("obs_matrix"), py::arg("numRounds"),
+      py::arg("noise") = std::nullopt);
+
+  qecmod.def(
+      "dem_from_memory_circuit",
+      [](code &code, operation op,
+         const std::vector<cudaq::spin_op_term> &observables,
+         std::size_t numRounds,
+         std::optional<cudaq::noise_model> noise = std::nullopt) {
+        return dem_from_memory_circuit(code, op, observables, numRounds,
+                                       *noise);
+      },
+      "Generate a detector error model from a memory circuit", py::arg("code"),
+      py::arg("op"), py::arg("observables"), py::arg("numRounds"),
+      py::arg("noise") = std::nullopt);
+
+  qecmod.def(
+      "x_dem_from_memory_circuit",
+      [](code &code, operation op, std::size_t numRounds,
+         std::optional<cudaq::noise_model> noise = std::nullopt) {
+        return x_dem_from_memory_circuit(code, op, numRounds, *noise);
+      },
+      "Generate a detector error model from a memory circuit", py::arg("code"),
+      py::arg("op"), py::arg("numRounds"), py::arg("noise") = std::nullopt);
+
+  qecmod.def(
+      "x_dem_from_memory_circuit",
+      [](code &code, operation op, const py::array_t<uint8_t> &obs_matrix,
+         std::size_t numRounds,
+         std::optional<cudaq::noise_model> noise = std::nullopt) {
+        return x_dem_from_memory_circuit(code, op, toTensor(obs_matrix),
+                                         numRounds, *noise);
+      },
+      "Generate a detector error model from a memory circuit", py::arg("code"),
+      py::arg("op"), py::arg("obs_matrix"), py::arg("numRounds"),
+      py::arg("noise") = std::nullopt);
+
+  qecmod.def(
+      "x_dem_from_memory_circuit",
+      [](code &code, operation op,
+         const std::vector<cudaq::spin_op_term> &observables,
+         std::size_t numRounds,
+         std::optional<cudaq::noise_model> noise = std::nullopt) {
+        return x_dem_from_memory_circuit(code, op, observables, numRounds,
+                                         *noise);
+      },
+      "Generate a detector error model from a memory circuit", py::arg("code"),
+      py::arg("op"), py::arg("observables"), py::arg("numRounds"),
+      py::arg("noise") = std::nullopt);
+
+  qecmod.def(
+      "z_dem_from_memory_circuit",
+      [](code &code, operation op, std::size_t numRounds,
+         std::optional<cudaq::noise_model> noise = std::nullopt) {
+        return z_dem_from_memory_circuit(code, op, numRounds, *noise);
+      },
+      "Generate a detector error model from a memory circuit", py::arg("code"),
+      py::arg("op"), py::arg("numRounds"), py::arg("noise") = std::nullopt);
+
+  qecmod.def(
+      "z_dem_from_memory_circuit",
+      [](code &code, operation op, const py::array_t<uint8_t> &obs_matrix,
+         std::size_t numRounds,
+         std::optional<cudaq::noise_model> noise = std::nullopt) {
+        return z_dem_from_memory_circuit(code, op, toTensor(obs_matrix),
+                                         numRounds, *noise);
+      },
+      "Generate a detector error model from a memory circuit", py::arg("code"),
+      py::arg("op"), py::arg("obs_matrix"), py::arg("numRounds"),
+      py::arg("noise") = std::nullopt);
+
+  qecmod.def(
+      "z_dem_from_memory_circuit",
+      [](code &code, operation op,
+         const std::vector<cudaq::spin_op_term> &observables,
+         std::size_t numRounds,
+         std::optional<cudaq::noise_model> noise = std::nullopt) {
+        return z_dem_from_memory_circuit(code, op, observables, numRounds,
+                                         *noise);
+      },
+      "Generate a detector error model from a memory circuit", py::arg("code"),
+      py::arg("op"), py::arg("observables"), py::arg("numRounds"),
       py::arg("noise") = std::nullopt);
 
   qecmod.def(

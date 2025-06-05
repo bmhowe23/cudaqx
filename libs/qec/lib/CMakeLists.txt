@@ -14,6 +14,7 @@ add_compile_options(-Wno-attributes)
 add_library(${LIBRARY_NAME} SHARED
   code.cpp
   decoder.cpp
+  detector_error_model.cpp
   experiments.cpp
   pcm_utils.cpp
   plugin_loader.cpp

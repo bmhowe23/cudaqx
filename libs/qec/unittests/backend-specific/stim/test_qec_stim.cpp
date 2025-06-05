@@ -455,7 +455,7 @@ TEST(QECCodeTester, checkNoisySampleMemoryCircuitAndDecodeStim) {
       syndrome.borrow(syndromes.data() + i * stride);
       printf("syndrome:\n");
       syndrome.dump();
-      auto [converged, v_result] = decoder->decode(syndrome);
+      auto [converged, v_result, opt] = decoder->decode(syndrome);
       cudaqx::tensor<uint8_t> result_tensor;
       cudaq::qec::convert_vec_soft_to_tensor_hard(v_result, result_tensor);
       printf("decode result:\n");
@@ -537,7 +537,7 @@ TEST(QECCodeTester, checkNoisySampleMemoryCircuitAndDecodeStim) {
         syndrome.borrow(syndromes.data() + stride * count);
         printf("syndrome:\n");
         syndrome.dump();
-        auto [converged, v_result] = decoder->decode(syndrome);
+        auto [converged, v_result, opt] = decoder->decode(syndrome);
         cudaqx::tensor<uint8_t> result_tensor;
         cudaq::qec::convert_vec_soft_to_tensor_hard(v_result, result_tensor);
 
@@ -565,4 +565,24 @@ TEST(QECCodeTester, checkNoisySampleMemoryCircuitAndDecodeStim) {
     printf("numLerrors: %zu\n", numLerrors);
     EXPECT_TRUE(numLerrors > 0);
   }
+}
+
+// TODO - make this validate the answers rather than just printing the results.
+TEST(QECCodeTester, checkDemFromMemoryCircuit) {
+  auto steane = cudaq::qec::get_code("steane");
+  int num_rounds = 4;
+  cudaq::noise_model noise;
+  noise.add_all_qubit_channel("mz", cudaq::bit_flip_channel(0.01));
+  auto dem = cudaq::qec::dem_from_memory_circuit(
+      *steane, cudaq::qec::operation::prep0, num_rounds, noise);
+  printf("dem:\n");
+  dem.detector_error_matrix.dump_bits();
+  // Print the error probabilities
+  printf("error probabilities: { ");
+  for (std::size_t i = 0; i < dem.error_rates.size(); i++) {
+    printf("%f ", dem.error_rates[i]);
+  }
+  printf("}\n");
+  printf("observables_flips_matrix:\n");
+  dem.observables_flips_matrix.dump_bits();
 }

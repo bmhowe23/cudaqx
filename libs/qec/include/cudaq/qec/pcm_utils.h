@@ -68,8 +68,8 @@ cudaqx::tensor<uint8_t>
 sort_pcm_columns(const cudaqx::tensor<uint8_t> &pcm,
                  std::uint32_t num_syndromes_per_round = 0);
 
-/// @brief Simplify a PCM by removing duplicate columns, and combine the
-/// probability weight vectors accordingly.
+/// @brief Simplify a PCM by removing duplicate columns and 0-weight columns,
+/// and combine the probability weight vectors accordingly.
 /// @param pcm The PCM to simplify.
 /// @param weights The probability weight vectors to combine.
 /// @return A new PCM with the columns sorted in topological order, and the
