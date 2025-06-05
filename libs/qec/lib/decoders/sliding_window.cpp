@@ -14,9 +14,9 @@
 
 namespace cudaq::qec {
 
-/// @brief This is a simple LUT (LookUp Table) decoder that demonstrates how to
-/// build a simple decoder that can correctly decode errors during a single bit
-/// flip in the block.
+/// @brief This is a sliding window decoder that receives syndromes on a
+/// round-by-round basis, and decodes them according window-specific parameters
+/// provided in the decoder.
 class sliding_window : public decoder {
 private:
   // Input parameters.
@@ -35,6 +35,9 @@ private:
   std::vector<std::size_t> first_columns;
   cudaqx::tensor<std::uint8_t> full_pcm;
 
+  // Constants
+  static constexpr int NUM_WINDOW_PROC_TIMES = 10;
+
   // State data
   std::vector<std::vector<cudaq::qec::float_t>>
       rolling_window; // [batch_size, num_syndromes_per_window]
@@ -43,7 +46,7 @@ private:
   std::vector<std::vector<bool>> syndrome_mods; // [batch_size, syndrome_size]
   std::vector<decoder_result> rw_results;       // [batch_size]
   std::vector<double> window_proc_times;
-  std::array<double, 10> window_proc_times_arr;
+  std::array<double, NUM_WINDOW_PROC_TIMES> window_proc_times_arr;
 
 public:
   sliding_window(const cudaqx::tensor<uint8_t> &H,
@@ -115,10 +118,10 @@ public:
           error_rate_vec.begin() + last_column + 1);
       inner_decoder_params_mod.insert("error_rate_vec", error_vec_mod);
 
-      printf("Creating a decoder for window %zu-%zu (dims %zu x %zu) "
-             "first_column = %u, last_column = %u\n",
-             start_round, end_round, H_round.shape()[0], H_round.shape()[1],
-             first_column, last_column);
+      CUDAQ_INFO("Creating a decoder for window {}-{} (dims {} x {}) "
+                 "first_column = {}, last_column = {}\n",
+                 start_round, end_round, H_round.shape()[0], H_round.shape()[1],
+                 first_column, last_column);
       auto inner_decoder =
           decoder::get(inner_decoder_name, H_round, inner_decoder_params_mod);
       inner_decoders.push_back(std::move(inner_decoder));
