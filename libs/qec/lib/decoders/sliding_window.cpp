@@ -46,7 +46,7 @@ private:
   std::vector<std::vector<bool>> syndrome_mods; // [batch_size, syndrome_size]
   std::vector<decoder_result> rw_results;       // [batch_size]
   std::vector<double> window_proc_times;
-  std::array<double, NUM_WINDOW_PROC_TIMES> window_proc_times_arr;
+  std::array<double, NUM_WINDOW_PROC_TIMES> window_proc_times_arr = {};
 
 public:
   sliding_window(const cudaqx::tensor<uint8_t> &H,
@@ -130,7 +130,7 @@ public:
 
   virtual decoder_result decode(const std::vector<float_t> &syndrome) override {
     if (syndrome.size() == this->syndrome_size) {
-      // printf("%s:%d Decoding whole block\n", __FILE__, __LINE__);
+      CUDAQ_DBG("Decoding whole block");
       // Decode the whole thing, iterating over windows manually.
       decoder_result result;
       for (std::size_t w = 0; w < num_rounds; ++w) {
@@ -157,28 +157,23 @@ public:
       window_proc_times.resize(num_windows);
       std::fill(window_proc_times.begin(), window_proc_times.end(), 0.0);
       rw_filled = 0;
-      // printf("%s:%d Initializing window\n", __FILE__, __LINE__);
+      CUDAQ_DBG("Initializing window");
     }
     if (this->rw_filled == num_syndromes_per_window) {
-      // printf("%s:%d Window is full, sliding the window\n", __FILE__,
-      // __LINE__); The window is full. Slide existing data to the left and
-      // write the new data at the end.
+      CUDAQ_DBG("Window is full, sliding the window");
       std::copy(this->rolling_window[0].begin() + num_syndromes_per_round,
                 this->rolling_window[0].end(), this->rolling_window[0].begin());
       std::copy(syndrome.begin(), syndrome.end(),
                 this->rolling_window[0].end() - num_syndromes_per_round);
     } else {
       // Just copy the data to the end of the rolling window.
-      // printf("%s:%d Copying data to the end of the rolling window\n",
-      // __FILE__,
-      //        __LINE__);
+      CUDAQ_DBG("Copying data to the end of the rolling window");
       std::copy(syndrome.begin(), syndrome.end(),
                 this->rolling_window[0].begin() + this->rw_filled);
       this->rw_filled += num_syndromes_per_round;
     }
     if (rw_filled == num_syndromes_per_window) {
-      // printf("%s:%d Decoding window %lu/%lu\n", __FILE__, __LINE__,
-      //        num_windows_decoded + 1, num_windows);
+      CUDAQ_DBG("Decoding window {}/{}", num_windows_decoded + 1, num_windows);
       decode_window();
 
       num_windows_decoded++;
@@ -186,20 +181,20 @@ public:
         num_windows_decoded = 0;
         rw_filled = 0;
         // for (std::size_t w = 0; w < num_windows; ++w) {
-        //   printf("Window %zu time: %.3f ms\n", w, window_proc_times[w]);
+        //   CUDAQ_DBG("Window {} time: {} ms", w, window_proc_times[w]);
         // }
-        // printf("%s:%d Returning decoder_result\n", __FILE__, __LINE__);
+        CUDAQ_DBG("Returning decoder_result");
         return std::move(this->rw_results[0]);
       }
     }
-    // printf("%s:%d Returning empty decoder_result\n", __FILE__, __LINE__);
+    CUDAQ_DBG("Returning empty decoder_result");
     return decoder_result(); // empty return value
   }
 
   virtual std::vector<decoder_result>
   decode_batch(const std::vector<std::vector<float_t>> &syndromes) override {
     if (syndromes[0].size() == this->syndrome_size) {
-      // printf("%s:%d Decoding whole block\n", __FILE__, __LINE__);
+      CUDAQ_DBG("Decoding whole block");
       // Decode the whole thing, iterating over windows manually.
       std::vector<decoder_result> results;
       std::vector<std::vector<float_t>> syndromes_round(syndromes.size());
@@ -237,11 +232,12 @@ public:
         rolling_window[s].resize(num_syndromes_per_window);
       }
       window_proc_times.resize(num_windows);
+      std::fill(window_proc_times.begin(), window_proc_times.end(), 0.0);
       rw_filled = 0;
-      // printf("%s:%d Initializing window\n", __FILE__, __LINE__);
+      CUDAQ_DBG("Initializing window");
     }
     if (this->rw_filled == num_syndromes_per_window) {
-      // printf("%s:%d Window is full, sliding the window\n", __FILE__, __LINE__);
+      CUDAQ_DBG("Window is full, sliding the window");
       // The window is full. Slide existing data to the left and write the new
       // data at the end.
       for (std::size_t s = 0; s < syndromes.size(); ++s) {
@@ -253,8 +249,7 @@ public:
       }
     } else {
       // Just copy the data to the end of the rolling window.
-      // printf("%s:%d Copying data to the end of the rolling window\n", __FILE__,
-      //        __LINE__);
+      CUDAQ_DBG("Copying data to the end of the rolling window");
       for (std::size_t s = 0; s < syndromes.size(); ++s) {
         std::copy(syndromes[s].begin(), syndromes[s].end(),
                   this->rolling_window[s].begin() + this->rw_filled);
@@ -262,8 +257,7 @@ public:
       this->rw_filled += num_syndromes_per_round;
     }
     if (rw_filled == num_syndromes_per_window) {
-      // printf("%s:%d Decoding window %lu/%lu\n", __FILE__, __LINE__,
-      //        num_windows_decoded + 1, num_windows);
+      CUDAQ_DBG("Decoding window {}/{}", num_windows_decoded + 1, num_windows);
       decode_window();
 
       num_windows_decoded++;
@@ -272,13 +266,13 @@ public:
         rw_filled = 0;
         // Dump the per window processing times.
         // for (std::size_t w = 0; w < num_windows; ++w) {
-        //   printf("Window %zu time: %.3f ms\n", w, window_proc_times[w]);
+        //   CUDAQ_DBG("Window {} time: {} ms", w, window_proc_times[w]);
         // }
-        // printf("%s:%d Returning decoder_result\n", __FILE__, __LINE__);
+        CUDAQ_DBG("Returning decoder_result");
         return std::move(this->rw_results);
       }
     }
-    // printf("%s:%d Returning empty decoder_result\n", __FILE__, __LINE__);
+    CUDAQ_DBG("Returning empty decoder_result");
     return std::vector<decoder_result>(); // empty return value
   }
 
@@ -287,7 +281,7 @@ public:
     const auto &w = this->num_windows_decoded;
     std::size_t syndrome_start = w * step_size * num_syndromes_per_round;
     std::size_t syndrome_end = syndrome_start + num_syndromes_per_window - 1;
-    std::size_t syndrome_start_next_window = syndrome_end + 1;
+    std::size_t syndrome_start_next_window = (w + 1) * step_size * num_syndromes_per_round;
     std::size_t syndrome_end_next_window =
         syndrome_start_next_window + num_syndromes_per_round - 1;
     auto t3 = std::chrono::high_resolution_clock::now();
@@ -303,10 +297,10 @@ public:
       }
     }
     auto t4 = std::chrono::high_resolution_clock::now();
-    // printf("Window %zu: syndrome_start = %zu, syndrome_end = %zu length1 = "
-    //        "%zu length2 = %zu\n",
-    //        w, syndrome_start, syndrome_end, syndrome_slice.size(),
-    //        syndrome_end - syndrome_start + 1);
+    CUDAQ_DBG("Window {}: syndrome_start = {}, syndrome_end = {}, length1 = "
+              "{}, length2 = {}",
+              w, syndrome_start, syndrome_end, this->rolling_window[0].size(),
+              syndrome_end - syndrome_start + 1);
     std::vector<decoder_result> inner_results;
     if (this->rolling_window.size() == 1) {
       inner_results.push_back(
@@ -314,9 +308,9 @@ public:
     } else {
       inner_results = inner_decoders[w]->decode_batch(this->rolling_window);
     }
-    // if (!inner_result.converged) {
-    //   printf("Window %zu: inner decoder failed to converge\n", w);
-    // }
+    if (!inner_results[0].converged) {
+      CUDAQ_DBG("Window {}: inner decoder failed to converge", w);
+    }
     auto t5 = std::chrono::high_resolution_clock::now();
     std::vector<std::vector<uint8_t>> window_results(
         this->rolling_window.size());
@@ -332,7 +326,7 @@ public:
       auto next_window_first_column = first_columns[w + 1];
       auto this_window_first_column = first_columns[w];
       auto num_to_commit = next_window_first_column - this_window_first_column;
-      // printf("  Committing %lu bits from window %zu\n", num_to_commit, w);
+      CUDAQ_DBG("  Committing {} bits from window {}", num_to_commit, w);
       for (std::size_t s = 0; s < this->rolling_window.size(); ++s) {
         for (std::size_t c = 0; c < num_to_commit; ++c) {
           rw_results[s].result.at(c + this_window_first_column) =
@@ -365,7 +359,7 @@ public:
       // decoded_result.
       auto this_window_first_column = first_columns[w];
       auto num_to_commit = window_results[0].size();
-      // printf("  Committing %zu bits from window %zu\n", num_to_commit, w);
+      CUDAQ_DBG("  Committing {} bits from window {}", num_to_commit, w);
       for (std::size_t s = 0; s < this->rolling_window.size(); ++s) {
         for (std::size_t c = 0; c < num_to_commit; ++c) {
           rw_results[s].result.at(c + this_window_first_column) =
@@ -376,24 +370,16 @@ public:
     auto t7 = std::chrono::high_resolution_clock::now();
     window_proc_times.at(w) +=
         std::chrono::duration<double>(t7 - t0).count() * 1000;
-    window_proc_times_arr[3] += std::chrono::duration<double>(t3 - t0).count() * 1000;
-    window_proc_times_arr[4] += std::chrono::duration<double>(t4 - t3).count() * 1000;
-    window_proc_times_arr[5] += std::chrono::duration<double>(t5 - t4).count() * 1000;
-    window_proc_times_arr[6] += std::chrono::duration<double>(t6 - t5).count() * 1000;
-    window_proc_times_arr[7] += std::chrono::duration<double>(t7 - t6).count() * 1000;
-    // printf("Window %zu time: %.3f ms (3:%.3fms 4:%.3fms 5:%.3fms 6:%.3fms "
-    //        "7:%.3fms)\n",
-    //        w, window_proc_times[w],
-    //        std::chrono::duration<double>(t3 - t0).count() * 1000,
-    //        std::chrono::duration<double>(t4 - t3).count() * 1000,
-    //        std::chrono::duration<double>(t5 - t4).count() * 1000,
-    //        std::chrono::duration<double>(t6 - t5).count() * 1000,
-    //        std::chrono::duration<double>(t7 - t6).count() * 1000);
-    // printf("Window %zu time: %.3f ms (3:%.3fms 4:%.3fms 5:%.3fms 6:%.3fms "
-    //        "7:%.3fms)\n",
-    //        w, window_proc_times[w], window_proc_times_arr[3],
-    //        window_proc_times_arr[4], window_proc_times_arr[5],
-    //        window_proc_times_arr[6], window_proc_times_arr[7]);
+    window_proc_times_arr[3] = std::chrono::duration<double>(t3 - t0).count() * 1000;
+    window_proc_times_arr[4] = std::chrono::duration<double>(t4 - t3).count() * 1000;
+    window_proc_times_arr[5] = std::chrono::duration<double>(t5 - t4).count() * 1000;
+    window_proc_times_arr[6] = std::chrono::duration<double>(t6 - t5).count() * 1000;
+    window_proc_times_arr[7] = std::chrono::duration<double>(t7 - t6).count() * 1000;
+    CUDAQ_INFO("Window {} time: {:.3f} ms (3:{:.3f}ms 4:{:.3f}ms 5:{:.3f}ms "
+               "6:{:.3f}ms 7:{:.3f}ms)",
+               w, window_proc_times[w], window_proc_times_arr[3],
+               window_proc_times_arr[4], window_proc_times_arr[5],
+               window_proc_times_arr[6], window_proc_times_arr[7]);
   }
 
   virtual ~sliding_window() {}
