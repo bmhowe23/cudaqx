@@ -1041,7 +1041,6 @@ TEST(PCMUtilsTester, SlidingWindowDecoderTest) {
       window_size * n_syndromes_per_round;
 
   cudaqx::heterogeneous_map custom_args;
-  custom_args.insert("circuit_level_like", true);
 
   // Store a list of decoders and the PCM for each window.
   std::vector<std::unique_ptr<cudaq::qec::decoder>> decoders;

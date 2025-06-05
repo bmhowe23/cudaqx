@@ -286,7 +286,6 @@ void SlidingWindowDecoderTest(bool run_batched) {
   sliding_window_params.insert("inner_decoder_name", inner_decoder_name);
 
   cudaqx::heterogeneous_map inner_decoder_params;
-  inner_decoder_params.insert("circuit_level_like", true);
   sliding_window_params.insert("inner_decoder_params", inner_decoder_params);
 
   auto sliding_window_decoder = cudaq::qec::decoder::get(

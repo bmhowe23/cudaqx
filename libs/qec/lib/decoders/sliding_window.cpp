@@ -6,6 +6,7 @@
  * the terms of the Apache License 2.0 which accompanies this distribution.    *
  ******************************************************************************/
 
+#include "common/Logger.h"
 #include "cudaq/qec/decoder.h"
 #include "cudaq/qec/pcm_utils.h"
 #include <cassert>
@@ -75,8 +76,8 @@ public:
           "sliding_window constructor: inner_decoder_name must be non-empty");
     }
     if (inner_decoder_params.empty()) {
-      throw std::invalid_argument(
-          "sliding_window constructor: inner_decoder_params must be non-empty");
+      CUDAQ_WARN("sliding_window constructor: inner_decoder_params is empty. "
+                 "Is that intentional?");
     }
     if (step_size == 0) {
       throw std::invalid_argument(
