@@ -23,6 +23,8 @@ private:
   std::size_t window_size = 1;
   std::size_t step_size = 1;
   std::size_t num_syndromes_per_round = 0;
+  bool straddle_start_round = false;
+  bool straddle_end_round = true;
   std::vector<cudaq::qec::float_t> error_rate_vec;
   std::string inner_decoder_name;
   cudaqx::heterogeneous_map inner_decoder_params;
@@ -59,6 +61,10 @@ public:
     step_size = params.get<std::size_t>("step_size", step_size);
     num_syndromes_per_round = params.get<std::size_t>("num_syndromes_per_round",
                                                       num_syndromes_per_round);
+    straddle_start_round =
+        params.get<bool>("straddle_start_round", straddle_start_round);
+    straddle_end_round =
+        params.get<bool>("straddle_end_round", straddle_end_round);
     error_rate_vec = params.get<std::vector<cudaq::qec::float_t>>(
         "error_rate_vec", error_rate_vec);
     inner_decoder_name =
@@ -110,7 +116,7 @@ public:
       auto [H_round, first_column, last_column] =
           cudaq::qec::get_pcm_for_rounds(
               H, num_syndromes_per_round, start_round, end_round,
-              /*straddle_start_round=*/false, /*straddle_end_round=*/true);
+              straddle_start_round, straddle_end_round);
       first_columns.push_back(first_column);
 
       // Slice the error vector to only include the current window.
