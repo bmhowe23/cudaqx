@@ -34,6 +34,7 @@ private:
   std::vector<std::unique_ptr<decoder>> inner_decoders;
   std::vector<std::size_t> first_columns;
   cudaqx::tensor<std::uint8_t> full_pcm;
+  cudaqx::tensor<std::uint8_t> full_pcm_T;
 
   // Constants
   static constexpr int NUM_WINDOW_PROC_TIMES = 10;
@@ -52,6 +53,7 @@ public:
   sliding_window(const cudaqx::tensor<uint8_t> &H,
                  const cudaqx::heterogeneous_map &params)
       : decoder(H), full_pcm(H) {
+    full_pcm_T = full_pcm.transpose();
     // Fetch parameters from the params map.
     window_size = params.get<std::size_t>("window_size", window_size);
     step_size = params.get<std::size_t>("step_size", step_size);
@@ -329,8 +331,8 @@ public:
       CUDAQ_DBG("  Committing {} bits from window {}", num_to_commit, w);
       for (std::size_t s = 0; s < this->rolling_window.size(); ++s) {
         for (std::size_t c = 0; c < num_to_commit; ++c) {
-          rw_results[s].result.at(c + this_window_first_column) =
-              window_results[s].at(c);
+          rw_results[s].result[c + this_window_first_column] =
+              window_results[s][c];
         }
       }
       // We are committing to some errors that would affect the next round's
@@ -340,16 +342,16 @@ public:
       // we've already accounted for).
       for (std::size_t s = 0; s < this->rolling_window.size(); ++s) {
         for (std::size_t c = 0; c < num_to_commit; ++c) {
-          if (rw_results[s].result.at(c + this_window_first_column)) {
+          if (rw_results[s].result[c + this_window_first_column]) {
             // This bit is a 1, so we need to modify the syndrome measurements
             // for the next window to account for this already-accounted-for
             // error. We do this by flipping the bit in the syndrome
             // measurements if the corresponding entry in the PCM is a 1.
+            auto *pcm_col = &full_pcm_T.at({c + this_window_first_column, 0});
             for (auto r = syndrome_start_next_window;
                  r <= syndrome_end_next_window; ++r) {
               syndrome_mods[s][r] =
-                  syndrome_mods[s][r] ^ static_cast<bool>(full_pcm.at(
-                                            {r, c + this_window_first_column}));
+                  syndrome_mods[s][r] ^ static_cast<bool>(pcm_col[r]);
             }
           }
         }
@@ -362,8 +364,8 @@ public:
       CUDAQ_DBG("  Committing {} bits from window {}", num_to_commit, w);
       for (std::size_t s = 0; s < this->rolling_window.size(); ++s) {
         for (std::size_t c = 0; c < num_to_commit; ++c) {
-          rw_results[s].result.at(c + this_window_first_column) =
-              window_results[s].at(c);
+          rw_results[s].result[c + this_window_first_column] =
+              window_results[s][c];
         }
       }
     }
