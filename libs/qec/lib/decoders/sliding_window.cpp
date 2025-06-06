@@ -138,20 +138,27 @@ public:
 
   virtual decoder_result decode(const std::vector<float_t> &syndrome) override {
     if (syndrome.size() == this->syndrome_size) {
+      auto t0 = std::chrono::high_resolution_clock::now();
       CUDAQ_DBG("Decoding whole block");
       // Decode the whole thing, iterating over windows manually.
       decoder_result result;
+      std::vector<float_t> syndrome_round(step_size * num_syndromes_per_round);
       for (std::size_t w = 0; w < num_rounds; ++w) {
-        std::vector<float_t> syndrome_round(
-            syndrome.begin() + w * step_size * num_syndromes_per_round,
-            syndrome.begin() + (w + 1) * step_size * num_syndromes_per_round);
+        std::copy(syndrome.begin() + w * step_size * num_syndromes_per_round,
+                  syndrome.begin() + (w + 1) * step_size * num_syndromes_per_round,
+                  syndrome_round.begin());
         result = decode(syndrome_round);
       }
+      auto t1 = std::chrono::high_resolution_clock::now();
+      std::chrono::duration<double> diff = t1 - t0;
+      CUDAQ_INFO("Whole block time: {:.3f} ms", diff.count() * 1000);
       return result;
     }
     // Else we're receiving a single round.
     if (rw_filled == 0) {
       // Initialize the syndrome mods and rw_results.
+      auto t0 = std::chrono::high_resolution_clock::now();
+      window_proc_times_arr.fill(0.0);
       syndrome_mods.resize(1);
       syndrome_mods[0].clear();
       syndrome_mods[0].resize(this->syndrome_size);
@@ -166,19 +173,27 @@ public:
       std::fill(window_proc_times.begin(), window_proc_times.end(), 0.0);
       rw_filled = 0;
       CUDAQ_DBG("Initializing window");
+      auto t1 = std::chrono::high_resolution_clock::now();
+      window_proc_times_arr[0] = std::chrono::duration<double>(t1 - t0).count() * 1000;
     }
     if (this->rw_filled == num_syndromes_per_window) {
+      auto t0 = std::chrono::high_resolution_clock::now();
       CUDAQ_DBG("Window is full, sliding the window");
       std::copy(this->rolling_window[0].begin() + num_syndromes_per_round,
                 this->rolling_window[0].end(), this->rolling_window[0].begin());
       std::copy(syndrome.begin(), syndrome.end(),
                 this->rolling_window[0].end() - num_syndromes_per_round);
+      auto t1 = std::chrono::high_resolution_clock::now();
+      window_proc_times_arr[1] += std::chrono::duration<double>(t1 - t0).count() * 1000;
     } else {
       // Just copy the data to the end of the rolling window.
+      auto t0 = std::chrono::high_resolution_clock::now();
       CUDAQ_DBG("Copying data to the end of the rolling window");
       std::copy(syndrome.begin(), syndrome.end(),
                 this->rolling_window[0].begin() + this->rw_filled);
       this->rw_filled += num_syndromes_per_round;
+      auto t1 = std::chrono::high_resolution_clock::now();
+      window_proc_times_arr[2] += std::chrono::duration<double>(t1 - t0).count() * 1000;
     }
     if (rw_filled == num_syndromes_per_window) {
       CUDAQ_DBG("Decoding window {}/{}", num_windows_decoded + 1, num_windows);
@@ -383,11 +398,13 @@ public:
     window_proc_times_arr[5] = std::chrono::duration<double>(t5 - t4).count() * 1000;
     window_proc_times_arr[6] = std::chrono::duration<double>(t6 - t5).count() * 1000;
     window_proc_times_arr[7] = std::chrono::duration<double>(t7 - t6).count() * 1000;
-    CUDAQ_INFO("Window {} time: {:.3f} ms (3:{:.3f}ms 4:{:.3f}ms 5:{:.3f}ms "
-               "6:{:.3f}ms 7:{:.3f}ms)",
-               w, window_proc_times[w], window_proc_times_arr[3],
-               window_proc_times_arr[4], window_proc_times_arr[5],
-               window_proc_times_arr[6], window_proc_times_arr[7]);
+    CUDAQ_INFO("Window {} time: {:.3f} ms (0:{:.3f}ms 1:{:.3f}ms 2:{:.3f}ms "
+               "3:{:.3f}ms 4:{:.3f}ms 5:{:.3f}ms 6:{:.3f}ms 7:{:.3f}ms)",
+               w, window_proc_times[w], window_proc_times_arr[0],
+               window_proc_times_arr[1], window_proc_times_arr[2],
+               window_proc_times_arr[3], window_proc_times_arr[4],
+               window_proc_times_arr[5], window_proc_times_arr[6],
+               window_proc_times_arr[7]);
   }
 
   virtual ~sliding_window() {}
