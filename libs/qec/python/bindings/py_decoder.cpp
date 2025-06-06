@@ -6,6 +6,7 @@
  * the terms of the Apache License 2.0 which accompanies this distribution.    *
  ******************************************************************************/
 #include <limits>
+#include <span>
 #include <pybind11/complex.h>
 #include <pybind11/numpy.h>
 #include <pybind11/operators.h>
@@ -23,6 +24,25 @@
 
 namespace py = pybind11;
 using namespace cudaqx;
+
+template <typename T>
+py::array_t<T> steal_vector(std::vector<T> &&vec) {
+  // Get size and pointer
+  ssize_t n = vec.size();
+  T *data = vec.data();
+
+  // Create a capsule that will delete the vector when the array is destroyed
+  auto capsule = py::capsule(new std::vector<T>(std::move(vec)), [](void *v) {
+    delete reinterpret_cast<std::vector<T> *>(v);
+  });
+
+  // Create py::array_t that uses the buffer from the vector
+  return py::array_t<T>({n},         // shape
+                        {sizeof(T)}, // stride
+                        data,        // data pointer
+                        capsule      // base object (owns the memory)
+  );
+}
 
 namespace cudaq::qec {
 
@@ -101,6 +121,15 @@ void bindDecoder(py::module &mod) {
         True if the decoder successfully found a valid correction chain,
         False if the decoder failed to converge or exceeded iteration limits.
     )pbdoc")
+      // .def_property_readonly(
+      //     "result",
+      //     [](const decoder_result &self) {
+      //       // This does NOT copy the data, but the vector must outlive the
+      //       // array!
+      //       return py::array_t<float_t>(self.result.size(),
+      //       self.result.data());
+      //     },
+      //     "The decoded correction chain as a numpy array (view, not a copy)")
       .def_readwrite("result", &decoder_result::result, R"pbdoc(
         The decoded correction chain or recovery operation.
         
@@ -115,12 +144,12 @@ void bindDecoder(py::module &mod) {
     )pbdoc")
       .def("__len__", [](const decoder_result &) { return 3; })
       .def("__getitem__",
-           [](const decoder_result &r, size_t i) {
+           [](const decoder_result &r, size_t i) -> py::object {
              switch (i) {
              case 0:
                return py::cast(r.converged);
              case 1:
-               return py::cast(r.result);
+               return py::array_t<float_t>(r.result.size(), r.result.data());
              case 2:
                return py::cast(r.opt_results);
              default:
@@ -129,7 +158,10 @@ void bindDecoder(py::module &mod) {
            })
       // Enable iteration protocol
       .def("__iter__", [](const decoder_result &r) -> py::object {
-        return py::iter(py::make_tuple(r.converged, r.result, r.opt_results));
+        // return py::iter(py::make_tuple(r.converged, r.result, r.opt_results));
+        return py::iter(py::make_tuple(
+            r.converged, py::array_t<float_t>(r.result.size(), r.result.data()),
+            r.opt_results));
       });
 
   py::class_<async_decoder_result>(qecmod, "AsyncDecoderResult",
@@ -150,8 +182,24 @@ void bindDecoder(py::module &mod) {
       .def(py::init_alias<const py::array_t<uint8_t> &>())
       .def(
           "decode",
-          [](decoder &decoder, const std::vector<float_t> &syndrome) {
-            return decoder.decode(syndrome);
+          // [](decoder &decoder, const std::vector<float_t> &syndrome) {
+          [](decoder &decoder, py::array_t<float_t> syndrome) {
+            // std::span<const float_t> syndrome_span(syndrome.data(), syndrome.size());
+            return decoder_result{
+                true,
+                std::vector<float_t>(decoder.get_block_size(), 0.0),
+                // std::move(std::vector<float_t>(1, 0.0)),
+                std::nullopt};
+            // std::vector<float_t> result(decoder.get_block_size(), 0.0);
+            // return decoder_result{true,
+            //                       steal_vector(std::move(result)),
+            //                       std::nullopt};
+            // auto t0 = std::chrono::high_resolution_clock::now();
+            // auto x = decoder.decode(syndrome);
+            // auto t1 = std::chrono::high_resolution_clock::now();
+            // std::chrono::duration<double> diff = t1 - t0;
+            // CUDAQ_INFO("Decoder time: {:.3f} ms", diff.count() * 1000);
+            // return x;
           },
           "Decode the given syndrome to determine the error correction",
           py::arg("syndrome"))

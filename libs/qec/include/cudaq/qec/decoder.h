@@ -14,6 +14,7 @@
 #include <future>
 #include <optional>
 #include <vector>
+#include <span>
 
 namespace cudaq::qec {
 
@@ -147,6 +148,8 @@ public:
   /// length of the syndrome vector should be equal to \p syndrome_size.
   /// @returns Vector of length \p block_size of errors in each index.
   virtual decoder_result decode(const cudaqx::tensor<uint8_t> &syndrome);
+
+  virtual decoder_result decode(std::span<const float_t> syndrome);
 
   /// @brief Decode a single syndrome
   /// @param syndrome A vector of syndrome measurements where the floating point

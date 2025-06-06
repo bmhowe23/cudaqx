@@ -44,6 +44,10 @@ decoder_result decoder::decode(const cudaqx::tensor<uint8_t> &syndrome) {
   return decode(soft_syndrome);
 }
 
+decoder_result decoder::decode(std::span<const float_t> syndrome) {
+  return decode(std::vector<float_t>(syndrome.begin(), syndrome.end()));
+}
+
 // Provide a trivial implementation of the multi-syndrome decoder. Child classes
 // should override this if they can do it more efficiently than this.
 std::vector<decoder_result>
