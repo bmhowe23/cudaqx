@@ -99,7 +99,13 @@ void bindDecoder(py::module &mod) {
         True if the decoder successfully found a valid correction chain,
         False if the decoder failed to converge or exceeded iteration limits.
     )pbdoc")
-      .def_readwrite("result", &decoder_result::result, R"pbdoc(
+      // Make this read-only and zero-copy.
+      .def_property_readonly(
+          "result",
+          [](const decoder_result &r) {
+            return py::array_t<float_t>(r.result.size(), r.result.data());
+          },
+          R"pbdoc(
         The decoded correction chain or recovery operation.
         
         Contains the sequence of corrections that should be applied to recover
