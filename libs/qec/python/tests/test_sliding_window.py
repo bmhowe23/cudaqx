@@ -111,7 +111,7 @@ def run_decoder(filename, num_shots, run_as_batched, run_as_sliding_window):
 
     if run_as_sliding_window:
         sliding_window_args = {
-            'window_size': 13,
+            'window_size': 14,
             'step_size': 1,
             'num_syndromes_per_round': 72,
             'straddle_start_round': False,
@@ -181,7 +181,7 @@ def run_decoder(filename, num_shots, run_as_batched, run_as_sliding_window):
 
             t0 = time.time()
             # bp_converged, dec_result, opt_result = nv_dec_gpu_and_cpu.decode(syndrome)
-            temp = nv_dec_gpu_and_cpu.decode(syndrome)
+            dr = nv_dec_gpu_and_cpu.decode(syndrome)
             t1 = time.time()
             trial_diff = t1 - t0
             # print(f"Trial {i} decoding time: {trial_diff*1000} ms")
@@ -190,8 +190,8 @@ def run_decoder(filename, num_shots, run_as_batched, run_as_sliding_window):
             # Print out the indices of the non-zero elements in dec_result.
             # print(f"dec_result indices: {np.nonzero(dec_result)}")
 
-            dec_result = np.array(dec_result, dtype=np.uint8)
-            bp_converged_flags.append(bp_converged)
+            dec_result = np.array(dr.result, dtype=np.uint8)
+            bp_converged_flags.append(dr.converged)
 
             # See if this prediction flipped the observable
             predicted_observable = obs_mat.T @ dec_result % 2
