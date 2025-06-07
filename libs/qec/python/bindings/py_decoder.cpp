@@ -99,11 +99,15 @@ void bindDecoder(py::module &mod) {
         True if the decoder successfully found a valid correction chain,
         False if the decoder failed to converge or exceeded iteration limits.
     )pbdoc")
-      // Make this read-only and zero-copy.
-      .def_property_readonly(
+      // Make this zero-copy on read.
+      .def_property(
           "result",
           [](const decoder_result &r) {
             return py::array_t<float_t>(r.result.size(), r.result.data());
+          },
+          [](decoder_result &r, const py::array_t<float_t> &value) {
+            r.result =
+                std::vector<float_t>(value.data(), value.data() + value.size());
           },
           R"pbdoc(
         The decoded correction chain or recovery operation.

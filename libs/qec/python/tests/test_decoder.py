@@ -46,7 +46,7 @@ def test_decoder_api():
         assert hasattr(r, 'converged')
         assert hasattr(r, 'result')
         assert isinstance(r.converged, bool)
-        assert isinstance(r.result, list)
+        assert isinstance(r.result, np.ndarray)
         assert len(r.result) == 10
 
     # Test decode_async
@@ -59,7 +59,7 @@ def test_decoder_api():
     assert hasattr(result, 'converged')
     assert hasattr(result, 'result')
     assert isinstance(result.converged, bool)
-    assert isinstance(result.result, list)
+    assert isinstance(result.result, np.ndarray)
     assert len(result.result) == 10
 
 
@@ -72,7 +72,7 @@ def test_decoder_result_structure():
     assert hasattr(result, 'result')
     assert hasattr(result, 'opt_results')
     assert isinstance(result.converged, bool)
-    assert isinstance(result.result, list)
+    assert isinstance(result.result, np.ndarray)
     assert len(result.result) == 10
 
     # Test opt_results functionality
@@ -133,7 +133,7 @@ def test_decoder_plugin_result_structure():
     assert hasattr(result, 'converged')
     assert hasattr(result, 'result')
     assert isinstance(result.converged, bool)
-    assert isinstance(result.result, list)
+    assert isinstance(result.result, np.ndarray)
 
 
 def test_decoder_result_values():
