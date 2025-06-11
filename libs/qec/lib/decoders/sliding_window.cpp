@@ -126,8 +126,8 @@ public:
           error_rate_vec.begin() + last_column + 1);
       inner_decoder_params_mod.insert("error_rate_vec", error_vec_mod);
 
-      CUDAQ_INFO("Creating a decoder for window {}-{} (dims {} x {}) "
-                 "first_column = {}, last_column = {}\n",
+      CUDAQ_INFO("Creating a decoder for rounds {}-{} (dims {} x {}) "
+                 "first_column = {}, last_column = {}",
                  start_round, end_round, H_round.shape()[0], H_round.shape()[1],
                  first_column, last_column);
       auto inner_decoder =

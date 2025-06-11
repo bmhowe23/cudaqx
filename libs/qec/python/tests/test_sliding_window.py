@@ -11,6 +11,7 @@ from scipy.sparse import csr_matrix
 import cudaq_qec as qec
 import json
 import time
+import os
 
 
 ### Helper functions ###
@@ -214,4 +215,7 @@ def run_decoder(filename, num_shots, run_as_batched, run_as_sliding_window):
         f"Average decoding time for {num_shots} shots was {1e3 * decoding_time / num_shots} ms per shot"
     )
 
-run_decoder('osd_1008_8785_0.001.json', 100, False, True)
+run_sliding_window = False
+if os.environ.get('RUN_SLIDING_WINDOW', '0') == '1':
+    run_sliding_window = True
+run_decoder('osd_1008_8785_0.001.json', 100, False, run_sliding_window)
