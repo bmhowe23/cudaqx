@@ -274,7 +274,8 @@ simplify_pcm(const cudaqx::tensor<uint8_t> &pcm,
         // so we update the weights and do NOT add the duplicate column.
         auto prev_weight = new_weights.back();
         auto curr_weight = weights[column_index];
-        auto new_weight = 1.0 - (1.0 - prev_weight) * (1.0 - curr_weight);
+        auto new_weight =
+            prev_weight + curr_weight - 2.0 * prev_weight * curr_weight;
         new_weights.back() = new_weight;
       } else {
         // The current column has different row indices than the previous
