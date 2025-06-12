@@ -242,7 +242,8 @@ sort_pcm_columns(const cudaqx::tensor<uint8_t> &pcm,
 /// @brief Simplify a PCM by removing duplicate columns and 0-weight columns,
 /// and combine the probability weight vectors accordingly.
 /// @param pcm The PCM to simplify.
-/// @param weights The probability weight vectors to combine.
+/// @param weights The probability weight vectors to combine. This assumes all
+/// error mechanisms are independent of each other.
 /// @return A new PCM with the columns sorted in topological order, and the
 /// probability weight vectors combined accordingly.
 std::pair<cudaqx::tensor<uint8_t>, std::vector<double>>
