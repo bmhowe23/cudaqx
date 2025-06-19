@@ -69,8 +69,11 @@ void detector_error_model::canonicalize_for_rounds(
   // weight vectors if the columns have the same row indices.
   std::vector<std::vector<std::uint32_t>> new_row_indices;
   std::vector<double> new_weights;
+  std::vector<std::size_t> new_error_ids;
   const std::size_t num_obs = this->num_observables();
   const auto num_cols = column_order.size();
+  bool has_error_ids =
+      error_ids.has_value() && error_ids->size() == error_rates.size();
   for (std::size_t c = 0; c < num_cols; c++) {
     auto column_index = column_order[c];
     auto &curr_row_indices = row_indices[column_index];
@@ -82,6 +85,8 @@ void detector_error_model::canonicalize_for_rounds(
       new_row_indices.push_back(curr_row_indices);
       new_weights.push_back(error_rates[column_index]);
       final_column_order.push_back(column_index);
+      if (has_error_ids)
+        new_error_ids.push_back(error_ids->at(column_index));
     } else {
       auto &prev_row_indices = new_row_indices.back();
       if (prev_row_indices == curr_row_indices) {
@@ -89,13 +94,24 @@ void detector_error_model::canonicalize_for_rounds(
         // (i.e. has the same syndrome signature) so we update the error_rates
         // and do NOT add the duplicate column.
         auto prev_weight = new_weights.back();
+        auto prev_error_id = has_error_ids
+                                 ? new_error_ids.back()
+                                 : std::numeric_limits<std::size_t>::max();
         auto curr_weight = error_rates[column_index];
+        bool same_error_id =
+            has_error_ids && prev_error_id == error_ids->at(column_index);
+        double scale_factor = same_error_id ? 0.0 : 1.0;
         // The new weight is the probability that exactly ONE of the two errors
-        // occurs. This is given by the formula: P(A or B) = P(A) + P(B) - P(A
-        // and B) Where A is the error in the previous round, and B is the error
-        // in the current round.
-        auto new_weight = prev_weight + curr_weight - prev_weight * curr_weight;
+        // occurs. This is given by the formula: P(A xor B) = P(A) + P(B) - 2 *
+        // P(A and B). If the errors originate from the same error mechanism,
+        // then P(A and B) = 0.
+        auto new_weight = prev_weight + curr_weight -
+                          scale_factor * 2.0 * prev_weight * curr_weight;
         new_weights.back() = new_weight;
+        // Arbitrarily choose to keep the smaller error ID.
+        if (has_error_ids)
+          new_error_ids.back() =
+              std::min(prev_error_id, error_ids->at(column_index));
         // Verify that the observables are the same for the duplicate column.
         auto previous_column = column_order[c - 1];
         bool match = true;
@@ -125,11 +141,15 @@ void detector_error_model::canonicalize_for_rounds(
         new_row_indices.push_back(curr_row_indices);
         new_weights.push_back(error_rates[column_index]);
         final_column_order.push_back(column_index);
+        if (has_error_ids)
+          new_error_ids.push_back(error_ids->at(column_index));
       }
     }
   }
 
   std::swap(this->error_rates, new_weights);
+  if (has_error_ids)
+    std::swap(*this->error_ids, new_error_ids);
 
   // Create the reordered, reduced Detector Error Matrix.
   this->detector_error_matrix = cudaq::qec::reorder_pcm_columns(

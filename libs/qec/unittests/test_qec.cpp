@@ -841,7 +841,7 @@ TEST(PCMUtilsTester, checkSimplifyPCM2) {
   EXPECT_EQ(column_order, expected_order);
 
   auto [H_new, weights_new] = cudaq::qec::simplify_pcm(pcm, weights);
-  std::vector<double> expected_weights = {0.2, 1.0 - 0.9 * 0.7};
+  std::vector<double> expected_weights = {0.2, 0.1 + 0.3 - 2 * 0.1 * 0.3};
   for (std::size_t i = 0; i < weights_new.size(); ++i)
     EXPECT_NEAR(weights_new[i], expected_weights[i], 1e-6);
 }

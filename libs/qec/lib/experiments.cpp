@@ -281,8 +281,9 @@ cudaq::qec::detector_error_model dem_from_memory_circuit(
 
   platform.reset_exec_ctx();
 
-  // Populate error rates
+  // Populate error rates and error IDs
   dem.error_rates = std::move(ctx_msm.msm_probabilities.value());
+  dem.error_ids = std::move(ctx_msm.msm_prob_err_id.value());
 
   auto msm_as_strings = ctx_msm.result.sequential_data();
   cudaqx::tensor<uint8_t> msm_data(

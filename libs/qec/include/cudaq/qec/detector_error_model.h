@@ -8,6 +8,7 @@
 #pragma once
 
 #include "cuda-qx/core/tensor.h"
+#include <optional>
 
 namespace cudaq::qec {
 
@@ -25,6 +26,12 @@ struct detector_error_model {
   /// While not required, most usecases will want a notion of Pauli observables
   /// at the circuit-level
   cudaqx::tensor<uint8_t> observables_flips_matrix;
+
+  /// @brief Error mechanism ID. From a probability perspective, each error
+  /// mechanism ID is independent of all other error mechanism ID. For all
+  /// errors with the *same* ID, only one of them can happen. That is - the
+  /// errors containing the same ID are correlated with each other.
+  std::optional<std::vector<std::size_t>> error_ids;
 
   // Shared size parameters among the matrix types.
   // - detector_error_matrix: num_detectors x num_error_mechanisms [d, e]
