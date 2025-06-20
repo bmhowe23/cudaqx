@@ -399,6 +399,23 @@ void bindDecoder(py::module &mod) {
       py::arg("straddle_end_round") = false);
 
   qecmod.def(
+      "pcm_extend_to_n_rounds",
+      [](const py::array_t<uint8_t> &H, std::uint32_t num_syndromes_per_round,
+         std::uint32_t n_rounds) {
+        auto tensor_H = pcmToTensor(H);
+        auto [H_new, column_list] = cudaq::qec::pcm_extend_to_n_rounds(
+            tensor_H, num_syndromes_per_round, n_rounds);
+        // Construct a new py_array_t<uint8_t> from H_new.
+        py::array_t<uint8_t> H_new_py(
+            H_new.shape(),
+            {H_new.shape()[1] * sizeof(uint8_t), sizeof(uint8_t)},
+            H_new.data());
+        return py::make_tuple(H_new_py.attr("copy")(), column_list);
+      },
+      "Extend a parity check matrix to a given number of rounds.", py::arg("H"),
+      py::arg("num_syndromes_per_round"), py::arg("n_rounds"));
+
+  qecmod.def(
       "shuffle_pcm_columns",
       [](const py::array_t<uint8_t> &H, std::uint32_t seed) {
         auto tensor_H = pcmToTensor(H);
