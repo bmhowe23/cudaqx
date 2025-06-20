@@ -375,23 +375,27 @@ void bindDecoder(py::module &mod) {
   qecmod.def(
       "get_pcm_for_rounds",
       [](const py::array_t<uint8_t> &H, std::uint32_t num_syndromes_per_round,
-         std::uint32_t start_round, std::uint32_t end_round) {
+         std::uint32_t start_round, std::uint32_t end_round,
+         bool straddle_start_round, bool straddle_end_round) {
         auto tensor_H = pcmToTensor(H);
 
         auto [H_new, first_column, last_column] =
-            cudaq::qec::get_pcm_for_rounds(tensor_H, num_syndromes_per_round,
-                                           start_round, end_round);
+            cudaq::qec::get_pcm_for_rounds(
+                tensor_H, num_syndromes_per_round, start_round, end_round,
+                straddle_start_round, straddle_end_round);
 
         // Construct a new py_array_t<uint8_t> from H_new (deep copy)
-        return py::array_t<uint8_t>(
+        return py::make_tuple(py::array_t<uint8_t>(
                    H_new.shape(),
                    {H_new.shape()[1] * sizeof(uint8_t), sizeof(uint8_t)},
                    H_new.data())
-            .attr("copy")();
+            .attr("copy")(),
+            first_column, last_column);
       },
       "Get a sub-PCM for a range of rounds.", py::arg("H"),
       py::arg("num_syndromes_per_round"), py::arg("start_round"),
-      py::arg("end_round"));
+      py::arg("end_round"), py::arg("straddle_start_round") = false,
+      py::arg("straddle_end_round") = false);
 
   qecmod.def(
       "shuffle_pcm_columns",
