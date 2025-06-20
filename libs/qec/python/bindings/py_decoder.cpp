@@ -385,11 +385,12 @@ void bindDecoder(py::module &mod) {
                 straddle_start_round, straddle_end_round);
 
         // Construct a new py_array_t<uint8_t> from H_new (deep copy)
-        return py::make_tuple(py::array_t<uint8_t>(
-                   H_new.shape(),
-                   {H_new.shape()[1] * sizeof(uint8_t), sizeof(uint8_t)},
-                   H_new.data())
-            .attr("copy")(),
+        return py::make_tuple(
+            py::array_t<uint8_t>(
+                H_new.shape(),
+                {H_new.shape()[1] * sizeof(uint8_t), sizeof(uint8_t)},
+                H_new.data())
+                .attr("copy")(),
             first_column, last_column);
       },
       "Get a sub-PCM for a range of rounds.", py::arg("H"),

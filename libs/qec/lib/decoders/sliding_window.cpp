@@ -145,7 +145,8 @@ public:
       std::vector<float_t> syndrome_round(step_size * num_syndromes_per_round);
       for (std::size_t w = 0; w < num_rounds; ++w) {
         std::copy(syndrome.begin() + w * step_size * num_syndromes_per_round,
-                  syndrome.begin() + (w + 1) * step_size * num_syndromes_per_round,
+                  syndrome.begin() +
+                      (w + 1) * step_size * num_syndromes_per_round,
                   syndrome_round.begin());
         result = decode(syndrome_round);
       }
@@ -174,7 +175,8 @@ public:
       rw_filled = 0;
       CUDAQ_DBG("Initializing window");
       auto t1 = std::chrono::high_resolution_clock::now();
-      window_proc_times_arr[0] = std::chrono::duration<double>(t1 - t0).count() * 1000;
+      window_proc_times_arr[0] =
+          std::chrono::duration<double>(t1 - t0).count() * 1000;
     }
     if (this->rw_filled == num_syndromes_per_window) {
       auto t0 = std::chrono::high_resolution_clock::now();
@@ -184,7 +186,8 @@ public:
       std::copy(syndrome.begin(), syndrome.end(),
                 this->rolling_window[0].end() - num_syndromes_per_round);
       auto t1 = std::chrono::high_resolution_clock::now();
-      window_proc_times_arr[1] += std::chrono::duration<double>(t1 - t0).count() * 1000;
+      window_proc_times_arr[1] +=
+          std::chrono::duration<double>(t1 - t0).count() * 1000;
     } else {
       // Just copy the data to the end of the rolling window.
       auto t0 = std::chrono::high_resolution_clock::now();
@@ -193,7 +196,8 @@ public:
                 this->rolling_window[0].begin() + this->rw_filled);
       this->rw_filled += num_syndromes_per_round;
       auto t1 = std::chrono::high_resolution_clock::now();
-      window_proc_times_arr[2] += std::chrono::duration<double>(t1 - t0).count() * 1000;
+      window_proc_times_arr[2] +=
+          std::chrono::duration<double>(t1 - t0).count() * 1000;
     }
     if (rw_filled == num_syndromes_per_window) {
       CUDAQ_DBG("Decoding window {}/{}", num_windows_decoded + 1, num_windows);
@@ -304,7 +308,8 @@ public:
     const auto &w = this->num_windows_decoded;
     std::size_t syndrome_start = w * step_size * num_syndromes_per_round;
     std::size_t syndrome_end = syndrome_start + num_syndromes_per_window - 1;
-    std::size_t syndrome_start_next_window = (w + 1) * step_size * num_syndromes_per_round;
+    std::size_t syndrome_start_next_window =
+        (w + 1) * step_size * num_syndromes_per_round;
     std::size_t syndrome_end_next_window =
         syndrome_start_next_window + num_syndromes_per_round - 1;
     auto t3 = std::chrono::high_resolution_clock::now();
@@ -393,11 +398,16 @@ public:
     auto t7 = std::chrono::high_resolution_clock::now();
     window_proc_times.at(w) +=
         std::chrono::duration<double>(t7 - t0).count() * 1000;
-    window_proc_times_arr[3] = std::chrono::duration<double>(t3 - t0).count() * 1000;
-    window_proc_times_arr[4] = std::chrono::duration<double>(t4 - t3).count() * 1000;
-    window_proc_times_arr[5] = std::chrono::duration<double>(t5 - t4).count() * 1000;
-    window_proc_times_arr[6] = std::chrono::duration<double>(t6 - t5).count() * 1000;
-    window_proc_times_arr[7] = std::chrono::duration<double>(t7 - t6).count() * 1000;
+    window_proc_times_arr[3] =
+        std::chrono::duration<double>(t3 - t0).count() * 1000;
+    window_proc_times_arr[4] =
+        std::chrono::duration<double>(t4 - t3).count() * 1000;
+    window_proc_times_arr[5] =
+        std::chrono::duration<double>(t5 - t4).count() * 1000;
+    window_proc_times_arr[6] =
+        std::chrono::duration<double>(t6 - t5).count() * 1000;
+    window_proc_times_arr[7] =
+        std::chrono::duration<double>(t7 - t6).count() * 1000;
     CUDAQ_INFO("Window {} time: {:.3f} ms (0:{:.3f}ms 1:{:.3f}ms 2:{:.3f}ms "
                "3:{:.3f}ms 4:{:.3f}ms 5:{:.3f}ms 6:{:.3f}ms 7:{:.3f}ms)",
                w, window_proc_times[w], window_proc_times_arr[0],
