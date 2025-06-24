@@ -301,6 +301,15 @@ void bindDecoder(py::module &mod) {
       py::arg("num_syndromes_per_round") = 0);
 
   qecmod.def(
+      "pcm_is_sorted",
+      [](const py::array_t<uint8_t> &H, std::uint32_t num_syndromes_per_round) {
+        auto tensor_H = pcmToTensor(H);
+        return cudaq::qec::pcm_is_sorted(tensor_H, num_syndromes_per_round);
+      },
+      "Check if a parity check matrix is sorted.", py::arg("H"),
+      py::arg("num_syndromes_per_round") = 0);
+
+  qecmod.def(
       "reorder_pcm_columns",
       [](const py::array_t<uint8_t> &H,
          const py::array_t<uint32_t> &column_order) {

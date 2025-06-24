@@ -32,6 +32,7 @@ dump_pcm = qecrt.dump_pcm
 generate_random_pcm = qecrt.generate_random_pcm
 get_pcm_for_rounds = qecrt.get_pcm_for_rounds
 get_sorted_pcm_column_indices = qecrt.get_sorted_pcm_column_indices
+pcm_is_sorted = qecrt.pcm_is_sorted
 reorder_pcm_columns = qecrt.reorder_pcm_columns
 shuffle_pcm_columns = qecrt.shuffle_pcm_columns
 simplify_pcm = qecrt.simplify_pcm

@@ -102,7 +102,7 @@ get_pcm_for_rounds(const cudaqx::tensor<uint8_t> &pcm,
 /// @param n_rounds The number of rounds in the PCM.
 /// @param n_errs_per_round The number of errors per round in the PCM.
 /// @param n_syndromes_per_round The number of syndromes per round in the PCM.
-/// @param weight The weight of the PCM.
+/// @param weight The column weight of the PCM.
 /// @param rng The random number generator to use (e.g.
 /// std::mt19937_64(your_seed))
 /// @return A random PCM with the given parameters.
