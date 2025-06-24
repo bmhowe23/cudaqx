@@ -35,3 +35,15 @@ Common
 .. autofunction:: cudaq_qec.sample_memory_circuit
 
 .. autofunction:: cudaq_qec.sample_code_capacity
+
+Parity Check Matrix Utilities
+-------------
+
+.. autofunction:: cudaq_qec.generate_random_pcm
+.. autofunction:: cudaq_qec.get_pcm_for_rounds
+.. autofunction:: cudaq_qec.get_sorted_pcm_column_indices
+.. autofunction:: cudaq_qec.pcm_is_sorted
+.. autofunction:: cudaq_qec.reorder_pcm_columns
+.. autofunction:: cudaq_qec.shuffle_pcm_columns
+.. autofunction:: cudaq_qec.simplify_pcm
+.. autofunction:: cudaq_qec.sort_pcm_columns
