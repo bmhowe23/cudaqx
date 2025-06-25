@@ -16,19 +16,27 @@ def mat_to_str(mat):
     s = ''
     if mat.ndim == 1:
         for col in mat:
-            if col == 1:
-                s += '1'
-            else:
+            if col == 0:
                 s += '.'
+            elif col < 0:
+                s += '-'
+            elif col >= 10:
+                s += '*'
+            else:
+                s += str(int(col))
         s += '\n'
         return s
     else:
         for row in mat:
             for col in row:
-                if col == 1:
-                    s += '1'
-                else:
+                if col == 0:
                     s += '.'
+                elif col < 0:
+                    s += '-'
+                elif col >= 10:
+                    s += '*'
+                else:
+                    s += str(int(col))
             s += '\n'
     return s
 
@@ -117,6 +125,79 @@ def test_decoding_from_dem_from_memory_circuit():
     print(f'nLogicalErrorsWithoutDecoding : {nLogicalErrorsWithoutDecoding}')
     print(f'nLogicalErrorsWithDecoding    : {nLogicalErrorsWithDecoding}')
     assert nLogicalErrorsWithDecoding < nLogicalErrorsWithoutDecoding
+
+
+def test_decoding_from_surface_code_dem_from_memory_circuit():
+    cudaq.set_random_seed(13)
+    code = qec.get_code('surface_code', distance=7)
+    observables = code.get_pauli_observables_matrix()
+    Lz = code.get_observables_z()
+    p = 0.0005
+    noise = cudaq.NoiseModel()
+    noise.add_all_qubit_channel("x", cudaq.Depolarization2(p), 1)
+    statePrep = qec.operation.prep0
+    nRounds = 7
+    nShots = 200
+
+    # Sample the memory circuit with errors
+    syndromes, data = qec.sample_memory_circuit(code, statePrep, nShots,
+                                                nRounds, noise)
+
+    logical_measurements = (Lz @ data.transpose()) % 2
+    # only one logical qubit, so do not need the second axis
+    logical_measurements = logical_measurements.flatten()
+
+    # Reshape and drop the X stabilizers, keeping just the Z stabilizers (since this is prep0)
+    syndromes = syndromes.reshape((nShots, nRounds, -1))
+    syndromes = syndromes[:, :, :syndromes.shape[2] // 2]
+    # Now flatten to two dimensions again
+    syndromes = syndromes.reshape((nShots, -1))
+    # Sum syndromes across the second dimension
+    num_syn_triggered_per_shot = np.sum(syndromes, axis=1)
+    print(f'num_syn_per_shot    : {mat_to_str(num_syn_triggered_per_shot)}',
+          end='')
+
+    dem = qec.z_dem_from_memory_circuit(code, statePrep, nRounds, noise)
+    osd_method = 3
+    nv_dec_args = {
+        "max_iterations": 50,
+        "error_rate_vec": np.array(dem.error_rates),
+        "use_sparsity": True,
+        "use_osd": osd_method > 0,
+        "osd_order": 1000,
+        "osd_method": osd_method
+    }
+    try:
+        decoder = qec.get_decoder('nv-qldpc-decoder', dem.detector_error_matrix,
+                                  **nv_dec_args)
+        using_single_error_lut = False
+    except Exception as e:
+        print(
+            f'Error getting decoder: {e}, probably not available in this build')
+        decoder = qec.get_decoder('single_error_lut', dem.detector_error_matrix)
+        using_single_error_lut = True
+    dr = decoder.decode_batch(syndromes)
+    error_predictions = np.array([e.result for e in dr], dtype=np.uint8)
+    dr_converged = np.array([e.converged for e in dr], dtype=np.uint8)
+
+    data_predictions = (dem.observables_flips_matrix @ error_predictions.T) % 2
+    print(f'data_predictions.shape: {data_predictions.shape}')
+    print(f'num_syn_per_shot    : {mat_to_str(num_syn_triggered_per_shot)}',
+          end='')
+    print(f'dr_converged        : {mat_to_str(dr_converged)}', end='')
+    print(f'data_predictions    : {mat_to_str(data_predictions)}', end='')
+    print(f'logical_measurements: {mat_to_str(logical_measurements)}', end='')
+
+    nLogicalErrorsWithoutDecoding = np.sum(logical_measurements)
+    nLogicalErrorsWithDecoding = np.sum(data_predictions ^ logical_measurements)
+    print(f'nLogicalErrorsWithoutDecoding : {nLogicalErrorsWithoutDecoding}')
+    print(f'nLogicalErrorsWithDecoding    : {nLogicalErrorsWithDecoding}')
+    assert nLogicalErrorsWithDecoding < nLogicalErrorsWithoutDecoding
+    # May want to revisit these assertions later:
+    if using_single_error_lut:
+        assert nLogicalErrorsWithDecoding < nLogicalErrorsWithoutDecoding
+    else:
+        assert nLogicalErrorsWithDecoding == 0
 
 
 if __name__ == "__main__":
