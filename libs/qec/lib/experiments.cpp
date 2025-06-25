@@ -303,12 +303,10 @@ cudaq::qec::detector_error_model dem_from_memory_circuit(
   auto numReturnSynPerRound = keep_x_stabilizers && keep_z_stabilizers
                                   ? numSyndromesPerRound
                                   : numSyndromesPerRound / 2;
-  // If we are returning only z-stabilizers, we need to offset the syndrome
+  // If we are returning only x-stabilizers, we need to offset the syndrome
   // indices of mzTable by numSyndromesPerRound / 2.
-  // FIXME: double check this with:
-  // https://github.com/NVIDIA/cudaqx/blob/761b2ca83d27fe2c24275778e2dfc8b96aeaad99/libs/qec/lib/codes/steane_device.cpp#L91
   auto offset =
-      !keep_x_stabilizers && keep_z_stabilizers ? numSyndromesPerRound / 2 : 0;
+      keep_x_stabilizers && !keep_z_stabilizers ? numSyndromesPerRound / 2 : 0;
   dem.detector_error_matrix = cudaqx::tensor<uint8_t>(
       {numRounds * numReturnSynPerRound, numNoiseMechs});
   for (std::size_t round = 0; round < numRounds; round++) {

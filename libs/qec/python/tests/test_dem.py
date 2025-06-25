@@ -57,13 +57,13 @@ def test_dem_from_memory_circuit():
     # Round to 4 decimal places
     # print(np.round(dem.error_rates, 4))
     expected_error_rates = [
-        0.0132, 0.0053, 0.0079, 0.0053, 0.0209, 0.0053, 0.0132, 0.0106, 0.0053,
-        0.0053, 0.0106, 0.0053, 0.0053, 0.0053, 0.0106, 0.0235, 0.0158, 0.0158,
-        0.0183, 0.0335, 0.0209, 0.0434
+        0.0183, 0.0235, 0.0158, 0.0209, 0.0310, 0.0235, 0.0183, 0.0106, 0.0053, 0.0053,
+        0.0106, 0.0053, 0.0053, 0.0053, 0.0106, 0.0235, 0.0158, 0.0158, 0.0183, 0.0335,
+        0.0209, 0.0434
     ]
     assert np.allclose(dem.error_rates, expected_error_rates, atol=1e-4)
 
-    expected_observables_flips_matrix = '....11......1......111\n'
+    expected_observables_flips_matrix = '1....11.....1......111\n'
     # print(mat_to_str(dem.observables_flips_matrix), end='')
     assert mat_to_str(
         dem.observables_flips_matrix) == expected_observables_flips_matrix
