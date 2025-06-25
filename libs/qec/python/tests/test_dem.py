@@ -87,7 +87,7 @@ def test_decoding_from_dem_from_memory_circuit():
     noise = cudaq.NoiseModel()
     noise.add_all_qubit_channel("x", cudaq.Depolarization2(p), 1)
     statePrep = qec.operation.prep0
-    nRounds = 2
+    nRounds = 6
     nShots = 200
 
     dem = qec.dem_from_memory_circuit(code, statePrep, nRounds, noise)
