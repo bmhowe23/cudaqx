@@ -138,7 +138,7 @@ sample_memory_circuit(const code &code, operation statePrep,
   }
 
   cudaqx::tensor<uint8_t> mzTable(result.sequential_data());
-  const auto numColsBeforeData = numCols * numRounds;
+  const auto numColsBeforeData = numCols * (numRounds + 1);
 
   // Populate dataResults from mzTable
   for (std::size_t shot = 0; shot < numShots; shot++) {
@@ -150,27 +150,16 @@ sample_memory_circuit(const code &code, operation statePrep,
 
   // Now populate syndromeTensor.
 
-  // First round, store bare syndrome measurement
-  for (std::size_t shot = 0; shot < numShots; ++shot) {
-    std::size_t round = 0;
-    std::size_t measIdx = shot * numRounds + round;
-    std::uint8_t __restrict__ *syndromeTensorRow =
-        &syndromeTensor.at({measIdx, 0});
-    std::uint8_t __restrict__ *mzTableRow = &mzTable.at({shot, 0});
-    for (std::size_t col = 0; col < numCols; ++col)
-      syndromeTensorRow[col] = mzTableRow[col];
-  }
-
-  // After first round, store syndrome flips
+  // Store syndrome flips
   for (std::size_t shot = 0; shot < numShots; ++shot) {
     std::uint8_t __restrict__ *mzTableRow = &mzTable.at({shot, 0});
-    for (std::size_t round = 1; round < numRounds; ++round) {
+    for (std::size_t round = 0; round < numRounds; ++round) {
       std::size_t measIdx = shot * numRounds + round;
       std::uint8_t __restrict__ *syndromeTensorRow =
           &syndromeTensor.at({measIdx, 0});
       for (std::size_t col = 0; col < numCols; ++col) {
         syndromeTensorRow[col] = mzTableRow[round * numCols + col] ^
-                                 mzTableRow[(round - 1) * numCols + col];
+                                 mzTableRow[(round + 1) * numCols + col];
       }
     }
   }
@@ -309,31 +298,17 @@ cudaq::qec::detector_error_model dem_from_memory_circuit(
       keep_x_stabilizers && !keep_z_stabilizers ? numSyndromesPerRound / 2 : 0;
   dem.detector_error_matrix = cudaqx::tensor<uint8_t>(
       {numRounds * numReturnSynPerRound, numNoiseMechs});
-  for (std::size_t round = 0; round < numRounds; round++) {
-    if (round == 0) {
-      for (std::size_t syndrome = 0; syndrome < numReturnSynPerRound;
-           syndrome++) {
-        for (std::size_t noise_mech = 0; noise_mech < numNoiseMechs;
-             noise_mech++) {
-          dem.detector_error_matrix.at(
-              {round * numReturnSynPerRound + syndrome, noise_mech}) =
-              mzTable.at({round * numSyndromesPerRound + syndrome + offset,
-                          noise_mech});
-        }
-      }
-    } else {
-      for (std::size_t syndrome = 0; syndrome < numReturnSynPerRound;
-           syndrome++) {
-        for (std::size_t noise_mech = 0; noise_mech < numNoiseMechs;
-             noise_mech++) {
-          dem.detector_error_matrix.at(
-              {round * numReturnSynPerRound + syndrome, noise_mech}) =
-              mzTable.at({round * numSyndromesPerRound + syndrome + offset,
-                          noise_mech}) ^
-              mzTable.at(
-                  {(round - 1) * numSyndromesPerRound + syndrome + offset,
-                   noise_mech});
-        }
+  for (std::size_t round = 1; round <= numRounds; round++) {
+    for (std::size_t syndrome = 0; syndrome < numReturnSynPerRound;
+         syndrome++) {
+      for (std::size_t noise_mech = 0; noise_mech < numNoiseMechs;
+           noise_mech++) {
+        dem.detector_error_matrix.at(
+            {(round - 1) * numReturnSynPerRound + syndrome, noise_mech}) =
+            mzTable.at({round * numSyndromesPerRound + syndrome + offset,
+                        noise_mech}) ^
+            mzTable.at({(round - 1) * numSyndromesPerRound + syndrome + offset,
+                        noise_mech});
       }
     }
   }
@@ -343,8 +318,10 @@ cudaq::qec::detector_error_model dem_from_memory_circuit(
 
   // Populate dem.observables_flips_matrix by converting the physical data qubit
   // measurements to logical observables.
-  auto first_data_row = numRounds * numSyndromesPerRound;
+  auto first_data_row = (numRounds + 1) * numSyndromesPerRound;
   assert(first_data_row < mzTable.shape()[0]);
+
+  // Discard the first round of stabilizer measurements.
 
   cudaqx::tensor<uint8_t> msm_obs(
       {mzTable.shape()[0] - first_data_row, numNoiseMechs});

@@ -21,6 +21,9 @@ __qpu__ void __memory_circuit_stabs(
   // Prepare the initial state fault tolerantly
   statePrep({data, xstab_anc, zstab_anc});
 
+  // One round of stabilizer measurements to lock in the stabilizers.
+  stabilizer_round(logical, x_stabilizers, z_stabilizers);
+
   // Generate syndrome data
   for (std::size_t round = 0; round < numRounds; round++) {
     // Run the stabilizer round, generate the syndrome measurements

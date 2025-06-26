@@ -9,6 +9,7 @@ import pytest
 import numpy as np
 import cudaq
 import cudaq_qec as qec
+import matplotlib.pyplot as plt
 
 
 # Helper function to convert a binary matrix to a convenient string
@@ -129,14 +130,15 @@ def test_decoding_from_dem_from_memory_circuit():
 
 # TODO: Enable tensor network decoder once that goes into main.
 @pytest.mark.parametrize(
-    "decoder_name,error_rate",
+    "decoder_name,error_rate,do_XZ",
     [
-        ("single_error_lut", 0.003),
-        ("nv-qldpc-decoder", 0.003),
+        # ("single_error_lut", 0.0001),
+        ("nv-qldpc-decoder", 0.0005, False),
+        ("nv-qldpc-decoder", 0.0005, True),
         # ("tensor_network_decoder", 0.003),
     ])
 def test_decoding_from_surface_code_dem_from_memory_circuit(
-        decoder_name, error_rate):
+        decoder_name, error_rate, do_XZ):
     cudaq.set_random_seed(13)
     code = qec.get_code('surface_code', distance=5)
     observables = code.get_pauli_observables_matrix()
@@ -146,7 +148,7 @@ def test_decoding_from_surface_code_dem_from_memory_circuit(
     noise.add_all_qubit_channel("x", cudaq.Depolarization2(p), 1)
     statePrep = qec.operation.prep0
     nRounds = 5
-    nShots = 2000
+    nShots = 10000
 
     # Sample the memory circuit with errors
     syndromes, data = qec.sample_memory_circuit(code, statePrep, nShots,
@@ -158,13 +160,36 @@ def test_decoding_from_surface_code_dem_from_memory_circuit(
 
     # Reshape and drop the X stabilizers, keeping just the Z stabilizers (since this is prep0)
     syndromes = syndromes.reshape((nShots, nRounds, -1))
-    syndromes = syndromes[:, :, :syndromes.shape[2] // 2]
+    if not do_XZ:
+        syndromes = syndromes[:, :, :syndromes.shape[2] // 2]
     # Now flatten to two dimensions again
     syndromes = syndromes.reshape((nShots, -1))
     # Sum syndromes across the second dimension
     num_syn_triggered_per_shot = np.sum(syndromes, axis=1)
 
-    dem = qec.z_dem_from_memory_circuit(code, statePrep, nRounds, noise)
+    if do_XZ:
+        dem = qec.dem_from_memory_circuit(code, statePrep, nRounds, noise)
+    else:
+        dem = qec.z_dem_from_memory_circuit(code, statePrep, nRounds, noise)
+
+    # Print the DEM size
+    print(f'dem.detector_error_matrix.shape: {dem.detector_error_matrix.shape}')
+    if False:
+        print(f'dem.detector_error_matrix.shape: {dem.detector_error_matrix.shape}')
+        # Plot the dem.error_rates to a .png file
+        plt.plot(dem.error_rates)
+        plt.ylim(0, 0.015)
+        plt.savefig(f'dem_error_rates_{decoder_name}_{error_rate}_{do_XZ}.png')
+        plt.close()
+        # Clear plt
+        plt.clf()
+
+        # Generate a binary image of the dem.detector_error_matrix. Make it a 1-1 mapping for pixels.
+        fig, ax = plt.subplots(figsize=(10, 10), dpi=300)
+        ax.imshow(dem.detector_error_matrix, cmap='binary', interpolation='none')
+        plt.savefig(f'dem_detector_error_matrix_{decoder_name}_{error_rate}_{do_XZ}.png', dpi=300)
+        plt.close()
+
     try:
         if decoder_name == "tensor_network_decoder":
             # Print the shape of the matrices
@@ -183,8 +208,9 @@ def test_decoding_from_surface_code_dem_from_memory_circuit(
                                       error_rate_vec=np.array(dem.error_rates),
                                       use_sparsity=True,
                                       use_osd=osd_method > 0,
-                                      osd_order=1000,
-                                      osd_method=osd_method)
+                                      osd_order=60,
+                                      osd_method=osd_method,
+                                      bp_batch_size=1000)
         elif decoder_name == "single_error_lut":
             decoder = qec.get_decoder('single_error_lut',
                                       dem.detector_error_matrix)
