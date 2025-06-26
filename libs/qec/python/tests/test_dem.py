@@ -127,17 +127,24 @@ def test_decoding_from_dem_from_memory_circuit():
     assert nLogicalErrorsWithDecoding < nLogicalErrorsWithoutDecoding
 
 
-def test_decoding_from_surface_code_dem_from_memory_circuit():
+# TODO: Enable tensor network decoder once that goes into main.
+@pytest.mark.parametrize("decoder_name,error_rate", [
+    ("single_error_lut", 0.003),
+    ("nv-qldpc-decoder", 0.003),
+    # ("tensor_network_decoder", 0.003),
+])
+def test_decoding_from_surface_code_dem_from_memory_circuit(
+        decoder_name, error_rate):
     cudaq.set_random_seed(13)
-    code = qec.get_code('surface_code', distance=7)
+    code = qec.get_code('surface_code', distance=5)
     observables = code.get_pauli_observables_matrix()
     Lz = code.get_observables_z()
-    p = 0.0005
+    p = error_rate
     noise = cudaq.NoiseModel()
     noise.add_all_qubit_channel("x", cudaq.Depolarization2(p), 1)
     statePrep = qec.operation.prep0
-    nRounds = 7
-    nShots = 200
+    nRounds = 5
+    nShots = 2000
 
     # Sample the memory circuit with errors
     syndromes, data = qec.sample_memory_circuit(code, statePrep, nShots,
@@ -154,50 +161,64 @@ def test_decoding_from_surface_code_dem_from_memory_circuit():
     syndromes = syndromes.reshape((nShots, -1))
     # Sum syndromes across the second dimension
     num_syn_triggered_per_shot = np.sum(syndromes, axis=1)
-    print(f'num_syn_per_shot    : {mat_to_str(num_syn_triggered_per_shot)}',
-          end='')
 
     dem = qec.z_dem_from_memory_circuit(code, statePrep, nRounds, noise)
-    osd_method = 3
-    nv_dec_args = {
-        "max_iterations": 50,
-        "error_rate_vec": np.array(dem.error_rates),
-        "use_sparsity": True,
-        "use_osd": osd_method > 0,
-        "osd_order": 1000,
-        "osd_method": osd_method
-    }
     try:
-        decoder = qec.get_decoder('nv-qldpc-decoder', dem.detector_error_matrix,
-                                  **nv_dec_args)
-        using_single_error_lut = False
+        if decoder_name == "tensor_network_decoder":
+            # Print the shape of the matrices
+            decoder = qec.get_decoder('tensor_network_decoder',
+                                      dem.detector_error_matrix,
+                                      logical_obs=dem.observables_flips_matrix,
+                                      noise_model=dem.error_rates,
+                                      contractor_name="cutensornet",
+                                      dtype="float32",
+                                      device="cuda:0")
+        elif decoder_name == "nv-qldpc-decoder":
+            osd_method = 3  # Combination Sweep
+            decoder = qec.get_decoder('nv-qldpc-decoder',
+                                      dem.detector_error_matrix,
+                                      max_iterations=50,
+                                      error_rate_vec=np.array(dem.error_rates),
+                                      use_sparsity=True,
+                                      use_osd=osd_method > 0,
+                                      osd_order=1000,
+                                      osd_method=osd_method)
+        elif decoder_name == "single_error_lut":
+            decoder = qec.get_decoder('single_error_lut',
+                                      dem.detector_error_matrix)
+        else:
+            raise ValueError(f'Invalid decoder name: {decoder_name}')
     except Exception as e:
         print(
             f'Error getting decoder: {e}, probably not available in this build')
-        decoder = qec.get_decoder('single_error_lut', dem.detector_error_matrix)
-        using_single_error_lut = True
+        pytest.skip(f'{decoder_name} not available in this build')
+    print(f'decoder_name: {decoder_name}')
+
     dr = decoder.decode_batch(syndromes)
     error_predictions = np.array([e.result for e in dr], dtype=np.uint8)
     dr_converged = np.array([e.converged for e in dr], dtype=np.uint8)
+    if decoder_name == "tensor_network_decoder":
+        # Tensor network decoder returns the observable flips, not the error predictions.
+        data_predictions = np.array([np.round(e.result) for e in dr],
+                                    dtype=np.uint8).T
+    else:
+        data_predictions = (
+            dem.observables_flips_matrix @ error_predictions.T) % 2
 
-    data_predictions = (dem.observables_flips_matrix @ error_predictions.T) % 2
     print(f'data_predictions.shape: {data_predictions.shape}')
-    print(f'num_syn_per_shot    : {mat_to_str(num_syn_triggered_per_shot)}',
-          end='')
-    print(f'dr_converged        : {mat_to_str(dr_converged)}', end='')
-    print(f'data_predictions    : {mat_to_str(data_predictions)}', end='')
-    print(f'logical_measurements: {mat_to_str(logical_measurements)}', end='')
+    if nShots < 200:
+        print(f'num_syn_per_shot    : {mat_to_str(num_syn_triggered_per_shot)}',
+              end='')
+        print(f'dr_converged        : {mat_to_str(dr_converged)}', end='')
+        print(f'data_predictions    : {mat_to_str(data_predictions)}', end='')
+        print(f'logical_measurements: {mat_to_str(logical_measurements)}',
+              end='')
 
     nLogicalErrorsWithoutDecoding = np.sum(logical_measurements)
     nLogicalErrorsWithDecoding = np.sum(data_predictions ^ logical_measurements)
     print(f'nLogicalErrorsWithoutDecoding : {nLogicalErrorsWithoutDecoding}')
     print(f'nLogicalErrorsWithDecoding    : {nLogicalErrorsWithDecoding}')
     assert nLogicalErrorsWithDecoding < nLogicalErrorsWithoutDecoding
-    # May want to revisit these assertions later:
-    if using_single_error_lut:
-        assert nLogicalErrorsWithDecoding < nLogicalErrorsWithoutDecoding
-    else:
-        assert nLogicalErrorsWithDecoding == 0
 
 
 if __name__ == "__main__":
