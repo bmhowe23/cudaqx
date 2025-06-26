@@ -128,11 +128,13 @@ def test_decoding_from_dem_from_memory_circuit():
 
 
 # TODO: Enable tensor network decoder once that goes into main.
-@pytest.mark.parametrize("decoder_name,error_rate", [
-    ("single_error_lut", 0.003),
-    ("nv-qldpc-decoder", 0.003),
-    # ("tensor_network_decoder", 0.003),
-])
+@pytest.mark.parametrize(
+    "decoder_name,error_rate",
+    [
+        ("single_error_lut", 0.003),
+        ("nv-qldpc-decoder", 0.003),
+        # ("tensor_network_decoder", 0.003),
+    ])
 def test_decoding_from_surface_code_dem_from_memory_circuit(
         decoder_name, error_rate):
     cudaq.set_random_seed(13)
