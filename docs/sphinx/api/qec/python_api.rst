@@ -10,6 +10,16 @@ Code
 .. autoclass:: cudaq_qec.Code
     :members:
 
+Detector Error Model
+====================
+
+.. autoclass:: cudaq_qec.DetectorErrorModel
+    :members:
+
+.. autofunction:: cudaq_qec.dem_from_memory_circuit
+.. autofunction:: cudaq_qec.x_dem_from_memory_circuit
+.. autofunction:: cudaq_qec.z_dem_from_memory_circuit
+
 Decoder Interfaces
 ==================
 

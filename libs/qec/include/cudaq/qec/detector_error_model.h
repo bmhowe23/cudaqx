@@ -12,31 +12,40 @@
 
 namespace cudaq::qec {
 
+/// A detector error model (DEM) for a quantum error correction code. A
+/// DEM can be created from a QEC code and a noise model. It contains
+/// information used by the decoder to help convert syndromes into predictions
+/// about observables flips.
+///
+/// Shared size parameters among the matrix types.
+/// - \p detector_error_matrix: num_detectors x num_error_mechanisms [d, e]
+/// - \p error_rates: num_error_mechanisms
+/// - \p observables_flips_matrix: num_observables x num_error_mechanisms [k, e]
+
 struct detector_error_model {
-  /// Detector error models (DEMs) can be represented in a variety of ways,
-  /// here a dense matrix representation is chosen, but this is not
-  /// required as long as we can transform to a dense matrix
-  /// representation to initialize our decoders.
+  /// The detector error matrix is a specific kind of circuit-level parity-check
+  /// matrix where each row represents a detector, and each column represents
+  /// an error mechanism. The entries of this matrix are H[i,j] = 1 if detector
+  /// i is triggered by error mechanism j, and 0 otherwise.
   cudaqx::tensor<uint8_t> detector_error_matrix;
 
-  /// The vector of weights along with the detector_error_matrix form
-  /// the two components needs for the DEM.
+  /// The list of weights has length equal to the number of columns of
+  /// \p detector_error_matrix, which assigns a likelihood to each error
+  /// mechanism.
   std::vector<double> error_rates;
 
-  /// While not required, most use cases will want a notion of Pauli
-  /// observables at the circuit-level.
+  /// The observables flips matrix is a specific kind of circuit-level parity-
+  /// check matrix where each row represents a Pauli observable, and each
+  /// column represents an error mechanism. The entries of this matrix are
+  /// O[i,j] = 1 if Pauli observable i is flipped by error mechanism j, and 0
+  /// otherwise.
   cudaqx::tensor<uint8_t> observables_flips_matrix;
 
-  /// @brief Error mechanism ID. From a probability perspective, each error
-  /// mechanism ID is independent of all other error mechanism ID. For all
-  /// errors with the *same* ID, only one of them can happen. That is - the
-  /// errors containing the same ID are correlated with each other.
+  /// Error mechanism ID. From a probability perspective, each error mechanism
+  /// ID is independent of all other error mechanism ID. For all errors with
+  /// the *same* ID, only one of them can happen. That is - the errors
+  /// containing the same ID are correlated with each other.
   std::optional<std::vector<std::size_t>> error_ids;
-
-  // Shared size parameters among the matrix types.
-  // - detector_error_matrix: num_detectors x num_error_mechanisms [d, e]
-  // - error_rates: num_error_mechanisms
-  // - observables_flips_matrix: num_observables x num_error_mechanisms [k, e]
 
   /// Return the number of rows in the detector_error_matrix.
   std::size_t num_detectors() const;

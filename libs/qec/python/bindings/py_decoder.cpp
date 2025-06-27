@@ -181,7 +181,10 @@ void bindDecoder(py::module &mod) {
 
   py::class_<detector_error_model>(qecmod, "DetectorErrorModel",
                                    R"pbdoc(
-      A class representing a detector error model for quantum error correction.
+      A detector error model (DEM) for a quantum error correction code. A DEM
+      can be created from a QEC code and a noise model. It contains information
+      used by the decoder to help convert syndromes into predictions about
+      observables flips.
     )pbdoc")
       .def(py::init<>())
       .def_property_readonly(
@@ -193,9 +196,17 @@ void bindDecoder(py::module &mod) {
                 t.shape(), {t.shape()[1] * sizeof(uint8_t), sizeof(uint8_t)},
                 t.data());
           },
-          "The detector error matrix of the detector error model")
+          R"pbdoc(
+            The detector error matrix is a specific kind of circuit-level parity-check
+            matrix where each row represents a detector, and each column represents
+            an error mechanism. The entries of this matrix are H[i,j] = 1 if detector
+            i is triggered by error mechanism j, and 0 otherwise.
+          )pbdoc")
       .def_readwrite("error_rates", &detector_error_model::error_rates,
-                     "The error rate of the detector error model")
+                     R"pbdoc(
+      The list of weights has length equal to the number of columns of the
+      detector error matrix, which assigns a likelihood to each error mechanism.
+    )pbdoc")
       .def_property_readonly(
           "observables_flips_matrix",
           [](const detector_error_model &self) {
@@ -205,16 +216,30 @@ void bindDecoder(py::module &mod) {
                 t.shape(), {t.shape()[1] * sizeof(uint8_t), sizeof(uint8_t)},
                 t.data());
           },
-          "The observables flips matrix of the detector error model")
+          R"pbdoc(
+            The observables flips matrix is a specific kind of circuit-level parity-
+            check matrix where each row represents a Pauli observable, and each
+            column represents an error mechanism. The entries of this matrix are
+            O[i,j] = 1 if Pauli observable i is flipped by error mechanism j, and 0
+            otherwise.
+          )pbdoc")
       .def("num_detectors", &detector_error_model::num_detectors,
-           "The number of detectors in the detector error model")
+           R"pbdoc(
+            The number of detectors in the detector error model
+          )pbdoc")
       .def("num_error_mechanisms", &detector_error_model::num_error_mechanisms,
-           "The number of error mechanisms in the detector error model")
+           R"pbdoc(
+            The number of error mechanisms in the detector error model
+          )pbdoc")
       .def("num_observables", &detector_error_model::num_observables,
-           "The number of observables in the detector error model")
+           R"pbdoc(
+            The number of observables in the detector error model
+          )pbdoc")
       .def("canonicalize_for_rounds",
            &detector_error_model::canonicalize_for_rounds,
-           "Canonicalize the detector error model for a given number of rounds",
+           R"pbdoc(
+            Canonicalize the detector error model for a given number of rounds
+          )pbdoc",
            py::arg("num_syndromes_per_round"));
 
   // Expose decorator function that handles inheritance
