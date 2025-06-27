@@ -42,6 +42,22 @@ NVIDIA QLDPC Decoder
 
 .. include:: nv_qldpc_decoder_api.rst
 
+Detector Error Model Utilities
+==============================
+
+.. doxygenstruct:: cudaq::qec::detector_error_model
+    :members:
+
+.. doxygenfunction:: cudaq::qec::dem_from_memory_circuit(const code &, operation, std::size_t, cudaq::noise_model &)
+.. doxygenfunction:: cudaq::qec::dem_from_memory_circuit(const code &, operation, const cudaqx::tensor<uint8_t> &, std::size_t, cudaq::noise_model &)
+.. doxygenfunction:: cudaq::qec::dem_from_memory_circuit(const code &, operation, const std::vector<spin_op_term> &, std::size_t, cudaq::noise_model &)
+.. doxygenfunction:: cudaq::qec::x_dem_from_memory_circuit(const code &, operation, std::size_t, cudaq::noise_model &)
+.. doxygenfunction:: cudaq::qec::x_dem_from_memory_circuit(const code &, operation, const cudaqx::tensor<uint8_t> &, std::size_t, cudaq::noise_model &)
+.. doxygenfunction:: cudaq::qec::x_dem_from_memory_circuit(const code &, operation, const std::vector<spin_op_term> &, std::size_t, cudaq::noise_model &)
+.. doxygenfunction:: cudaq::qec::z_dem_from_memory_circuit(const code &, operation, std::size_t, cudaq::noise_model &)
+.. doxygenfunction:: cudaq::qec::z_dem_from_memory_circuit(const code &, operation, const cudaqx::tensor<uint8_t> &, std::size_t, cudaq::noise_model &)
+.. doxygenfunction:: cudaq::qec::z_dem_from_memory_circuit(const code &, operation, const std::vector<spin_op_term> &, std::size_t, cudaq::noise_model &)
+
 Parity Check Matrix Utilities
 =============================
 

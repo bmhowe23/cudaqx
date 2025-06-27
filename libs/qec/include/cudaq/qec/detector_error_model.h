@@ -23,8 +23,8 @@ struct detector_error_model {
   /// the two components needs for the DEM.
   std::vector<double> error_rates;
 
-  /// While not required, most usecases will want a notion of Pauli observables
-  /// at the circuit-level
+  /// While not required, most use cases will want a notion of Pauli
+  /// observables at the circuit-level.
   cudaqx::tensor<uint8_t> observables_flips_matrix;
 
   /// @brief Error mechanism ID. From a probability perspective, each error
