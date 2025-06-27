@@ -445,28 +445,47 @@ void bindCode(py::module &mod) {
       py::arg("noise") = std::nullopt);
 
   qecmod.def(
-      "dem_from_memory_circuit",
+      "dem_from_memory_circuit_obs_matrix",
       [](code &code, operation op, const py::array_t<uint8_t> &obs_matrix,
          std::size_t numRounds,
          std::optional<cudaq::noise_model> noise = std::nullopt) {
-        return dem_from_memory_circuit(code, op, toTensor(obs_matrix),
-                                       numRounds, *noise);
+        return dem_from_memory_circuit_obs_matrix(
+            code, op, toTensor(obs_matrix), numRounds, *noise);
       },
-      "Generate a detector error model from a memory circuit", py::arg("code"),
-      py::arg("op"), py::arg("obs_matrix"), py::arg("numRounds"),
-      py::arg("noise") = std::nullopt);
+      R"pbdoc(
+        Generate a detector error model from a memory circuit using a Pauli
+        observable matrix.
+
+        This function generates a detector error model from a memory circuit.
+        The memory circuit is specified by the code, the initial state preparation
+        operation, and the number of stabilizer measurement rounds. The noise
+        model is optional and defaults to no noise.
+
+        Args:
+            code: The code to generate the detector error model for.
+            op: The initial state preparation operation.
+            obs_matrix: The Pauli observable matrix.
+            numRounds: The number of stabilizer measurement rounds.
+            noise: The noise model to apply to the memory circuit.
+
+        Returns:
+            A detector error model.
+      )pbdoc",
+      py::arg("code"), py::arg("op"), py::arg("obs_matrix"),
+      py::arg("numRounds"), py::arg("noise") = std::nullopt);
 
   qecmod.def(
-      "dem_from_memory_circuit",
+      "dem_from_memory_circuit_obs_terms",
       [](code &code, operation op,
          const std::vector<cudaq::spin_op_term> &observables,
          std::size_t numRounds,
          std::optional<cudaq::noise_model> noise = std::nullopt) {
-        return dem_from_memory_circuit(code, op, observables, numRounds,
-                                       *noise);
+        return dem_from_memory_circuit_obs_terms(code, op, observables,
+                                                 numRounds, *noise);
       },
       R"pbdoc(
-        Generate a detector error model from a memory circuit.
+        Generate a detector error model from a memory circuit using Pauli
+        observable terms.
 
         This function generates a detector error model from a memory circuit.
         The memory circuit is specified by the code, the initial state preparation
@@ -493,7 +512,7 @@ void bindCode(py::module &mod) {
         return x_dem_from_memory_circuit(code, op, numRounds, *noise);
       },
       R"pbdoc(
-        Generate a detector error model from a memory circuit.
+        Generate a detector error model from a memory circuit in the X basis.
 
         This function generates a detector error model from a memory circuit in
         the X basis. The memory circuit is specified by the code, the initial
@@ -513,15 +532,16 @@ void bindCode(py::module &mod) {
       py::arg("noise") = std::nullopt);
 
   qecmod.def(
-      "x_dem_from_memory_circuit",
+      "x_dem_from_memory_circuit_obs_matrix",
       [](code &code, operation op, const py::array_t<uint8_t> &obs_matrix,
          std::size_t numRounds,
          std::optional<cudaq::noise_model> noise = std::nullopt) {
-        return x_dem_from_memory_circuit(code, op, toTensor(obs_matrix),
-                                         numRounds, *noise);
+        return x_dem_from_memory_circuit_obs_matrix(
+            code, op, toTensor(obs_matrix), numRounds, *noise);
       },
       R"pbdoc(
-        Generate a detector error model from a memory circuit in the X basis.
+        Generate a detector error model from a memory circuit in the X basis using
+        a Pauli observable matrix.
 
         This function generates a detector error model from a memory circuit in
         the X basis. The memory circuit is specified by the code, the initial
@@ -542,16 +562,17 @@ void bindCode(py::module &mod) {
       py::arg("numRounds"), py::arg("noise") = std::nullopt);
 
   qecmod.def(
-      "x_dem_from_memory_circuit",
+      "x_dem_from_memory_circuit_obs_terms",
       [](code &code, operation op,
          const std::vector<cudaq::spin_op_term> &observables,
          std::size_t numRounds,
          std::optional<cudaq::noise_model> noise = std::nullopt) {
-        return x_dem_from_memory_circuit(code, op, observables, numRounds,
-                                         *noise);
+        return x_dem_from_memory_circuit_obs_terms(code, op, observables,
+                                                   numRounds, *noise);
       },
       R"pbdoc(
-        Generate a detector error model from a memory circuit in the X basis.
+        Generate a detector error model from a memory circuit in the X basis using
+        Pauli observable terms.
 
         This function generates a detector error model from a memory circuit in
         the X basis. The memory circuit is specified by the code, the initial
@@ -598,15 +619,16 @@ void bindCode(py::module &mod) {
       py::arg("noise") = std::nullopt);
 
   qecmod.def(
-      "z_dem_from_memory_circuit",
+      "z_dem_from_memory_circuit_obs_matrix",
       [](code &code, operation op, const py::array_t<uint8_t> &obs_matrix,
          std::size_t numRounds,
          std::optional<cudaq::noise_model> noise = std::nullopt) {
-        return z_dem_from_memory_circuit(code, op, toTensor(obs_matrix),
-                                         numRounds, *noise);
+        return z_dem_from_memory_circuit_obs_matrix(
+            code, op, toTensor(obs_matrix), numRounds, *noise);
       },
       R"pbdoc(
-        Generate a detector error model from a memory circuit in the Z basis.
+        Generate a detector error model from a memory circuit in the Z basis using
+        a Pauli observable matrix.
 
         This function generates a detector error model from a memory circuit in
         the Z basis. The memory circuit is specified by the code, the initial
@@ -627,16 +649,17 @@ void bindCode(py::module &mod) {
       py::arg("numRounds"), py::arg("noise") = std::nullopt);
 
   qecmod.def(
-      "z_dem_from_memory_circuit",
+      "z_dem_from_memory_circuit_obs_terms",
       [](code &code, operation op,
          const std::vector<cudaq::spin_op_term> &observables,
          std::size_t numRounds,
          std::optional<cudaq::noise_model> noise = std::nullopt) {
-        return z_dem_from_memory_circuit(code, op, observables, numRounds,
-                                         *noise);
+        return z_dem_from_memory_circuit_obs_terms(code, op, observables,
+                                                    numRounds, *noise);
       },
       R"pbdoc(
-        Generate a detector error model from a memory circuit in the Z basis.
+        Generate a detector error model from a memory circuit in the Z basis using
+        Pauli observable terms.
 
         This function generates a detector error model from a memory circuit in
         the Z basis. The memory circuit is specified by the code, the initial
