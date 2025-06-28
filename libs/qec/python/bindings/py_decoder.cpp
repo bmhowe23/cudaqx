@@ -498,12 +498,14 @@ void bindDecoder(py::module &mod) {
   qecmod.def(
       "get_pcm_for_rounds",
       [](const py::array_t<uint8_t> &H, std::uint32_t num_syndromes_per_round,
-         std::uint32_t start_round, std::uint32_t end_round) {
+         std::uint32_t start_round, std::uint32_t end_round,
+         bool straddle_end_round, bool straddle_start_round) {
         auto tensor_H = pcmToTensor(H);
 
         auto [H_new, first_column, last_column] =
-            cudaq::qec::get_pcm_for_rounds(tensor_H, num_syndromes_per_round,
-                                           start_round, end_round);
+            cudaq::qec::get_pcm_for_rounds(
+                tensor_H, num_syndromes_per_round, start_round, end_round,
+                straddle_start_round, straddle_end_round);
 
         // Construct a new py_array_t<uint8_t> from H_new (deep copy)
         return py::array_t<uint8_t>(
@@ -522,6 +524,12 @@ void bindDecoder(py::module &mod) {
             num_syndromes_per_round: The number of syndrome measurements per round
             start_round: The starting round
             end_round: The ending round
+            straddle_start_round: Whether to allow error mechanisms that
+              straddle the start round (i.e. include prior rounds, too). This
+              defaults to false.
+            straddle_end_round: Whether to allow error mechanisms that straddle
+              the end round (i.e. include future rounds, too). This defaults to
+              false.
 
         Returns:
             A NumPy array containing the sub-parity check matrix
@@ -531,7 +539,8 @@ void bindDecoder(py::module &mod) {
             implementation of this function.
       )pbdoc",
       py::arg("H"), py::arg("num_syndromes_per_round"), py::arg("start_round"),
-      py::arg("end_round"));
+      py::arg("end_round"), py::arg("straddle_start_round") = false,
+      py::arg("straddle_end_round") = false);
 
   qecmod.def(
       "shuffle_pcm_columns",
