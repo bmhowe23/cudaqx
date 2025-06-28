@@ -347,12 +347,12 @@ get_pcm_for_rounds(const cudaqx::tensor<uint8_t> &pcm,
       columns_in_range.push_back(c);
     // If it straddles the start_round, then we only include it if
     // straddle_start_round is true.
-    else if (straddle_start_round && first_round < start_round &&
+    else if (straddle_start_round && first_round <= start_round &&
              last_round >= start_round)
       columns_in_range.push_back(c);
     // If it straddles the end_round, then we only include it if
     // straddle_end_round is true.
-    else if (straddle_end_round && first_round < end_round &&
+    else if (straddle_end_round && first_round <= end_round &&
              last_round >= end_round)
       columns_in_range.push_back(c);
   }
@@ -500,7 +500,7 @@ pcm_extend_to_n_rounds(const cudaqx::tensor<uint8_t> &pcm,
   // prior_sub_pcm contains the sub-PCM that we are going to insert
   // (potentially multiple times).
   std::uint32_t num_overlap_cols_per_round =
-      first_columns[first_match] - last_columns[first_match - 1];
+      last_columns[first_match - 1] + 1 - first_columns[first_match];
   std::uint32_t num_cols_per_inserted_round =
       prior_sub_pcm.shape()[1] - num_overlap_cols_per_round;
 
@@ -539,8 +539,8 @@ pcm_extend_to_n_rounds(const cudaqx::tensor<uint8_t> &pcm,
     copy_sub_pcm_into_big_pcm(sub_pcm, new_pcm, 0, 0);
     for (std::uint32_t c = 0; c <= last_column; c++)
       column_list.push_back(c);
-    num_rows_populated += num_syndromes_per_round;
-    num_cols_populated = last_column + 1;
+    num_rows_populated = sub_pcm.shape()[0];
+    num_cols_populated = sub_pcm.shape()[1];
   }
   // Do the extension.
   {
@@ -575,7 +575,10 @@ pcm_extend_to_n_rounds(const cudaqx::tensor<uint8_t> &pcm,
 
   if (column_list.size() != new_pcm.shape()[1]) {
     throw std::runtime_error(
-        "extend_pcm_to_n_rounds: column_list.size() != new_pcm.shape()[1]");
+        "extend_pcm_to_n_rounds: column_list.size() [value: " +
+        std::to_string(column_list.size()) +
+        "] != new_pcm.shape()[1] [value: " +
+        std::to_string(new_pcm.shape()[1]) + "]");
   }
 
   return std::make_pair(new_pcm, column_list);
