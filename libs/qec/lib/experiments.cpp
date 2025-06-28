@@ -404,10 +404,11 @@ dem_from_memory_circuit_obs_matrix(const code &code, operation statePrep,
 
 /// @brief Given a memory circuit setup, generate a DEM. Overload for Pauli
 /// observables.
-detector_error_model dem_from_memory_circuit_obs_terms(
-    const code &code, operation statePrep,
-    const std::vector<spin_op_term> &observables, std::size_t numRounds,
-    cudaq::noise_model &noise) {
+detector_error_model
+dem_from_memory_circuit_obs_terms(const code &code, operation statePrep,
+                                  const std::vector<spin_op_term> &observables,
+                                  std::size_t numRounds,
+                                  cudaq::noise_model &noise) {
   constexpr bool keep_x_stabilizers = true;
   constexpr bool keep_z_stabilizers = true;
   const bool is_z =

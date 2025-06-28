@@ -134,10 +134,11 @@ dem_from_memory_circuit_obs_matrix(const code &code, operation statePrep,
 /// @param numRounds Number of stabilizer measurement rounds
 /// @param noise Noise model to apply
 /// @return Detector error model
-detector_error_model dem_from_memory_circuit_obs_terms(
-    const code &code, operation statePrep,
-    const std::vector<spin_op_term> &observables, std::size_t numRounds,
-    cudaq::noise_model &noise);
+detector_error_model
+dem_from_memory_circuit_obs_terms(const code &code, operation statePrep,
+                                  const std::vector<spin_op_term> &observables,
+                                  std::size_t numRounds,
+                                  cudaq::noise_model &noise);
 
 /// @brief Given a memory circuit setup, generate a DEM for X basis.
 /// @param code QEC Code to sample

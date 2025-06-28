@@ -655,7 +655,7 @@ void bindCode(py::module &mod) {
          std::size_t numRounds,
          std::optional<cudaq::noise_model> noise = std::nullopt) {
         return z_dem_from_memory_circuit_obs_terms(code, op, observables,
-                                                    numRounds, *noise);
+                                                   numRounds, *noise);
       },
       R"pbdoc(
         Generate a detector error model from a memory circuit in the Z basis using
