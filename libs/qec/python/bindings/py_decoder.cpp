@@ -181,7 +181,10 @@ void bindDecoder(py::module &mod) {
 
   py::class_<detector_error_model>(qecmod, "DetectorErrorModel",
                                    R"pbdoc(
-      A class representing a detector error model for quantum error correction.
+      A detector error model (DEM) for a quantum error correction code. A DEM
+      can be created from a QEC code and a noise model. It contains information
+      used by the decoder to help convert syndromes into predictions about
+      observables flips.
     )pbdoc")
       .def(py::init<>())
       .def_property_readonly(
@@ -193,9 +196,17 @@ void bindDecoder(py::module &mod) {
                 t.shape(), {t.shape()[1] * sizeof(uint8_t), sizeof(uint8_t)},
                 t.data());
           },
-          "The detector error matrix of the detector error model")
+          R"pbdoc(
+            The detector error matrix is a specific kind of circuit-level parity-check
+            matrix where each row represents a detector, and each column represents
+            an error mechanism. The entries of this matrix are H[i,j] = 1 if detector
+            i is triggered by error mechanism j, and 0 otherwise.
+          )pbdoc")
       .def_readwrite("error_rates", &detector_error_model::error_rates,
-                     "The error rate of the detector error model")
+                     R"pbdoc(
+      The list of weights has length equal to the number of columns of the
+      detector error matrix, which assigns a likelihood to each error mechanism.
+    )pbdoc")
       .def_property_readonly(
           "observables_flips_matrix",
           [](const detector_error_model &self) {
@@ -205,16 +216,30 @@ void bindDecoder(py::module &mod) {
                 t.shape(), {t.shape()[1] * sizeof(uint8_t), sizeof(uint8_t)},
                 t.data());
           },
-          "The observables flips matrix of the detector error model")
+          R"pbdoc(
+            The observables flips matrix is a specific kind of circuit-level parity-
+            check matrix where each row represents a Pauli observable, and each
+            column represents an error mechanism. The entries of this matrix are
+            O[i,j] = 1 if Pauli observable i is flipped by error mechanism j, and 0
+            otherwise.
+          )pbdoc")
       .def("num_detectors", &detector_error_model::num_detectors,
-           "The number of detectors in the detector error model")
+           R"pbdoc(
+            The number of detectors in the detector error model
+          )pbdoc")
       .def("num_error_mechanisms", &detector_error_model::num_error_mechanisms,
-           "The number of error mechanisms in the detector error model")
+           R"pbdoc(
+            The number of error mechanisms in the detector error model
+          )pbdoc")
       .def("num_observables", &detector_error_model::num_observables,
-           "The number of observables in the detector error model")
+           R"pbdoc(
+            The number of observables in the detector error model
+          )pbdoc")
       .def("canonicalize_for_rounds",
            &detector_error_model::canonicalize_for_rounds,
-           "Canonicalize the detector error model for a given number of rounds",
+           R"pbdoc(
+            Canonicalize the detector error model for a given number of rounds
+          )pbdoc",
            py::arg("num_syndromes_per_round"));
 
   // Expose decorator function that handles inheritance
@@ -297,8 +322,49 @@ void bindDecoder(py::module &mod) {
         return cudaq::qec::get_sorted_pcm_column_indices(
             tensor_H, num_syndromes_per_round);
       },
-      "Get the sorted column indices of a parity check matrix.", py::arg("H"),
-      py::arg("num_syndromes_per_round") = 0);
+      R"pbdoc(
+        Get the sorted column indices of a parity check matrix.
+
+        This function returns the column indices of a parity check matrix in
+        topological order.
+
+        Args:
+            H: A NumPy array representing the parity check matrix
+            num_syndromes_per_round: The number of syndrome measurements per round
+
+        Returns:
+            A NumPy array containing the sorted column indices
+
+        See Also:
+            :cpp:func:`cudaq::qec::get_sorted_pcm_column_indices`: The
+            underlying C++ implementation of this function.
+      )pbdoc",
+      py::arg("H"), py::arg("num_syndromes_per_round") = 0);
+
+  qecmod.def(
+      "pcm_is_sorted",
+      [](const py::array_t<uint8_t> &H, std::uint32_t num_syndromes_per_round) {
+        auto tensor_H = pcmToTensor(H);
+        return cudaq::qec::pcm_is_sorted(tensor_H, num_syndromes_per_round);
+      },
+      R"pbdoc(
+        Check if a parity check matrix is sorted.
+
+        This function checks if a parity check matrix is sorted in topological
+        order.
+
+        Args:
+            H: A NumPy array representing the parity check matrix
+            num_syndromes_per_round: The number of syndrome measurements per round
+
+        Returns:
+            A boolean indicating if the parity check matrix is sorted
+
+        See Also:
+            :cpp:func:`cudaq::qec::pcm_is_sorted`: The underlying C++
+            implementation of this function.
+      )pbdoc",
+      py::arg("H"), py::arg("num_syndromes_per_round") = 0);
 
   qecmod.def(
       "reorder_pcm_columns",
@@ -320,7 +386,24 @@ void bindDecoder(py::module &mod) {
                    H_new.data())
             .attr("copy")();
       },
-      "Reorder the columns of a parity check matrix.");
+      R"pbdoc(
+        Reorder the columns of a parity check matrix.
+
+        This function reorders the columns of a parity check matrix according to
+        the given column order.
+
+        Args:
+            H: A NumPy array representing the parity check matrix
+            column_order: A NumPy array containing the column order
+
+        Returns:
+            A NumPy array containing the reordered parity check matrix
+
+        See Also:
+            :cpp:func:`cudaq::qec::reorder_pcm_columns`: The underlying C++
+            implementation of this function.
+      )pbdoc",
+      py::arg("H"), py::arg("column_order"));
 
   qecmod.def(
       "sort_pcm_columns",
@@ -336,8 +419,24 @@ void bindDecoder(py::module &mod) {
                    H_new.data())
             .attr("copy")();
       },
-      "Sort the columns of a parity check matrix.", py::arg("H"),
-      py::arg("num_syndromes_per_round") = 0);
+      R"pbdoc(
+        Sort the columns of a parity check matrix.
+
+        This function sorts the columns of a parity check matrix in topological
+        order.
+
+        Args:
+            H: A NumPy array representing the parity check matrix
+            num_syndromes_per_round: The number of syndrome measurements per round
+
+        Returns:
+            A NumPy array containing the sorted parity check matrix
+
+        See Also:
+            :cpp:func:`cudaq::qec::sort_pcm_columns`: The underlying C++
+            implementation of this function.
+      )pbdoc",
+      py::arg("H"), py::arg("num_syndromes_per_round") = 0);
 
   qecmod.def(
       "dump_pcm",
@@ -347,7 +446,12 @@ void bindDecoder(py::module &mod) {
         printf("\n");
         fflush(stdout);
       },
-      "Dump the parity check matrix to stdout.");
+      R"pbdoc(
+        Dump the parity check matrix to stdout.
+
+        This function dumps the parity check matrix to stdout.
+      )pbdoc",
+      py::arg("H"));
 
   qecmod.def(
       "generate_random_pcm",
@@ -368,15 +472,34 @@ void bindDecoder(py::module &mod) {
                    H_new.data())
             .attr("copy")();
       },
-      "Generate a random parity check matrix.", py::arg("n_rounds"),
-      py::arg("n_errs_per_round"), py::arg("n_syndromes_per_round"),
-      py::arg("weight"), py::arg("seed") = 0);
+      R"pbdoc(
+        Generate a random parity check matrix.
+
+        This function creates a random parity check matrix for quantum error correction
+        with specified parameters controlling the structure and randomness.
+
+        Args:
+            n_rounds: Number of measurement rounds in the error correction protocol
+            n_errs_per_round: Number of error mechanisms per round
+            n_syndromes_per_round: Number of syndrome measurements per round
+            weight: The weight parameter controlling the sparsity of the matrix
+            seed: Random seed for reproducibility (0 for random seed)
+
+        See Also:
+            :cpp:func:`cudaq::qec::generate_random_pcm`: The underlying C++
+            implementation of this function.
+
+        Returns:
+            A NumPy array containing the generated parity check matrix
+      )pbdoc",
+      py::arg("n_rounds"), py::arg("n_errs_per_round"),
+      py::arg("n_syndromes_per_round"), py::arg("weight"), py::arg("seed") = 0);
 
   qecmod.def(
       "get_pcm_for_rounds",
       [](const py::array_t<uint8_t> &H, std::uint32_t num_syndromes_per_round,
          std::uint32_t start_round, std::uint32_t end_round,
-         bool straddle_start_round, bool straddle_end_round) {
+         bool straddle_end_round, bool straddle_start_round) {
         auto tensor_H = pcmToTensor(H);
 
         auto [H_new, first_column, last_column] =
@@ -393,27 +516,33 @@ void bindDecoder(py::module &mod) {
                 .attr("copy")(),
             first_column, last_column);
       },
-      "Get a sub-PCM for a range of rounds.", py::arg("H"),
-      py::arg("num_syndromes_per_round"), py::arg("start_round"),
+      R"pbdoc(
+        Get a sub-PCM for a range of rounds.
+
+        This function returns a sub-parity check matrix for a range of rounds.
+
+        Args:
+            H: A NumPy array representing the parity check matrix
+            num_syndromes_per_round: The number of syndrome measurements per round
+            start_round: The starting round
+            end_round: The ending round
+            straddle_start_round: Whether to allow error mechanisms that
+              straddle the start round (i.e. include prior rounds, too). This
+              defaults to false.
+            straddle_end_round: Whether to allow error mechanisms that straddle
+              the end round (i.e. include future rounds, too). This defaults to
+              false.
+
+        Returns:
+            A NumPy array containing the sub-parity check matrix
+
+        See Also:
+            :cpp:func:`cudaq::qec::get_pcm_for_rounds`: The underlying C++
+            implementation of this function.
+      )pbdoc",
+      py::arg("H"), py::arg("num_syndromes_per_round"), py::arg("start_round"),
       py::arg("end_round"), py::arg("straddle_start_round") = false,
       py::arg("straddle_end_round") = false);
-
-  qecmod.def(
-      "pcm_extend_to_n_rounds",
-      [](const py::array_t<uint8_t> &H, std::uint32_t num_syndromes_per_round,
-         std::uint32_t n_rounds) {
-        auto tensor_H = pcmToTensor(H);
-        auto [H_new, column_list] = cudaq::qec::pcm_extend_to_n_rounds(
-            tensor_H, num_syndromes_per_round, n_rounds);
-        // Construct a new py_array_t<uint8_t> from H_new.
-        py::array_t<uint8_t> H_new_py(
-            H_new.shape(),
-            {H_new.shape()[1] * sizeof(uint8_t), sizeof(uint8_t)},
-            H_new.data());
-        return py::make_tuple(H_new_py.attr("copy")(), column_list);
-      },
-      "Extend a parity check matrix to a given number of rounds.", py::arg("H"),
-      py::arg("num_syndromes_per_round"), py::arg("n_rounds"));
 
   qecmod.def(
       "shuffle_pcm_columns",
@@ -431,8 +560,23 @@ void bindDecoder(py::module &mod) {
                    H_new.data())
             .attr("copy")();
       },
-      "Shuffle the columns of a parity check matrix.", py::arg("H"),
-      py::arg("seed") = 0);
+      R"pbdoc(
+        Shuffle the columns of a parity check matrix.
+
+        This function shuffles the columns of a parity check matrix.
+
+        Args:
+            H: A NumPy array representing the parity check matrix
+            seed: Random seed for reproducibility (0 for random seed)
+
+        Returns:
+            A NumPy array containing the shuffled parity check matrix
+
+        See Also:
+            :cpp:func:`cudaq::qec::shuffle_pcm_columns`: The underlying C++
+            implementation of this function.
+      )pbdoc",
+      py::arg("H"), py::arg("seed") = 0);
 
   qecmod.def(
       "simplify_pcm",
@@ -453,8 +597,25 @@ void bindDecoder(py::module &mod) {
         return py::make_tuple(H_new_py.attr("copy")(),
                               weights_new_py.attr("copy")());
       },
-      "Simplify a parity check matrix.", py::arg("H"), py::arg("weights"),
-      py::arg("num_syndromes_per_round"));
+      R"pbdoc(
+        Simplify a parity check matrix.
+
+        This function simplifies a parity check matrix by removing duplicate
+        columns and 0-weight columns.
+
+        Args:
+            H: A NumPy array representing the parity check matrix
+            weights: A NumPy array containing the weights of the columns
+            num_syndromes_per_round: The number of syndrome measurements per round
+
+        Returns:
+            A tuple containing the simplified parity check matrix and the weights
+
+        See Also:
+            :cpp:func:`cudaq::qec::simplify_pcm`: The underlying C++
+            implementation of this function.
+      )pbdoc",
+      py::arg("H"), py::arg("weights"), py::arg("num_syndromes_per_round"));
 }
 
 } // namespace cudaq::qec

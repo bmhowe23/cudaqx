@@ -22,6 +22,21 @@ Code
 .. doxygenclass:: cudaq::qec::surface_code::surface_code
     :members:
 
+Detector Error Model
+====================
+
+.. doxygenstruct:: cudaq::qec::detector_error_model
+    :members:
+
+.. doxygenfunction:: cudaq::qec::dem_from_memory_circuit(const code &, operation, std::size_t, cudaq::noise_model &)
+.. doxygenfunction:: cudaq::qec::dem_from_memory_circuit_obs_matrix(const code &, operation, const cudaqx::tensor<uint8_t> &, std::size_t, cudaq::noise_model &)
+.. doxygenfunction:: cudaq::qec::dem_from_memory_circuit_obs_terms(const code &, operation, const std::vector<spin_op_term> &, std::size_t, cudaq::noise_model &)
+.. doxygenfunction:: cudaq::qec::x_dem_from_memory_circuit(const code &, operation, std::size_t, cudaq::noise_model &)
+.. doxygenfunction:: cudaq::qec::x_dem_from_memory_circuit_obs_matrix(const code &, operation, const cudaqx::tensor<uint8_t> &, std::size_t, cudaq::noise_model &)
+.. doxygenfunction:: cudaq::qec::x_dem_from_memory_circuit_obs_terms(const code &, operation, const std::vector<spin_op_term> &, std::size_t, cudaq::noise_model &)
+.. doxygenfunction:: cudaq::qec::z_dem_from_memory_circuit(const code &, operation, std::size_t, cudaq::noise_model &)
+.. doxygenfunction:: cudaq::qec::z_dem_from_memory_circuit_obs_matrix(const code &, operation, const cudaqx::tensor<uint8_t> &, std::size_t, cudaq::noise_model &)
+.. doxygenfunction:: cudaq::qec::z_dem_from_memory_circuit_obs_terms(const code &, operation, const std::vector<spin_op_term> &, std::size_t, cudaq::noise_model &)
 
 Decoder Interfaces
 ==================
@@ -46,9 +61,10 @@ Parity Check Matrix Utilities
 =============================
 
 .. doxygenfunction:: cudaq::qec::generate_random_pcm(std::size_t, std::size_t, std::size_t, int, std::mt19937_64 &&);
-.. doxygenfunction:: cudaq::qec::get_pcm_for_rounds(const cudaqx::tensor<uint8_t> &, std::uint32_t, std::uint32_t, std::uint32_t);
+.. doxygenfunction:: cudaq::qec::get_pcm_for_rounds(const cudaqx::tensor<uint8_t> &, std::uint32_t, std::uint32_t, std::uint32_t, bool, bool);
 .. doxygenfunction:: cudaq::qec::get_sorted_pcm_column_indices(const std::vector<std::vector<std::uint32_t>> &, std::uint32_t);
 .. doxygenfunction:: cudaq::qec::get_sorted_pcm_column_indices(const cudaqx::tensor<uint8_t> &, std::uint32_t);
+.. doxygenfunction:: cudaq::qec::pcm_is_sorted(const cudaqx::tensor<uint8_t> &, std::uint32_t);
 .. doxygenfunction:: cudaq::qec::reorder_pcm_columns(const cudaqx::tensor<uint8_t> &, const std::vector<std::uint32_t> &, uint32_t, uint32_t);
 .. doxygenfunction:: cudaq::qec::shuffle_pcm_columns(const cudaqx::tensor<uint8_t> &, std::mt19937_64 &&);
 .. doxygenfunction:: cudaq::qec::simplify_pcm(const cudaqx::tensor<uint8_t> &, const std::vector<double> &, std::uint32_t);

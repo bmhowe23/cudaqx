@@ -246,7 +246,11 @@ def test_gen_random_pcm():
                                   n_syndromes_per_round=10,
                                   weight=3,
                                   seed=13)
+    is_sorted = qec.pcm_is_sorted(pcm)
+    assert is_sorted is False
     pcm = qec.sort_pcm_columns(pcm)
+    is_sorted = qec.pcm_is_sorted(pcm)
+    assert is_sorted is True
     print('')
     qec.dump_pcm(pcm)
     print('')
