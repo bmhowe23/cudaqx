@@ -112,7 +112,7 @@ def run_decoder(filename, num_shots, run_as_batched, run_as_sliding_window):
 
     if run_as_sliding_window:
         sliding_window_args = {
-            'window_size': 14,
+            'window_size': 10,
             'step_size': 1,
             'num_syndromes_per_round': 72,
             'straddle_start_round': False,
