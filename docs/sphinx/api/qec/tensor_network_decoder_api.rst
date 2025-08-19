@@ -10,7 +10,7 @@
 
     Due to the additional dependencies of the Tensor Network Decoder, you must
     specify the optional pip package when installing CUDA-Q QEC in order to use this
-    decoder. Use `pip install cudaq-qec[tensor_network_decoder]` in order to use
+    decoder. Use `pip install cudaq-qec[tensor-network-decoder]` in order to use
     this decoder.
     
     The Tensor Network Decoder has the same GPU support as the `Quantum Low-Density Parity-Check Decoder<https://nvidia.github.io/cudaqx/components/qec/introduction.html#quantum-low-density-parity-check-decoder>`__.
