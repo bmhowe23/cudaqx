@@ -28,6 +28,16 @@ private:
   // Input parameters
   std::vector<double> error_rate_vec;
 
+  // Map of edge pairs to column indices. This does not seem particularly
+  // efficient.
+  std::map<std::pair<int64_t, int64_t>, size_t> edge2col_idx;
+
+  // Helper function to make a canonical edge from two nodes.
+  std::pair<int64_t, int64_t> make_canonical_edge(int64_t node1,
+                                                  int64_t node2) {
+    return std::make_pair(std::min(node1, node2), std::max(node1, node2));
+  }
+
 public:
   pymatching(const cudaqx::tensor<uint8_t> &H,
              const cudaqx::heterogeneous_map &params)
@@ -49,8 +59,7 @@ public:
 
     user_graph = pm::UserGraph(H.shape()[0]);
 
-    // Transpose H to allow us to quickly traverse the columns of H.
-    auto sparse = cudaq::qec::dense_to_sparse(H.transpose());
+    auto sparse = cudaq::qec::dense_to_sparse(H);
     std::vector<size_t> observables;
     std::size_t col_idx = 0;
     for (auto &col : sparse) {
@@ -59,8 +68,17 @@ public:
         weight = error_rate_vec[col_idx];
       }
       if (col.size() == 2) {
+        edge2col_idx[make_canonical_edge(col[0], col[1])] = col_idx;
         user_graph.add_or_merge_edge(col[0], col[1], observables, weight, 0.0,
                                      pm::MERGE_STRATEGY::DISALLOW);
+      } else if (col.size() == 1) {
+        edge2col_idx[make_canonical_edge(col[0], -1)] = col_idx;
+        user_graph.add_or_merge_boundary_edge(col[0], observables, weight, 0.0,
+                                              pm::MERGE_STRATEGY::DISALLOW);
+      } else {
+        throw std::runtime_error(
+            "Invalid column in H: " + std::to_string(col_idx) + " has " +
+            std::to_string(col.size()) + " ones. Must have 1 or 2 ones.");
       }
       col_idx++;
     }
@@ -68,15 +86,22 @@ public:
 
   virtual decoder_result decode(const std::vector<float_t> &syndrome) {
     decoder_result result{false, std::vector<float_t>(block_size, 0.0)};
-    auto &mwpm = user_graph.get_mwpm();
+    auto &mwpm = user_graph.get_mwpm_with_search_graph();
     std::vector<int64_t> edges;
     std::vector<uint64_t> detection_events;
+    detection_events.reserve(syndrome.size());
+    for (size_t i = 0; i < syndrome.size(); i++)
+      if (syndrome[i] > 0.5)
+        detection_events.push_back(i);
     pm::decode_detection_events_to_edges(mwpm, detection_events, edges);
-    result.result.resize(edges.size());
-    // TODO - very that the edge numbers are the column indices of H.
-    for (auto e : edges) {
-      result.result[e] = 1.0;
+    // Loop over the edge pairs
+    assert(edges.size() % 2 == 0);
+    for (size_t i = 0; i < edges.size(); i += 2) {
+      auto edge = make_canonical_edge(edges.at(i), edges.at(i + 1));
+      auto col_idx = edge2col_idx.at(edge);
+      result.result[col_idx] = 1.0;
     }
+    result.converged = true; // TODO - validate?
     return result;
   }
 
