@@ -31,20 +31,9 @@ set(PLUGIN_SRC
 # Create the shared library
 add_library(${MODULE_NAME} SHARED ${PLUGIN_SRC})
 
-target_compile_options(${MODULE_NAME} PUBLIC -fvisibility=hidden)
-
-# Don't export any symbols because we don't want to export Stim or PyMatching
-# symbols. Otherwise, they might conflict with other Python packages that the
-# user might have loaded.
-file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/cudaq-qec-pymatching.map "
-{
-  local:
-    *;
-};
-")
-
-target_link_options(${MODULE_NAME} PRIVATE 
-  "-Wl,--version-script,${CMAKE_CURRENT_BINARY_DIR}/cudaq-qec-pymatching.map")
+# Don't export any symbols (specifically from static libs like PyMatching)
+# to avoid conflicts with other Python packages.
+target_link_options(${MODULE_NAME} PRIVATE "-Wl,--exclude-libs,ALL")
 
 # Set the include directories for dependencies
 target_include_directories(${MODULE_NAME}
