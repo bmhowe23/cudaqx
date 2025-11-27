@@ -1,5 +1,5 @@
 /****************************************************************-*- C++ -*-****
- * Copyright (c) 2024 NVIDIA Corporation & Affiliates.                         *
+ * Copyright (c) 2024 - 2025 NVIDIA Corporation & Affiliates.                  *
  * All rights reserved.                                                        *
  *                                                                             *
  * This source code and the accompanying materials are made available under    *
@@ -122,6 +122,15 @@ public:
     auto &registry = get_registry();
     return registry.find(name) != registry.end();
   }
+
+  /// @brief Unregister an extension.
+  /// @param name The identifier of the extension to unregister.
+  static void unregister(const std::string &name) {
+    auto &registry = get_registry();
+    auto iter = registry.find(name);
+    if (iter != registry.end())
+      registry.erase(iter);
+  }
 };
 
 /// @brief Macro for defining a creator function for an extension.
@@ -163,7 +172,13 @@ public:
 /// @brief Macro for registering an extension type.
 /// @param TYPE The class to be registered as an extension.
 #define CUDAQ_REGISTER_TYPE(TYPE)                                              \
-  const bool TYPE::registered_ = TYPE::register_type();
+  const bool TYPE::registered_ = TYPE::register_type();                        \
+  /* We must ALSO provide a destructor to clean up the registry so that when a \
+   * dlcose happens, the parent registry no longer holds references to code    \
+   * that has been unloaded. */                                                \
+  __attribute__((destructor)) void cudaq_extension_point_cleanup_##TYPE() {    \
+    TYPE::unregister(TYPE::class_identifier);                                  \
+  }
 
 /// In order to support building CUDA-QX libraries with g++ and building
 /// application code with nvq++ (which uses clang++ under the hood), you must
