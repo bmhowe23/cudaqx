@@ -20,7 +20,7 @@ def setTarget():
     cudaq.set_target(old_target)
 
 
-@pytest.mark.parametrize("decoder_name", ["single_error_lut"])
+@pytest.mark.parametrize("decoder_name", ["single_error_lut", "pymatching"])
 @pytest.mark.parametrize("batched", [True, False])
 @pytest.mark.parametrize("num_rounds", [5, 10])
 @pytest.mark.parametrize("num_windows", [1, 2, 3])

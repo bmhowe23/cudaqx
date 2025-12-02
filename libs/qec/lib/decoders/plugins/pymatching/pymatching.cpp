@@ -27,6 +27,7 @@ private:
 
   // Input parameters
   std::vector<double> error_rate_vec;
+  pm::MERGE_STRATEGY merge_strategy_enum = pm::MERGE_STRATEGY::DISALLOW;
 
   // Map of edge pairs to column indices. This does not seem particularly
   // efficient.
@@ -48,12 +49,33 @@ public:
       if (error_rate_vec.size() != block_size) {
         throw std::runtime_error("error_rate_vec must be of size block_size");
       }
-      // Validate that the values in the error_rate_vec are between 0 and 1.
+      // Validate that the values in the error_rate_vec are between 0 and 0.5.
+      // Values > 0.5 would have negative LLR, which is not supported by
+      // PyMatching.
       for (auto error_rate : error_rate_vec) {
-        if (error_rate < 0.0 || error_rate > 1.0) {
+        if (error_rate <= 0.0 || error_rate > 0.5) {
           throw std::runtime_error(
-              "error_rate_vec value is out of range [0, 1]");
+              "error_rate_vec value is out of range (0, 0.5]");
         }
+      }
+    }
+
+    if (params.contains("merge_strategy")) {
+      std::string merge_strategy = params.get<std::string>("merge_strategy");
+      if (merge_strategy == "disallow") {
+        merge_strategy_enum = pm::MERGE_STRATEGY::DISALLOW;
+      } else if (merge_strategy == "independent") {
+        merge_strategy_enum = pm::MERGE_STRATEGY::INDEPENDENT;
+      } else if (merge_strategy == "smallest_weight") {
+        merge_strategy_enum = pm::MERGE_STRATEGY::SMALLEST_WEIGHT;
+      } else if (merge_strategy == "keep_original") {
+        merge_strategy_enum = pm::MERGE_STRATEGY::KEEP_ORIGINAL;
+      } else if (merge_strategy == "replace") {
+        merge_strategy_enum = pm::MERGE_STRATEGY::REPLACE;
+      } else {
+        throw std::runtime_error(
+            "merge_strategy must be one of: disallow, independent, "
+            "smallest_weight, keep_original, replace");
       }
     }
 
@@ -65,16 +87,17 @@ public:
     for (auto &col : sparse) {
       double weight = 1.0;
       if (col_idx < error_rate_vec.size()) {
-        weight = error_rate_vec[col_idx];
+        weight = -std::log(error_rate_vec[col_idx] /
+                           (1.0 - error_rate_vec[col_idx]));
       }
       if (col.size() == 2) {
         edge2col_idx[make_canonical_edge(col[0], col[1])] = col_idx;
         user_graph.add_or_merge_edge(col[0], col[1], observables, weight, 0.0,
-                                     pm::MERGE_STRATEGY::DISALLOW);
+                                     merge_strategy_enum);
       } else if (col.size() == 1) {
         edge2col_idx[make_canonical_edge(col[0], -1)] = col_idx;
         user_graph.add_or_merge_boundary_edge(col[0], observables, weight, 0.0,
-                                              pm::MERGE_STRATEGY::DISALLOW);
+                                              merge_strategy_enum);
       } else {
         throw std::runtime_error(
             "Invalid column in H: " + std::to_string(col_idx) + " has " +

@@ -10,6 +10,7 @@
 #include <cassert>
 #include <cstring>
 #include <random>
+#include <set>
 
 namespace cudaq::qec {
 
@@ -372,7 +373,8 @@ get_pcm_for_rounds(const cudaqx::tensor<uint8_t> &pcm,
                          first_column, last_column);
 }
 
-/// @brief Generate a random PCM with the given parameters.
+/// @brief Generate a random PCM with the given parameters. Each column is
+/// guaranteed to be unique.
 /// @param n_rounds The number of rounds in the PCM.
 /// @param n_errs_per_round The number of errors per round in the PCM.
 /// @param n_syndromes_per_round The number of syndromes per round in the PCM.
@@ -391,6 +393,9 @@ cudaqx::tensor<uint8_t> generate_random_pcm(std::size_t n_rounds,
   // Generate a random bit (either a 0 or 1) for each element of the PCM.
   std::uniform_int_distribution<> dis(0, 1);
 
+  // Store a set of row indices for each column so that we can avoid duplicates.
+  std::set<std::set<std::size_t>> full_pcm;
+
   for (std::size_t r = 0; r < n_rounds; ++r) {
     for (std::size_t c = 0; c < n_errs_per_round; ++c) {
       auto c_ix = r * n_errs_per_round + c;
@@ -403,12 +408,35 @@ cudaqx::tensor<uint8_t> generate_random_pcm(std::size_t n_rounds,
                                 ? n_syndromes_per_round
                                 : 2 * n_syndromes_per_round;
       std::uniform_int_distribution<> row_dis(0, row_max - 1);
-      for (std::size_t i = 0; i < weight; ++i) {
-        auto row_ix = row_dis(rng);
-        // Loop until we find a row that has not been set yet
-        while (pcm.at({r * n_syndromes_per_round + row_ix, c_ix}) == 1)
-          row_ix = row_dis(rng);
-        pcm.at({r * n_syndromes_per_round + row_ix, c_ix}) = 1;
+      std::set<std::size_t> row_indices;
+      // Loop until we generate a unique column.
+      std::size_t iter = 0;
+      const std::size_t max_iter = 3 * n_errs_per_round;
+      while (++iter <= max_iter) {
+        row_indices.clear();
+        for (std::size_t i = 0; i < weight; ++i) {
+          auto row_ix = row_dis(rng);
+          // Loop until we generate a unique row index for the column.
+          while (row_indices.find(r * n_syndromes_per_round + row_ix) !=
+                 row_indices.end()) {
+            row_ix = row_dis(rng);
+          }
+          row_indices.insert(r * n_syndromes_per_round + row_ix);
+        }
+        if (full_pcm.find(row_indices) == full_pcm.end()) {
+          // If this column is unique, then we add it to the full PCM.
+          // Otherwise, we try again.
+          full_pcm.insert(row_indices);
+          // Add the column to the PCM.
+          for (auto row_ix : row_indices) {
+            pcm.at({row_ix, c_ix}) = 1;
+          }
+          break;
+        }
+      }
+      if (iter > max_iter) {
+        throw std::runtime_error("Failed to generate a unique column after " +
+                                 std::to_string(max_iter) + " attempts");
       }
     }
   }

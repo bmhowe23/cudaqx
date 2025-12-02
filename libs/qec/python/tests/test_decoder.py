@@ -12,15 +12,20 @@ import cudaq_qec as qec
 
 def create_test_matrix():
     np.random.seed(42)
-    return np.random.randint(0, 2, (10, 20)).astype(np.uint8)
+    pcm = qec.generate_random_pcm(n_rounds=2,
+                                  n_errs_per_round=20,
+                                  n_syndromes_per_round=10,
+                                  weight=2,
+                                  seed=7)
+    return pcm
+
+
+H = create_test_matrix()
 
 
 def create_test_syndrome():
     np.random.seed(42)
-    return np.random.random(10).tolist()
-
-
-H = create_test_matrix()
+    return (H @ np.random.random(H.shape[1]) % 2).tolist()
 
 
 def test_decoder_initialization():
@@ -337,6 +342,14 @@ def test_single_error_lut_opt_results():
     assert "error_probability" in result.opt_results
     assert "syndrome_weight" in result.opt_results
     assert "decoding_time" not in result.opt_results  # Was set to False
+
+
+def test_decoder_pymatching_results():
+    decoder = qec.get_decoder('pymatching', H)
+    result = decoder.decode(create_test_syndrome())
+    assert result.converged is True
+    assert all(isinstance(x, float) for x in result.result)
+    assert all(0 <= x <= 1 for x in result.result)
 
 
 if __name__ == "__main__":
