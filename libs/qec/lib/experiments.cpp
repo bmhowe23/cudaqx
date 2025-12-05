@@ -317,30 +317,35 @@ cudaq::qec::detector_error_model dem_from_memory_circuit(
   auto offset = keep_x_stabilizers && !keep_z_stabilizers ? numZStabs : 0;
   dem.detector_error_matrix = cudaqx::tensor<uint8_t>(
       {numRounds * numReturnSynPerRound, numNoiseMechs});
+
+  // Get the detector measurement indices
+  auto &detector_measurement_indices =
+      ctx_msm.detector_measurement_indices.value();
+
+  // Only keep some of the detectors, depending on the keep_x_stabilizers and
+  // keep_z_stabilizers flags.
+  std::vector<std::vector<std::int64_t>> trimmed_dets;
   for (std::size_t round = 0; round < numRounds; round++) {
-    if (round == 0) {
-      for (std::size_t syndrome = 0; syndrome < numReturnSynPerRound;
-           syndrome++) {
-        for (std::size_t noise_mech = 0; noise_mech < numNoiseMechs;
-             noise_mech++) {
-          dem.detector_error_matrix.at(
-              {round * numReturnSynPerRound + syndrome, noise_mech}) =
-              mzTable.at({round * numSyndromesPerRound + syndrome + offset,
-                          noise_mech});
-        }
-      }
-    } else {
-      for (std::size_t syndrome = 0; syndrome < numReturnSynPerRound;
-           syndrome++) {
-        for (std::size_t noise_mech = 0; noise_mech < numNoiseMechs;
-             noise_mech++) {
-          dem.detector_error_matrix.at(
-              {round * numReturnSynPerRound + syndrome, noise_mech}) =
-              mzTable.at({round * numSyndromesPerRound + syndrome + offset,
-                          noise_mech}) ^
-              mzTable.at(
-                  {(round - 1) * numSyndromesPerRound + syndrome + offset,
-                   noise_mech});
+    for (std::size_t syndrome = 0; syndrome < numReturnSynPerRound;
+         syndrome++) {
+      trimmed_dets.push_back(
+          detector_measurement_indices[round * numSyndromesPerRound + syndrome +
+                                       offset]);
+    }
+  }
+
+  // XOR the measurements according to detector measurement indices
+  for (std::size_t d = 0; d < trimmed_dets.size(); d++) {
+    const auto &this_det_mz_indices = trimmed_dets[d];
+    for (std::size_t i = 0; i < this_det_mz_indices.size(); i++) {
+      auto m = this_det_mz_indices[i];
+      for (std::size_t noise_mech = 0; noise_mech < numNoiseMechs;
+           noise_mech++) {
+        if (m < 0) {
+          dem.detector_error_matrix.at({d, noise_mech}) ^= (-m) % 2;
+        } else {
+          dem.detector_error_matrix.at({d, noise_mech}) ^=
+              mzTable.at({static_cast<std::size_t>(m), noise_mech});
         }
       }
     }

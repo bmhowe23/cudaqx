@@ -25,6 +25,16 @@ __qpu__ void __memory_circuit_stabs(
   for (std::size_t round = 0; round < numRounds; round++) {
     // Run the stabilizer round, generate the syndrome measurements
     auto syndrome = stabilizer_round(logical, x_stabilizers, z_stabilizers);
+    if (round == 0) {
+      for (int i = 0; i < syndrome.size(); i++) {
+        cudaq::detector(-static_cast<int64_t>(syndrome.size()) + i, 2);
+      }
+    } else {
+      for (int i = 0; i < syndrome.size(); i++) {
+        cudaq::detector(-2 * static_cast<int64_t>(syndrome.size()) + i,
+                        -static_cast<int64_t>(syndrome.size()) + i);
+      }
+    }
   }
 }
 
