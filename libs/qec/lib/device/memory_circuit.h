@@ -24,12 +24,15 @@ namespace cudaq::qec {
 /// @param numAncx Number of ancilla x qubits in the code
 /// @param numAncz Number of ancilla z qubits in the code
 /// @param numRounds Number of rounds to execute the memory circuit
+/// @param keep_x_stabilizers Whether to keep X stabilizers for detectors
+/// @param keep_z_stabilizers Whether to keep Z stabilizers for detectors
 /// @param x_stabilizers Vector of indices for X stabilizers
 /// @param z_stabilizers Vector of indices for Z stabilizers
 __qpu__ void memory_circuit_mz(const code::stabilizer_round &stabilizer_round,
                                const code::one_qubit_encoding &statePrep,
                                std::size_t numData, std::size_t numAncx,
                                std::size_t numAncz, std::size_t numRounds,
+                               bool keep_x_stabilizers, bool keep_z_stabilizers,
                                const std::vector<std::size_t> &x_stabilizers,
                                const std::vector<std::size_t> &z_stabilizers);
 /// \entry_point_kernel
@@ -43,12 +46,15 @@ __qpu__ void memory_circuit_mz(const code::stabilizer_round &stabilizer_round,
 /// @param numAncx Number of ancilla x qubits in the code
 /// @param numAncz Number of ancilla z qubits in the code
 /// @param numRounds Number of rounds to execute the memory circuit
+/// @param keep_x_stabilizers Whether to keep X stabilizers for detectors
+/// @param keep_z_stabilizers Whether to keep Z stabilizers for detectors
 /// @param x_stabilizers Vector of indices for X stabilizers
 /// @param z_stabilizers Vector of indices for Z stabilizers
 __qpu__ void memory_circuit_mx(const code::stabilizer_round &stabilizer_round,
                                const code::one_qubit_encoding &statePrep,
                                std::size_t numData, std::size_t numAncx,
                                std::size_t numAncz, std::size_t numRounds,
+                               bool keep_x_stabilizers, bool keep_z_stabilizers,
                                const std::vector<std::size_t> &x_stabilizers,
                                const std::vector<std::size_t> &z_stabilizers);
 

@@ -123,15 +123,21 @@ sample_memory_circuit(const code &code, operation statePrep,
 
   cudaq::sample_result result;
 
+  // We keep all stabilizers by default.
+  const bool keep_x_stabilizers = true;
+  const bool keep_z_stabilizers = true;
+
   // Run the memory circuit experiment
   if (statePrep == operation::prep0 || statePrep == operation::prep1) {
     // run z basis
     result = cudaq::sample(opts, memory_circuit_mz, stabRound, prep, numData,
-                           numAncx, numAncz, numRounds, xVec, zVec);
+                           numAncx, numAncz, numRounds, keep_x_stabilizers,
+                           keep_z_stabilizers, xVec, zVec);
   } else if (statePrep == operation::prepp || statePrep == operation::prepm) {
     // run x basis
     result = cudaq::sample(opts, memory_circuit_mx, stabRound, prep, numData,
-                           numAncx, numAncz, numRounds, xVec, zVec);
+                           numAncx, numAncz, numRounds, keep_x_stabilizers,
+                           keep_z_stabilizers, xVec, zVec);
   } else {
     throw std::runtime_error(
         "sample_memory_circuit_error - invalid requested state prep kernel.");
@@ -220,7 +226,7 @@ cudaq::qec::detector_error_model dem_from_memory_circuit(
   auto &prep = code.get_operation<code::one_qubit_encoding>(statePrep);
 
   if (!code.contains_operation(operation::stabilizer_round))
-    throw std::runtime_error("sample_memory_circuit error - no stabilizer "
+    throw std::runtime_error("dem_from_memory_circuit error - no stabilizer "
                              "round kernel for this code.");
 
   auto &stabRound =
@@ -249,10 +255,10 @@ cudaq::qec::detector_error_model dem_from_memory_circuit(
   // Run the memory circuit experiment
   if (run_mz_circuit) {
     memory_circuit_mz(stabRound, prep, numData, numAncx, numAncz, numRounds,
-                      xVec, zVec);
+                      keep_x_stabilizers, keep_z_stabilizers, xVec, zVec);
   } else {
     memory_circuit_mx(stabRound, prep, numData, numAncx, numAncz, numRounds,
-                      xVec, zVec);
+                      keep_x_stabilizers, keep_z_stabilizers, xVec, zVec);
   }
 
   platform.reset_exec_ctx();
@@ -275,10 +281,10 @@ cudaq::qec::detector_error_model dem_from_memory_circuit(
   // Run the memory circuit experiment
   if (run_mz_circuit) {
     memory_circuit_mz(stabRound, prep, numData, numAncx, numAncz, numRounds,
-                      xVec, zVec);
+                      keep_x_stabilizers, keep_z_stabilizers, xVec, zVec);
   } else {
     memory_circuit_mx(stabRound, prep, numData, numAncx, numAncz, numRounds,
-                      xVec, zVec);
+                      keep_x_stabilizers, keep_z_stabilizers, xVec, zVec);
   }
 
   platform.reset_exec_ctx();
@@ -312,9 +318,6 @@ cudaq::qec::detector_error_model dem_from_memory_circuit(
     numReturnSynPerRound = numZStabs;
   }
 
-  // If we are returning only x-stabilizers, we need to offset the syndrome
-  // indices of mzTable by numSyndromesPerRound / 2.
-  auto offset = keep_x_stabilizers && !keep_z_stabilizers ? numZStabs : 0;
   dem.detector_error_matrix = cudaqx::tensor<uint8_t>(
       {numRounds * numReturnSynPerRound, numNoiseMechs});
 
@@ -322,21 +325,16 @@ cudaq::qec::detector_error_model dem_from_memory_circuit(
   auto &detector_measurement_indices =
       ctx_msm.detector_measurement_indices.value();
 
-  // Only keep some of the detectors, depending on the keep_x_stabilizers and
-  // keep_z_stabilizers flags.
-  std::vector<std::vector<std::int64_t>> trimmed_dets;
-  for (std::size_t round = 0; round < numRounds; round++) {
-    for (std::size_t syndrome = 0; syndrome < numReturnSynPerRound;
-         syndrome++) {
-      trimmed_dets.push_back(
-          detector_measurement_indices[round * numSyndromesPerRound + syndrome +
-                                       offset]);
-    }
+  if (detector_measurement_indices.size() != numRounds * numReturnSynPerRound) {
+    throw std::runtime_error(
+        "dem_from_memory_circuit error: number of detector "
+        "measurement indices does not match number of "
+        "detectors.");
   }
 
   // XOR the measurements according to detector measurement indices
-  for (std::size_t d = 0; d < trimmed_dets.size(); d++) {
-    const auto &this_det_mz_indices = trimmed_dets[d];
+  for (std::size_t d = 0; d < detector_measurement_indices.size(); d++) {
+    const auto &this_det_mz_indices = detector_measurement_indices[d];
     for (std::size_t i = 0; i < this_det_mz_indices.size(); i++) {
       auto m = this_det_mz_indices[i];
       for (std::size_t noise_mech = 0; noise_mech < numNoiseMechs;
