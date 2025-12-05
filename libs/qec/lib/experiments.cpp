@@ -127,17 +127,22 @@ sample_memory_circuit(const code &code, operation statePrep,
   const bool keep_x_stabilizers = true;
   const bool keep_z_stabilizers = true;
 
+  // Detectors do not impact sampling right now, so set to false.
+  const bool include_final_round_detectors = false;
+
   // Run the memory circuit experiment
   if (statePrep == operation::prep0 || statePrep == operation::prep1) {
     // run z basis
     result = cudaq::sample(opts, memory_circuit_mz, stabRound, prep, numData,
                            numAncx, numAncz, numRounds, keep_x_stabilizers,
-                           keep_z_stabilizers, xVec, zVec);
+                           keep_z_stabilizers, xVec, zVec,
+                           include_final_round_detectors);
   } else if (statePrep == operation::prepp || statePrep == operation::prepm) {
     // run x basis
     result = cudaq::sample(opts, memory_circuit_mx, stabRound, prep, numData,
                            numAncx, numAncz, numRounds, keep_x_stabilizers,
-                           keep_z_stabilizers, xVec, zVec);
+                           keep_z_stabilizers, xVec, zVec,
+                           include_final_round_detectors);
   } else {
     throw std::runtime_error(
         "sample_memory_circuit_error - invalid requested state prep kernel.");
@@ -212,7 +217,8 @@ namespace details {
 cudaq::qec::detector_error_model dem_from_memory_circuit(
     const code &code, operation statePrep, std::size_t numRounds,
     cudaq::noise_model &noise, const cudaqx::tensor<uint8_t> &obs_matrix,
-    bool run_mz_circuit, bool keep_x_stabilizers, bool keep_z_stabilizers) {
+    bool run_mz_circuit, bool keep_x_stabilizers, bool keep_z_stabilizers,
+    bool include_final_round_detectors) {
   if (!code.contains_operation(statePrep))
     throw std::runtime_error("dem_from_memory_circuit error - requested state "
                              "prep kernel not found.");
@@ -255,10 +261,12 @@ cudaq::qec::detector_error_model dem_from_memory_circuit(
   // Run the memory circuit experiment
   if (run_mz_circuit) {
     memory_circuit_mz(stabRound, prep, numData, numAncx, numAncz, numRounds,
-                      keep_x_stabilizers, keep_z_stabilizers, xVec, zVec);
+                      keep_x_stabilizers, keep_z_stabilizers, xVec, zVec,
+                      include_final_round_detectors);
   } else {
     memory_circuit_mx(stabRound, prep, numData, numAncx, numAncz, numRounds,
-                      keep_x_stabilizers, keep_z_stabilizers, xVec, zVec);
+                      keep_x_stabilizers, keep_z_stabilizers, xVec, zVec,
+                      include_final_round_detectors);
   }
 
   platform.reset_exec_ctx();
@@ -281,10 +289,12 @@ cudaq::qec::detector_error_model dem_from_memory_circuit(
   // Run the memory circuit experiment
   if (run_mz_circuit) {
     memory_circuit_mz(stabRound, prep, numData, numAncx, numAncz, numRounds,
-                      keep_x_stabilizers, keep_z_stabilizers, xVec, zVec);
+                      keep_x_stabilizers, keep_z_stabilizers, xVec, zVec,
+                      include_final_round_detectors);
   } else {
     memory_circuit_mx(stabRound, prep, numData, numAncx, numAncz, numRounds,
-                      keep_x_stabilizers, keep_z_stabilizers, xVec, zVec);
+                      keep_x_stabilizers, keep_z_stabilizers, xVec, zVec,
+                      include_final_round_detectors);
   }
 
   platform.reset_exec_ctx();
@@ -318,19 +328,12 @@ cudaq::qec::detector_error_model dem_from_memory_circuit(
     numReturnSynPerRound = numZStabs;
   }
 
-  dem.detector_error_matrix = cudaqx::tensor<uint8_t>(
-      {numRounds * numReturnSynPerRound, numNoiseMechs});
-
   // Get the detector measurement indices
   auto &detector_measurement_indices =
       ctx_msm.detector_measurement_indices.value();
 
-  if (detector_measurement_indices.size() != numRounds * numReturnSynPerRound) {
-    throw std::runtime_error(
-        "dem_from_memory_circuit error: number of detector "
-        "measurement indices does not match number of "
-        "detectors.");
-  }
+  dem.detector_error_matrix = cudaqx::tensor<uint8_t>(
+      {detector_measurement_indices.size(), numNoiseMechs});
 
   // XOR the measurements according to detector measurement indices
   for (std::size_t d = 0; d < detector_measurement_indices.size(); d++) {
@@ -392,7 +395,8 @@ cudaq::qec::detector_error_model dem_from_memory_circuit(
 /// @brief Given a memory circuit setup, generate a DEM
 cudaq::qec::detector_error_model
 dem_from_memory_circuit(const code &code, operation statePrep,
-                        std::size_t numRounds, cudaq::noise_model &noise) {
+                        std::size_t numRounds, cudaq::noise_model &noise,
+                        bool include_final_round_detectors) {
   constexpr bool keep_x_stabilizers = true;
   constexpr bool keep_z_stabilizers = true;
   const bool is_z =
@@ -402,34 +406,34 @@ dem_from_memory_circuit(const code &code, operation statePrep,
   const bool run_mz_circuit = is_z;
   return details::dem_from_memory_circuit(
       code, statePrep, numRounds, noise, obs_matrix, run_mz_circuit,
-      keep_x_stabilizers, keep_z_stabilizers);
+      keep_x_stabilizers, keep_z_stabilizers, include_final_round_detectors);
 }
 
 // For CSS codes, may want to partition x vs z decoding
-detector_error_model x_dem_from_memory_circuit(const code &code,
-                                               operation statePrep,
-                                               std::size_t numRounds,
-                                               cudaq::noise_model &noise) {
+detector_error_model
+x_dem_from_memory_circuit(const code &code, operation statePrep,
+                          std::size_t numRounds, cudaq::noise_model &noise,
+                          bool include_final_round_detectors) {
   constexpr bool keep_x_stabilizers = true;
   constexpr bool keep_z_stabilizers = false;
   bool is_z = statePrep == operation::prep0 || statePrep == operation::prep1;
   auto obs_matrix = is_z ? code.get_observables_z() : code.get_observables_x();
-  return details::dem_from_memory_circuit(code, statePrep, numRounds, noise,
-                                          obs_matrix, is_z, keep_x_stabilizers,
-                                          keep_z_stabilizers);
+  return details::dem_from_memory_circuit(
+      code, statePrep, numRounds, noise, obs_matrix, is_z, keep_x_stabilizers,
+      keep_z_stabilizers, include_final_round_detectors);
 }
 
-detector_error_model z_dem_from_memory_circuit(const code &code,
-                                               operation statePrep,
-                                               std::size_t numRounds,
-                                               cudaq::noise_model &noise) {
+detector_error_model
+z_dem_from_memory_circuit(const code &code, operation statePrep,
+                          std::size_t numRounds, cudaq::noise_model &noise,
+                          bool include_final_round_detectors) {
   constexpr bool keep_x_stabilizers = false;
   constexpr bool keep_z_stabilizers = true;
   bool is_z = statePrep == operation::prep0 || statePrep == operation::prep1;
   auto obs_matrix = is_z ? code.get_observables_z() : code.get_observables_x();
-  return details::dem_from_memory_circuit(code, statePrep, numRounds, noise,
-                                          obs_matrix, is_z, keep_x_stabilizers,
-                                          keep_z_stabilizers);
+  return details::dem_from_memory_circuit(
+      code, statePrep, numRounds, noise, obs_matrix, is_z, keep_x_stabilizers,
+      keep_z_stabilizers, include_final_round_detectors);
 }
 
 } // namespace cudaq::qec

@@ -28,13 +28,16 @@ namespace cudaq::qec {
 /// @param keep_z_stabilizers Whether to keep Z stabilizers for detectors
 /// @param x_stabilizers Vector of indices for X stabilizers
 /// @param z_stabilizers Vector of indices for Z stabilizers
+/// @param include_final_round_detectors Whether to include detectors for the
+/// final round
 __qpu__ void memory_circuit_mz(const code::stabilizer_round &stabilizer_round,
                                const code::one_qubit_encoding &statePrep,
                                std::size_t numData, std::size_t numAncx,
                                std::size_t numAncz, std::size_t numRounds,
                                bool keep_x_stabilizers, bool keep_z_stabilizers,
                                const std::vector<std::size_t> &x_stabilizers,
-                               const std::vector<std::size_t> &z_stabilizers);
+                               const std::vector<std::size_t> &z_stabilizers,
+                               bool include_final_round_detectors);
 /// \entry_point_kernel
 ///
 /// @brief Execute a memory circuit for quantum error correction, mx on data
@@ -50,12 +53,15 @@ __qpu__ void memory_circuit_mz(const code::stabilizer_round &stabilizer_round,
 /// @param keep_z_stabilizers Whether to keep Z stabilizers for detectors
 /// @param x_stabilizers Vector of indices for X stabilizers
 /// @param z_stabilizers Vector of indices for Z stabilizers
+/// @param include_final_round_detectors Whether to include detectors for the
+/// final round
 __qpu__ void memory_circuit_mx(const code::stabilizer_round &stabilizer_round,
                                const code::one_qubit_encoding &statePrep,
                                std::size_t numData, std::size_t numAncx,
                                std::size_t numAncz, std::size_t numRounds,
                                bool keep_x_stabilizers, bool keep_z_stabilizers,
                                const std::vector<std::size_t> &x_stabilizers,
-                               const std::vector<std::size_t> &z_stabilizers);
+                               const std::vector<std::size_t> &z_stabilizers,
+                               bool include_final_round_detectors);
 
 } // namespace cudaq::qec

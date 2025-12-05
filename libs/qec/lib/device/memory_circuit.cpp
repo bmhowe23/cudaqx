@@ -63,7 +63,8 @@ __qpu__ void memory_circuit_mz(const code::stabilizer_round &stabilizer_round,
                                std::size_t numAncz, std::size_t numRounds,
                                bool keep_x_stabilizers, bool keep_z_stabilizers,
                                const std::vector<std::size_t> &x_stabilizers,
-                               const std::vector<std::size_t> &z_stabilizers) {
+                               const std::vector<std::size_t> &z_stabilizers,
+                               bool include_final_round_detectors) {
 
   // Allocate the data and ancilla qubits
   cudaq::qvector data(numData), xstab_anc(numAncx), zstab_anc(numAncz);
@@ -74,6 +75,29 @@ __qpu__ void memory_circuit_mz(const code::stabilizer_round &stabilizer_round,
                          keep_z_stabilizers, x_stabilizers, z_stabilizers);
 
   auto dataResults = mz(data);
+
+  // Add the detectors after the final round.
+  if (include_final_round_detectors) {
+    // For each ancz, find the data qubits that support it.
+    for (size_t zi = 0; zi < numAncz; ++zi) {
+      int count = 0;
+      std::vector<int> rec(numData + 1);
+      for (size_t di = 0; di < numData; ++di) {
+        if (z_stabilizers[zi * numData + di] == 1) {
+          // This stabilizer is supported by data qubit di. Convert di to a
+          // relative measurement index.
+          rec[count++] = di - numData;
+        }
+      }
+      // Now get the z stabilizer measurement index. We must skip over the x
+      // stabilizer measurements.
+      rec[count++] = -numData - numAncx - numAncz + zi;
+      if (count == 3)
+        cudaq::detector(rec[0], rec[1], rec[2]);
+      else if (count == 5)
+        cudaq::detector(rec[0], rec[1], rec[2], rec[3], rec[4]);
+    }
+  }
 }
 
 __qpu__ void memory_circuit_mx(const code::stabilizer_round &stabilizer_round,
@@ -82,7 +106,8 @@ __qpu__ void memory_circuit_mx(const code::stabilizer_round &stabilizer_round,
                                std::size_t numAncz, std::size_t numRounds,
                                bool keep_x_stabilizers, bool keep_z_stabilizers,
                                const std::vector<std::size_t> &x_stabilizers,
-                               const std::vector<std::size_t> &z_stabilizers) {
+                               const std::vector<std::size_t> &z_stabilizers,
+                               bool include_final_round_detectors) {
 
   // Allocate the data and ancilla qubits
   cudaq::qvector data(numData), xstab_anc(numAncx), zstab_anc(numAncz);
@@ -94,6 +119,29 @@ __qpu__ void memory_circuit_mx(const code::stabilizer_round &stabilizer_round,
 
   h(data);
   auto dataResults = mz(data);
-}
 
+  // Add the detectors after the final round.
+  // TODO - verify this logic is correct.
+  if (include_final_round_detectors) {
+    // For each ancx, find the data qubits that support it.
+    for (size_t xi = 0; xi < numAncx; ++xi) {
+      int count = 0;
+      std::vector<int> rec(numData + 1);
+      for (size_t di = 0; di < numData; ++di) {
+        if (x_stabilizers[xi * numData + di] == 1) {
+          // This stabilizer is supported by data qubit di. Convert di to a
+          // relative measurement index.
+          rec[count++] = di - numData;
+        }
+      }
+      // Now get the x stabilizer measurement index.
+      // stabilizer measurements.
+      rec[count++] = -numData - numAncx + xi;
+      if (count == 3)
+        cudaq::detector(rec[0], rec[1], rec[2]);
+      else if (count == 5)
+        cudaq::detector(rec[0], rec[1], rec[2], rec[3], rec[4]);
+    }
+  }
+}
 } // namespace cudaq::qec

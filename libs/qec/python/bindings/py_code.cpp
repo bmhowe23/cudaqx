@@ -535,8 +535,10 @@ void bindCode(py::module &mod) {
   qecmod.def(
       "dem_from_memory_circuit",
       [](code &code, operation op, std::size_t numRounds,
-         std::optional<cudaq::noise_model> noise = std::nullopt) {
-        return dem_from_memory_circuit(code, op, numRounds, *noise);
+         std::optional<cudaq::noise_model> noise = std::nullopt,
+         bool include_final_round_detectors = false) {
+        return dem_from_memory_circuit(code, op, numRounds, *noise,
+                                       include_final_round_detectors);
       },
       R"pbdoc(
         Generate a detector error model from a memory circuit.
@@ -556,13 +558,16 @@ void bindCode(py::module &mod) {
             A detector error model.
       )pbdoc",
       py::arg("code"), py::arg("op"), py::arg("numRounds"),
-      py::arg("noise") = std::nullopt);
+      py::arg("noise") = std::nullopt,
+      py::arg("include_final_round_detectors") = false);
 
   qecmod.def(
       "x_dem_from_memory_circuit",
       [](code &code, operation op, std::size_t numRounds,
-         std::optional<cudaq::noise_model> noise = std::nullopt) {
-        return x_dem_from_memory_circuit(code, op, numRounds, *noise);
+         std::optional<cudaq::noise_model> noise = std::nullopt,
+         bool include_final_round_detectors = false) {
+        return x_dem_from_memory_circuit(code, op, numRounds, *noise,
+                                         include_final_round_detectors);
       },
       R"pbdoc(
         Generate a detector error model from a memory circuit in the X basis.
@@ -582,13 +587,16 @@ void bindCode(py::module &mod) {
             A detector error model.
       )pbdoc",
       py::arg("code"), py::arg("op"), py::arg("numRounds"),
-      py::arg("noise") = std::nullopt);
+      py::arg("noise") = std::nullopt,
+      py::arg("include_final_round_detectors") = false);
 
   qecmod.def(
       "z_dem_from_memory_circuit",
       [](code &code, operation op, std::size_t numRounds,
-         std::optional<cudaq::noise_model> noise = std::nullopt) {
-        return z_dem_from_memory_circuit(code, op, numRounds, *noise);
+         std::optional<cudaq::noise_model> noise = std::nullopt,
+         bool include_final_round_detectors = false) {
+        return z_dem_from_memory_circuit(code, op, numRounds, *noise,
+                                         include_final_round_detectors);
       },
       R"pbdoc(
         Generate a detector error model from a memory circuit in the Z basis.
@@ -608,7 +616,8 @@ void bindCode(py::module &mod) {
             A detector error model.
       )pbdoc",
       py::arg("code"), py::arg("op"), py::arg("numRounds"),
-      py::arg("noise") = std::nullopt);
+      py::arg("noise") = std::nullopt,
+      py::arg("include_final_round_detectors") = false);
 
   qecmod.def(
       "sample_code_capacity",

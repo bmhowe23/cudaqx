@@ -66,6 +66,30 @@ def set_target():
     cudaq.reset_target()
 
 
+def test_surface_code_dem_from_memory_circuit():
+    code = qec.get_code('surface_code', distance=3)
+    p = 0.01
+    noise = cudaq.NoiseModel()
+    noise.add_all_qubit_channel("x", cudaq.Depolarization2(p), 1)
+    statePrep = qec.operation.prep0
+    nRounds = 3
+
+    include_final_round_detectors = True
+    dem = qec.dem_from_memory_circuit(code, statePrep, nRounds, noise,
+                                      include_final_round_detectors)
+    # The following are potentially useful for debugging.
+    if False:
+        print()
+        print(mat_to_str(dem.detector_error_matrix))
+        print()
+        print(f'Number of detectors: {dem.detector_error_matrix.shape[0]}')
+        print(f'Sum of each row: {np.sum(dem.detector_error_matrix, axis=1)}')
+    assert (np.sum(dem.detector_error_matrix, axis=1) == [
+        33, 16, 35, 16, 6, 16, 22, 8, 46, 18, 46, 18, 22, 48, 48, 22, 26, 8, 25,
+        8, 20, 44, 38, 18, 6, 3, 5, 3
+    ]).all()
+
+
 def test_dem_from_memory_circuit():
     code = qec.get_code('steane')
     p = 0.01
