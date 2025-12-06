@@ -80,8 +80,12 @@ __qpu__ void memory_circuit_mz(const code::stabilizer_round &stabilizer_round,
   if (include_final_round_detectors) {
     // For each ancz, find the data qubits that support it.
     for (size_t zi = 0; zi < numAncz; ++zi) {
+      int num_dets_indices_required = 1; // 1 for the stabilizer
+      for (size_t di = 0; di < numData; ++di)
+        if (z_stabilizers[zi * numData + di] == 1)
+          num_dets_indices_required++; // 1 for each data qubit
+      std::vector<std::int64_t> rec(num_dets_indices_required);
       int count = 0;
-      std::vector<int> rec(numData + 1);
       for (size_t di = 0; di < numData; ++di) {
         if (z_stabilizers[zi * numData + di] == 1) {
           // This stabilizer is supported by data qubit di. Convert di to a
@@ -92,10 +96,7 @@ __qpu__ void memory_circuit_mz(const code::stabilizer_round &stabilizer_round,
       // Now get the z stabilizer measurement index. We must skip over the x
       // stabilizer measurements.
       rec[count++] = -numData - numAncx - numAncz + zi;
-      if (count == 3)
-        cudaq::detector(rec[0], rec[1], rec[2]);
-      else if (count == 5)
-        cudaq::detector(rec[0], rec[1], rec[2], rec[3], rec[4]);
+      cudaq::detector(rec);
     }
   }
 }
@@ -125,8 +126,12 @@ __qpu__ void memory_circuit_mx(const code::stabilizer_round &stabilizer_round,
   if (include_final_round_detectors) {
     // For each ancx, find the data qubits that support it.
     for (size_t xi = 0; xi < numAncx; ++xi) {
+      int num_dets_indices_required = 1; // 1 for the stabilizer
+      for (size_t di = 0; di < numData; ++di)
+        if (x_stabilizers[xi * numData + di] == 1)
+          num_dets_indices_required++; // 1 for each data qubit
+      std::vector<std::int64_t> rec(num_dets_indices_required);
       int count = 0;
-      std::vector<int> rec(numData + 1);
       for (size_t di = 0; di < numData; ++di) {
         if (x_stabilizers[xi * numData + di] == 1) {
           // This stabilizer is supported by data qubit di. Convert di to a
@@ -134,13 +139,11 @@ __qpu__ void memory_circuit_mx(const code::stabilizer_round &stabilizer_round,
           rec[count++] = di - numData;
         }
       }
-      // Now get the x stabilizer measurement index.
-      // stabilizer measurements.
+      // Now get the x stabilizer measurement index. The x stabilizers are the
+      // 2nd half of the per-round syndrome, so we do not need to be aware of
+      // the z stabilizers.
       rec[count++] = -numData - numAncx + xi;
-      if (count == 3)
-        cudaq::detector(rec[0], rec[1], rec[2]);
-      else if (count == 5)
-        cudaq::detector(rec[0], rec[1], rec[2], rec[3], rec[4]);
+      cudaq::detector(rec);
     }
   }
 }
