@@ -8,6 +8,7 @@
 
 #include "cudaq/qec/experiments.h"
 #include "device/memory_circuit.h"
+#include "cudaq/qec/pcm_utils.h"
 
 using namespace cudaqx;
 
@@ -86,7 +87,7 @@ sample_code_capacity(const code &code, std::size_t nShots,
 std::tuple<cudaqx::tensor<uint8_t>, cudaqx::tensor<uint8_t>>
 sample_memory_circuit(const code &code, operation statePrep,
                       std::size_t numShots, std::size_t numRounds,
-                      cudaq::noise_model &noise) {
+                      cudaq::noise_model &noise, bool raw_syndromes) {
   if (!code.contains_operation(statePrep))
     throw std::runtime_error(
         "sample_memory_circuit_error - requested state prep kernel not found.");
@@ -160,28 +161,37 @@ sample_memory_circuit(const code &code, operation statePrep,
   }
 
   // Now populate syndromeTensor.
-
-  // First round, store bare syndrome measurement
-  for (std::size_t shot = 0; shot < numShots; ++shot) {
-    std::size_t round = 0;
-    std::size_t measIdx = shot * numRounds + round;
-    std::uint8_t __restrict__ *syndromeTensorRow =
-        &syndromeTensor.at({measIdx, 0});
-    std::uint8_t __restrict__ *mzTableRow = &mzTable.at({shot, 0});
-    for (std::size_t col = 0; col < numCols; ++col)
-      syndromeTensorRow[col] = mzTableRow[col];
-  }
-
-  // After first round, store syndrome flips
-  for (std::size_t shot = 0; shot < numShots; ++shot) {
-    std::uint8_t __restrict__ *mzTableRow = &mzTable.at({shot, 0});
-    for (std::size_t round = 1; round < numRounds; ++round) {
+  if (raw_syndromes) {
+    // Copy the first numColsBeforeData columns of mzTable to syndromeTensor
+    for (std::size_t shot = 0; shot < numShots; shot++) {
+      uint8_t __restrict__ *syndromeTensorRow = &syndromeTensor.at({shot, 0});
+      uint8_t __restrict__ *mzTableRow = &mzTable.at({shot, 0});
+      for (std::size_t col = 0; col < numColsBeforeData; col++)
+        syndromeTensorRow[col] = mzTableRow[col];
+    }
+  } else {
+    // First round, store bare syndrome measurement
+    for (std::size_t shot = 0; shot < numShots; ++shot) {
+      std::size_t round = 0;
       std::size_t measIdx = shot * numRounds + round;
       std::uint8_t __restrict__ *syndromeTensorRow =
           &syndromeTensor.at({measIdx, 0});
-      for (std::size_t col = 0; col < numCols; ++col) {
-        syndromeTensorRow[col] = mzTableRow[round * numCols + col] ^
-                                 mzTableRow[(round - 1) * numCols + col];
+      std::uint8_t __restrict__ *mzTableRow = &mzTable.at({shot, 0});
+      for (std::size_t col = 0; col < numCols; ++col)
+        syndromeTensorRow[col] = mzTableRow[col];
+    }
+
+    // After first round, store syndrome flips
+    for (std::size_t shot = 0; shot < numShots; ++shot) {
+      std::uint8_t __restrict__ *mzTableRow = &mzTable.at({shot, 0});
+      for (std::size_t round = 1; round < numRounds; ++round) {
+        std::size_t measIdx = shot * numRounds + round;
+        std::uint8_t __restrict__ *syndromeTensorRow =
+            &syndromeTensor.at({measIdx, 0});
+        for (std::size_t col = 0; col < numCols; ++col) {
+          syndromeTensorRow[col] = mzTableRow[round * numCols + col] ^
+                                   mzTableRow[(round - 1) * numCols + col];
+        }
       }
     }
   }
@@ -192,22 +202,25 @@ sample_memory_circuit(const code &code, operation statePrep,
 
 std::tuple<cudaqx::tensor<uint8_t>, cudaqx::tensor<uint8_t>>
 sample_memory_circuit(const code &code, operation op, std::size_t numShots,
-                      std::size_t numRounds) {
+                      std::size_t numRounds, bool raw_syndromes) {
   cudaq::noise_model noise;
-  return sample_memory_circuit(code, op, numShots, numRounds, noise);
+  return sample_memory_circuit(code, op, numShots, numRounds, noise,
+                               raw_syndromes);
 }
 
 std::tuple<cudaqx::tensor<uint8_t>, cudaqx::tensor<uint8_t>>
 sample_memory_circuit(const code &code, std::size_t numShots,
-                      std::size_t numRounds) {
-  return sample_memory_circuit(code, operation::prep0, numShots, numRounds);
-}
-
-std::tuple<cudaqx::tensor<uint8_t>, cudaqx::tensor<uint8_t>>
-sample_memory_circuit(const code &code, std::size_t numShots,
-                      std::size_t numRounds, cudaq::noise_model &noise) {
+                      std::size_t numRounds, bool raw_syndromes) {
   return sample_memory_circuit(code, operation::prep0, numShots, numRounds,
-                               noise);
+                               raw_syndromes);
+}
+
+std::tuple<cudaqx::tensor<uint8_t>, cudaqx::tensor<uint8_t>>
+sample_memory_circuit(const code &code, std::size_t numShots,
+                      std::size_t numRounds, cudaq::noise_model &noise,
+                      bool raw_syndromes) {
+  return sample_memory_circuit(code, operation::prep0, numShots, numRounds,
+                               noise, raw_syndromes);
 }
 
 namespace details {
@@ -334,23 +347,11 @@ cudaq::qec::detector_error_model dem_from_memory_circuit(
 
   dem.detector_error_matrix = cudaqx::tensor<uint8_t>(
       {detector_measurement_indices.size(), numNoiseMechs});
+  dem.detector_measurement_indices = detector_measurement_indices;
 
   // XOR the measurements according to detector measurement indices
-  for (std::size_t d = 0; d < detector_measurement_indices.size(); d++) {
-    const auto &this_det_mz_indices = detector_measurement_indices[d];
-    for (std::size_t i = 0; i < this_det_mz_indices.size(); i++) {
-      auto m = this_det_mz_indices[i];
-      for (std::size_t noise_mech = 0; noise_mech < numNoiseMechs;
-           noise_mech++) {
-        if (m < 0) {
-          dem.detector_error_matrix.at({d, noise_mech}) ^= (-m) % 2;
-        } else {
-          dem.detector_error_matrix.at({d, noise_mech}) ^=
-              mzTable.at({static_cast<std::size_t>(m), noise_mech});
-        }
-      }
-    }
-  }
+  dem.detector_error_matrix =
+      cudaq::qec::form_detectors(mzTable, detector_measurement_indices);
 
   // Uncomment for debugging:
   // printf("dem.detector_error_matrix:\n");

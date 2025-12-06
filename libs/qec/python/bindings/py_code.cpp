@@ -505,24 +505,30 @@ void bindCode(py::module &mod) {
   qecmod.def(
       "sample_memory_circuit",
       [](code &code, std::size_t numShots, std::size_t numRounds,
-         std::optional<cudaq::noise_model> noise = std::nullopt) {
+         std::optional<cudaq::noise_model> noise = std::nullopt,
+         bool raw_syndromes = false) {
         auto [synd, dataRes] =
-            noise ? sample_memory_circuit(code, numShots, numRounds, *noise)
-                  : sample_memory_circuit(code, numShots, numRounds);
+            noise ? sample_memory_circuit(code, numShots, numRounds, *noise,
+                                          raw_syndromes)
+                  : sample_memory_circuit(code, numShots, numRounds,
+                                          raw_syndromes);
         return py::make_tuple(
             cudaq::python::copyCUDAQXTensorToPyArray(synd),
             cudaq::python::copyCUDAQXTensorToPyArray(dataRes));
       },
       "Sample the memory circuit of the code", py::arg("code"),
       py::arg("numShots"), py::arg("numRounds"),
-      py::arg("noise") = std::nullopt);
+      py::arg("noise") = std::nullopt, py::arg("raw_syndromes") = false);
   qecmod.def(
       "sample_memory_circuit",
       [](code &code, operation op, std::size_t numShots, std::size_t numRounds,
-         std::optional<cudaq::noise_model> noise = std::nullopt) {
+         std::optional<cudaq::noise_model> noise = std::nullopt,
+         bool raw_syndromes = false) {
         auto [synd, dataRes] =
-            noise ? sample_memory_circuit(code, op, numShots, numRounds, *noise)
-                  : sample_memory_circuit(code, op, numShots, numRounds);
+            noise ? sample_memory_circuit(code, op, numShots, numRounds, *noise,
+                                          raw_syndromes)
+                  : sample_memory_circuit(code, op, numShots, numRounds,
+                                          raw_syndromes);
         return py::make_tuple(
             cudaq::python::copyCUDAQXTensorToPyArray(synd),
             cudaq::python::copyCUDAQXTensorToPyArray(dataRes));
@@ -530,7 +536,7 @@ void bindCode(py::module &mod) {
       "Sample the memory circuit of the code with a specific initial "
       "operation",
       py::arg("code"), py::arg("op"), py::arg("numShots"), py::arg("numRounds"),
-      py::arg("noise") = std::nullopt);
+      py::arg("noise") = std::nullopt, py::arg("raw_syndromes") = false);
 
   qecmod.def(
       "dem_from_memory_circuit",

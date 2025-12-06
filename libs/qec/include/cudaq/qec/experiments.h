@@ -66,41 +66,51 @@ sample_code_capacity(const code &code, std::size_t numShots,
 /// @param numShots Number of measurement shots
 /// @param numRounds Number of stabilizer measurement rounds
 /// @param noise Noise model to apply
+/// @param raw_syndromes Whether to return the raw syndromes or the syndrome
+/// flips
 /// @return Tuple containing syndrome measurements and data qubit
 /// measurements (mz for z basis state prep, mx for x basis)
 std::tuple<cudaqx::tensor<uint8_t>, cudaqx::tensor<uint8_t>>
 sample_memory_circuit(const code &code, operation statePrep,
                       std::size_t numShots, std::size_t numRounds,
-                      cudaq::noise_model &noise);
+                      cudaq::noise_model &noise, bool raw_syndromes = false);
 
 /// @brief Sample syndrome measurements from the memory circuit
 /// @param statePrep Initial state preparation operation
 /// @param numShots Number of measurement shots
 /// @param numRounds Number of stabilizer measurement rounds
+/// @param raw_syndromes Whether to return the raw syndromes or the syndrome
+/// flips
 /// @return Tuple containing syndrome measurements and data qubit
 /// measurements (mz for z basis state prep, mx for x basis)
 std::tuple<cudaqx::tensor<uint8_t>, cudaqx::tensor<uint8_t>>
 sample_memory_circuit(const code &code, operation statePrep,
-                      std::size_t numShots, std::size_t numRounds = 1);
+                      std::size_t numShots, std::size_t numRounds = 1,
+                      bool raw_syndromes = false);
 
 /// @brief Sample syndrome measurements starting from |0⟩ state
 /// @param numShots Number of measurement shots
 /// @param numRounds Number of stabilizer measurement rounds
+/// @param raw_syndromes Whether to return the raw syndromes or the syndrome
+/// flips
 /// @return Tuple containing syndrome measurements and data qubit
 /// measurements (mz for z basis state prep, mx for x basis)
 std::tuple<cudaqx::tensor<uint8_t>, cudaqx::tensor<uint8_t>>
 sample_memory_circuit(const code &code, std::size_t numShots,
-                      std::size_t numRounds = 1);
+                      std::size_t numRounds = 1, bool raw_syndromes = false);
 
 /// @brief Sample syndrome measurements from |0⟩ state with noise
 /// @param numShots Number of measurement shots
 /// @param numRounds Number of stabilizer measurement rounds
 /// @param noise Noise model to apply
+/// @param raw_syndromes Whether to return the raw syndromes or the syndrome
+/// flips
 /// @return Tuple containing syndrome measurements and data qubit
 /// measurements (mz for z basis state prep, mx for x basis)
 std::tuple<cudaqx::tensor<uint8_t>, cudaqx::tensor<uint8_t>>
 sample_memory_circuit(const code &code, std::size_t numShots,
-                      std::size_t numRounds, cudaq::noise_model &noise);
+                      std::size_t numRounds, cudaq::noise_model &noise,
+                      bool raw_syndromes = false);
 
 /// @brief Given a memory circuit setup, generate a DEM
 /// @param code QEC Code to sample

@@ -49,6 +49,9 @@ struct detector_error_model {
   /// containing the same ID are correlated with each other.
   std::optional<std::vector<std::size_t>> error_ids;
 
+  /// The list of detector measurement indices for each detector.
+  std::vector<std::vector<std::int64_t>> detector_measurement_indices;
+
   /// Return the number of rows in the detector_error_matrix.
   std::size_t num_detectors() const;
 
@@ -63,6 +66,14 @@ struct detector_error_model {
   /// columns are ordered in a way that is amenable to the round-based decoding
   /// process.
   void canonicalize_for_rounds(uint32_t num_syndromes_per_round);
+
+  /// Use the detector_measurement_indices to form the detector_error_matrix
+  /// from the mz_table.
+  /// @param mz_table is num_measurements x num_shots
+  /// @return a matrix that is num_detectors x num_shots
+  /// (detector_measurement_indices * mz_table') % 2
+  cudaqx::tensor<uint8_t>
+  form_detectors(const cudaqx::tensor<uint8_t> &mz_table) const;
 };
 
 } // namespace cudaq::qec

@@ -19,7 +19,7 @@ surface_code = qec.get_code("surface_code", distance=distance)
 Lz = surface_code.get_observables_z()
 print(f"Lz:\n{Lz}")
 
-nShots = 1000
+nShots = 10000
 nRounds = distance
 
 # Uncomment for repeatability
@@ -36,14 +36,25 @@ statePrep = qec.operation.prep0
 expected_value = 0
 
 # Get the detector error model for this circuit.
-dem = qec.z_dem_from_memory_circuit(surface_code, statePrep, nRounds, noise)
+dem = qec.z_dem_from_memory_circuit(surface_code, statePrep, nRounds, noise,
+                                    True)
 
 # For large runs, set verbose to False to suppress output
 verbose = nShots <= 10
 
 # Sample the surface code memory circuit with noise on each cx gate
+raw_syndromes = True
 syndromes, data = qec.sample_memory_circuit(surface_code, statePrep, nShots,
-                                            nRounds, noise)
+                                            nRounds, noise, raw_syndromes)
+# Reshape syndromes to be 2D.
+syndromes = syndromes.reshape((nShots, -1))
+
+# Horizontal concatenation of syndromes and data.
+mz_table = np.concatenate([syndromes, data], axis=1).T
+mz_table = np.array(mz_table, dtype=np.uint8, order='C')
+# Form the detectors from the mz_table and the detector_measurement_indices.
+syndromes = dem.form_detectors(mz_table=mz_table).T
+print("syndromes shape:", syndromes.shape)
 
 if verbose:
     print("From sample function:\n")
@@ -60,12 +71,6 @@ logical_measurements = (Lz @ data.transpose()) % 2
 logical_measurements = logical_measurements.flatten()
 if verbose:
     print("LMz:\n", logical_measurements)
-
-# Reshape and drop the X stabilizers, keeping just the Z stabilizers (since this is prep0)
-syndromes = syndromes.reshape((nShots, nRounds, -1))
-syndromes = syndromes[:, :, :syndromes.shape[2] // 2]
-# Now flatten to two dimensions again
-syndromes = syndromes.reshape((nShots, -1))
 
 dr = decoder.decode_batch(syndromes)
 error_predictions = np.array([e.result for e in dr], dtype=np.uint8)

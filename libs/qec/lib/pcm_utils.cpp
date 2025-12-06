@@ -711,4 +711,31 @@ std::vector<std::int64_t> generate_timelike_sparse_detector_matrix(
 
   return detector_matrix;
 }
+
+cudaqx::tensor<uint8_t>
+form_detectors(const cudaqx::tensor<uint8_t> &mz_table,
+               const std::vector<std::vector<std::int64_t>>
+                   &detector_measurement_indices) {
+  const std::size_t num_shots = mz_table.shape()[1];
+  const std::size_t num_detectors = detector_measurement_indices.size();
+  cudaqx::tensor<uint8_t> detectors({num_detectors, num_shots});
+  for (std::size_t d = 0; d < num_detectors; d++) {
+    for (std::size_t m = 0; m < detector_measurement_indices[d].size(); m++) {
+      uint8_t *detector_row = &detectors.at({d, 0});
+      if (detector_measurement_indices[d][m] < 0) {
+        // Use literal value (after negation) to xor the detector row with.
+        uint8_t xor_val = (-detector_measurement_indices[d][m]) % 2;
+        for (std::size_t s = 0; s < num_shots; s++)
+          detector_row[s] ^= xor_val;
+      } else {
+        // Treat as a measurement index to xor the detector row with.
+        const uint8_t *mz_row = &mz_table.at(
+            {static_cast<std::size_t>(detector_measurement_indices[d][m]), 0});
+        for (std::size_t s = 0; s < num_shots; s++)
+          detector_row[s] ^= mz_row[s];
+      }
+    }
+  }
+  return detectors;
+}
 } // namespace cudaq::qec

@@ -169,4 +169,9 @@ void detector_error_model::canonicalize_for_rounds(
       this->observables_flips_matrix, final_column_order);
 }
 
+cudaqx::tensor<uint8_t> detector_error_model::form_detectors(
+    const cudaqx::tensor<uint8_t> &mz_table) const {
+  return cudaq::qec::form_detectors(mz_table,
+                                    this->detector_measurement_indices);
+}
 } // namespace cudaq::qec

@@ -262,7 +262,24 @@ void bindDecoder(py::module &mod) {
            R"pbdoc(
             Canonicalize the detector error model for a given number of rounds
           )pbdoc",
-           py::arg("num_syndromes_per_round"));
+           py::arg("num_syndromes_per_round"))
+      .def(
+          "form_detectors",
+          [](const detector_error_model &self,
+             const py::array_t<uint8_t> &mz_table) {
+            auto tensor_mz_table = pcmToTensor(mz_table);
+            auto result = self.form_detectors(tensor_mz_table);
+            // Construct a new py_array_t<uint8_t> from result (deep copy)
+            return py::array_t<uint8_t>(
+                       result.shape(),
+                       {result.shape()[1] * sizeof(uint8_t), sizeof(uint8_t)},
+                       result.data())
+                .attr("copy")();
+          },
+          R"pbdoc(
+            Form the detectors from the mz_table and the detector_measurement_indices.
+          )pbdoc",
+          py::arg("mz_table"));
 
   // Expose decorator function that handles inheritance
   qecmod.def("decoder", [&](const std::string &name) {

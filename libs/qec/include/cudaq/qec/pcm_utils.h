@@ -197,4 +197,16 @@ pcm_extend_to_n_rounds(const cudaqx::tensor<uint8_t> &pcm,
                        std::size_t num_syndromes_per_round,
                        std::uint32_t n_rounds);
 
+/// @brief Form the detectors from the mz_table and the
+/// detector_measurement_indices. If detector_measurement_indices[d][m] < 0,
+/// treat it as a literal value to xor the detector row with rather than a
+/// measurement index. (Negate it first to get the actual value.)
+/// @param mz_table is num_measurements x num_shots
+/// @param detector_measurement_indices is (conceptually) num_detectors x
+/// num_measurements
+/// @return a matrix that is num_detectors x num_shots
+/// (detector_measurement_indices * mz_table') % 2
+cudaqx::tensor<uint8_t> form_detectors(
+    const cudaqx::tensor<uint8_t> &mz_table,
+    const std::vector<std::vector<std::int64_t>> &detector_measurement_indices);
 } // namespace cudaq::qec
