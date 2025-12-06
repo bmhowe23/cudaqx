@@ -10,6 +10,7 @@
 
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <stdexcept>
 #include <unordered_map>
 
@@ -88,7 +89,7 @@ protected:
   /// @return A reference to the static registry map.
   /// See INSTANTIATE_REGISTRY() macros below for sample implementations that
   /// need to be included in C++ source files.
-  static std::pair<std::mutex &,
+  static std::pair<std::recursive_mutex &,
                    std::unordered_map<std::string, CreatorFunction> &>
   get_registry();
 
@@ -100,7 +101,7 @@ public:
   /// @throws std::runtime_error if the extension is not found.
   static std::unique_ptr<T> get(const std::string &name, CtorArgs... args) {
     auto [mutex, registry] = get_registry();
-    std::lock_guard<std::mutex> lock(mutex);
+    std::lock_guard<std::recursive_mutex> lock(mutex);
     auto iter = registry.find(name);
     if (iter == registry.end())
       throw std::runtime_error("Cannot find extension with name = " + name);
@@ -113,7 +114,7 @@ public:
   static std::vector<std::string> get_registered() {
     std::vector<std::string> names;
     auto [mutex, registry] = get_registry();
-    std::lock_guard<std::mutex> lock(mutex);
+    std::lock_guard<std::recursive_mutex> lock(mutex);
     for (auto &[k, v] : registry)
       names.push_back(k);
     return names;
@@ -124,7 +125,7 @@ public:
   /// @return True if the extension is registered, false otherwise.
   static bool is_registered(const std::string &name) {
     auto [mutex, registry] = get_registry();
-    std::lock_guard<std::mutex> lock(mutex);
+    std::lock_guard<std::recursive_mutex> lock(mutex);
     return registry.find(name) != registry.end();
   }
 
@@ -132,7 +133,7 @@ public:
   /// @param name The identifier of the extension to unregister.
   static void unregister(const std::string &name) {
     auto [mutex, registry] = get_registry();
-    std::lock_guard<std::mutex> lock(mutex);
+    std::lock_guard<std::recursive_mutex> lock(mutex);
     auto iter = registry.find(name);
     if (iter != registry.end())
       registry.erase(iter);
@@ -145,7 +146,7 @@ public:
 #define CUDAQ_EXTENSION_CREATOR_FUNCTION(BASE, TYPE)                           \
   static inline bool register_type() {                                         \
     auto [mutex, registry] = get_registry();                                   \
-    std::lock_guard<std::mutex> lock(mutex);                                   \
+    std::lock_guard<std::recursive_mutex> lock(mutex);                         \
     registry[TYPE::class_identifier] = TYPE::create;                           \
     return true;                                                               \
   }                                                                            \
@@ -159,7 +160,7 @@ public:
 #define CUDAQ_EXTENSION_CUSTOM_CREATOR_FUNCTION(TYPE, ...)                     \
   static inline bool register_type() {                                         \
     auto [mutex, registry] = get_registry();                                   \
-    std::lock_guard<std::mutex> lock(mutex);                                   \
+    std::lock_guard<std::recursive_mutex> lock(mutex);                         \
     registry[TYPE::class_identifier] = TYPE::create;                           \
     return true;                                                               \
   }                                                                            \
@@ -170,7 +171,7 @@ public:
 #define CUDAQ_EXTENSION_CUSTOM_CREATOR_FUNCTION_WITH_NAME(TYPE, NAME, ...)     \
   static inline bool register_type() {                                         \
     auto [mutex, registry] = TYPE::get_registry();                             \
-    std::lock_guard<std::mutex> lock(mutex);                                   \
+    std::lock_guard<std::recursive_mutex> lock(mutex);                         \
     registry.insert({NAME, TYPE::create});                                     \
     return true;                                                               \
   }                                                                            \
@@ -197,14 +198,19 @@ public:
 ///
 /// Use this version of the helper macro if the only template argument to
 /// extension_point<> is the derived class (with no additional creator args).
+///
+/// Similar to cudaq::qec::get_plugin_handles(), we must create the static mutex
+/// and registry as pointers to avoid issues with destructor ordering when
+/// performing cleanup operations (like when one dlclose's a library). This
+/// creates a small memory leak, but it prevents bigger problems.
 #define INSTANTIATE_REGISTRY_NO_ARGS(FULL_TYPE_NAME)                           \
   template <>                                                                  \
   std::pair<                                                                   \
-      std::mutex &,                                                            \
+      std::recursive_mutex &,                                                  \
       std::unordered_map<std::string,                                          \
                          std::function<std::unique_ptr<FULL_TYPE_NAME>()>> &>  \
   cudaqx::extension_point<FULL_TYPE_NAME>::get_registry() {                    \
-    static std::mutex *mutex = new std::mutex();                               \
+    static std::recursive_mutex *mutex = new std::recursive_mutex();           \
     static std::unordered_map<                                                 \
         std::string, std::function<std::unique_ptr<FULL_TYPE_NAME>()>>         \
         *registry = new std::unordered_map<                                    \
@@ -216,12 +222,12 @@ public:
 /// arguments for the creator function.
 #define INSTANTIATE_REGISTRY(FULL_TYPE_NAME, ...)                              \
   template <>                                                                  \
-  std::pair<std::mutex &,                                                      \
+  std::pair<std::recursive_mutex &,                                            \
             std::unordered_map<std::string,                                    \
                                std::function<std::unique_ptr<FULL_TYPE_NAME>(  \
                                    __VA_ARGS__)>> &>                           \
   cudaqx::extension_point<FULL_TYPE_NAME, __VA_ARGS__>::get_registry() {       \
-    static std::mutex *mutex = new std::mutex();                               \
+    static std::recursive_mutex *mutex = new std::recursive_mutex();           \
     static std::unordered_map<std::string,                                     \
                               std::function<std::unique_ptr<FULL_TYPE_NAME>(   \
                                   __VA_ARGS__)>> *registry =                   \
