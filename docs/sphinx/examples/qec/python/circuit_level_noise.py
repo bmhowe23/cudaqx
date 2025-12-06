@@ -36,8 +36,9 @@ statePrep = qec.operation.prep0
 expected_value = 0
 
 # Get the detector error model for this circuit.
+include_final_round_detectors = True
 dem = qec.z_dem_from_memory_circuit(surface_code, statePrep, nRounds, noise,
-                                    True)
+                                    include_final_round_detectors)
 
 # For large runs, set verbose to False to suppress output
 verbose = nShots <= 10
