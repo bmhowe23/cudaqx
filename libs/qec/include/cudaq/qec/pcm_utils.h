@@ -1,5 +1,5 @@
 /****************************************************************-*- C++ -*-****
- * Copyright (c) 2025 NVIDIA Corporation & Affiliates.                         *
+ * Copyright (c) 2025 - 2026 NVIDIA Corporation & Affiliates.                  *
  * All rights reserved.                                                        *
  *                                                                             *
  * This source code and the accompanying materials are made available under    *
@@ -165,8 +165,7 @@ get_pcm_for_rounds(const cudaqx::tensor<uint8_t> &pcm,
                    bool straddle_start_round = false,
                    bool straddle_end_round = false);
 
-/// @brief Generate a random PCM with the given parameters. Each column is
-/// guaranteed to be unique.
+/// @brief Generate a random PCM with the given parameters.
 /// @param n_rounds The number of rounds in the PCM.
 /// @param n_errs_per_round The number of errors per round in the PCM.
 /// @param n_syndromes_per_round The number of syndromes per round in the PCM.

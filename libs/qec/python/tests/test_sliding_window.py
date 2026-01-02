@@ -1,5 +1,5 @@
 # ============================================================================ #
-# Copyright (c) 2025 NVIDIA Corporation & Affiliates.                          #
+# Copyright (c) 2025 - 2026 NVIDIA Corporation & Affiliates.                   #
 # All rights reserved.                                                         #
 #                                                                              #
 # This source code and the accompanying materials are made available under     #
@@ -62,7 +62,10 @@ def test_sliding_window_1(decoder_name, batched, num_rounds, num_windows):
         straddle_end_round=True,
         error_rate_vec=np.array(dem.error_rates),
         inner_decoder_name=decoder_name,
-        inner_decoder_params={'dummy_param': 1})
+        inner_decoder_params={
+            'dummy_param': 1,
+            'merge_strategy': 'smallest_weight'
+        })
 
     if batched:
         full_results = full_decoder.decode_batch(syndromes)
