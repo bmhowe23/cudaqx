@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2022 - 2025 NVIDIA Corporation & Affiliates.                  *
+ * Copyright (c) 2022 - 2026 NVIDIA Corporation & Affiliates.                  *
  * All rights reserved.                                                        *
  *                                                                             *
  * This source code and the accompanying materials are made available under    *
@@ -18,9 +18,8 @@
 
 namespace cudaq::qec {
 
-/// @brief This is a simple LUT (LookUp Table) decoder that demonstrates how to
-/// build a simple decoder that can decode errors with a small number of errors
-/// in the block.
+/// @brief This is a wrapper around the PyMatching library that implements the
+/// MWPM decoder.
 class pymatching : public decoder {
 private:
   pm::UserGraph user_graph;
@@ -124,7 +123,9 @@ public:
       auto col_idx = edge2col_idx.at(edge);
       result.result[col_idx] = 1.0;
     }
-    result.converged = true; // TODO - validate?
+    // An exception is thrown if no matching solution is found, so we can just
+    // set converged to true.
+    result.converged = true;
     return result;
   }
 
