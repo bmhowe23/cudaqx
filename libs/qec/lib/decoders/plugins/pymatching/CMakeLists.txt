@@ -1,5 +1,5 @@
 # ============================================================================ #
-# Copyright (c) 2024 - 2025 NVIDIA Corporation & Affiliates.                   #
+# Copyright (c) 2025 - 2026 NVIDIA Corporation & Affiliates.                   #
 # All rights reserved.                                                         #
 #                                                                              #
 # This source code and the accompanying materials are made available under     #
@@ -17,7 +17,6 @@ FetchContent_Declare(
   pymatching
   GIT_REPOSITORY https://github.com/oscarhiggott/PyMatching
   GIT_TAG e27b8c6a5f5ba10fb74d4ebb29822f2df5e12bcd # v2.3.1
-  EXCLUDE_FROM_ALL
 )
 FetchContent_MakeAvailable(pymatching)
 
