@@ -17,6 +17,8 @@ FetchContent_Declare(
   pymatching
   GIT_REPOSITORY https://github.com/oscarhiggott/PyMatching
   GIT_TAG e27b8c6a5f5ba10fb74d4ebb29822f2df5e12bcd # v2.3.1
+  EXCLUDE_FROM_ALL
+  PATCH_COMMAND sed -i "s/gtest_discover_tests/#gtest_discover_tests/g" CMakeLists.txt
 )
 FetchContent_MakeAvailable(pymatching)
 
