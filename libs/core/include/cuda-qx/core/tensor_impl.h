@@ -18,14 +18,15 @@ namespace cudaqx::details {
 
 /// @brief Implementation class for tensor operations following the PIMPL idiom
 template <typename Scalar = std::complex<double>>
-class tensor_impl : public extension_point<tensor_impl<Scalar>, const Scalar *,
-                                           const std::vector<std::size_t>> {
+class tensor_impl
+    : public cudaqx::extension_point<tensor_impl<Scalar>, const Scalar *,
+                                     const std::vector<std::size_t>> {
 public:
   /// @brief Type alias for the scalar type used in the tensor
   using scalar_type = Scalar;
   using BaseExtensionPoint =
-      extension_point<tensor_impl<Scalar>, const Scalar *,
-                      const std::vector<std::size_t>>;
+      cudaqx::extension_point<tensor_impl<Scalar>, const Scalar *,
+                              const std::vector<std::size_t>>;
 
   /// @brief Create a tensor implementation with the given name and shape
   /// @param name The name of the tensor implementation
@@ -35,7 +36,8 @@ public:
   /// invalid
   static std::unique_ptr<tensor_impl<Scalar>>
   get(const std::string &name, const std::vector<std::size_t> &shape) {
-    auto &registry = BaseExtensionPoint::get_registry();
+    auto [mutex, registry] = BaseExtensionPoint::get_registry();
+    std::lock_guard<std::recursive_mutex> lock(mutex);
     auto iter = registry.find(name);
     if (iter == registry.end())
       throw std::runtime_error("invalid tensor_impl requested: " + name);
@@ -57,7 +59,8 @@ public:
   /// invalid
   static std::unique_ptr<tensor_impl<Scalar>>
   get(const std::string &name, const std::vector<std::string> &data) {
-    auto &registry = BaseExtensionPoint::get_registry();
+    auto [mutex, registry] = BaseExtensionPoint::get_registry();
+    std::lock_guard<std::recursive_mutex> lock(mutex);
     auto iter = registry.find(name);
     if (iter == registry.end())
       throw std::runtime_error("invalid tensor_impl requested: " + name);
@@ -91,7 +94,8 @@ public:
   static std::unique_ptr<tensor_impl<Scalar>>
   get(const std::string &name, const scalar_type *data,
       const std::vector<std::size_t> &shape) {
-    auto &registry = BaseExtensionPoint::get_registry();
+    auto [mutex, registry] = BaseExtensionPoint::get_registry();
+    std::lock_guard<std::recursive_mutex> lock(mutex);
     auto iter = registry.find(name);
     if (iter == registry.end())
       throw std::runtime_error("invalid tensor_impl requested: " + name);

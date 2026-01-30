@@ -1,5 +1,5 @@
 # ============================================================================ #
-# Copyright (c) 2024 NVIDIA Corporation & Affiliates.                          #
+# Copyright (c) 2024 - 2025 NVIDIA Corporation & Affiliates.                   #
 # All rights reserved.                                                         #
 #                                                                              #
 # This source code and the accompanying materials are made available under     #
@@ -39,7 +39,7 @@ def stabilizer(logicalQubit: patch, x_stabilizers: list[int],
             if z_stabilizers[zi * len(logicalQubit.data) + di] == 1:
                 x.ctrl(logicalQubit.data[di], logicalQubit.ancz[zi])
 
-    results = mz(logicalQubit.ancx, logicalQubit.ancz)
+    results = mz([*logicalQubit.ancx, *logicalQubit.ancz])
 
     reset(logicalQubit.ancx)
     reset(logicalQubit.ancz)
@@ -54,6 +54,9 @@ class MySteaneCodeImpl:
         self.stabilizers = [
             cudaq.SpinOperator.from_word(word) for word in
             ["XXXXIII", "IXXIXXI", "IIXXIXX", "ZZZZIII", "IZZIZZI", "IIZZIZZ"]
+        ]
+        self.pauli_observables = [
+            cudaq.SpinOperator.from_word(p) for p in ["IIIIXXX", "IIIIZZZ"]
         ]
         self.operation_encodings = {
             qec.operation.prep0: prep0,
@@ -71,3 +74,9 @@ class MySteaneCodeImpl:
 
     def get_num_ancilla_qubits(self):
         return 6
+
+    def get_num_x_stabilizers(self):
+        return 3
+
+    def get_num_z_stabilizers(self):
+        return 3

@@ -7,11 +7,18 @@ The ``cudaq-qec`` library provides a comprehensive framework for quantum
 error correction research and development. It leverages GPU acceleration
 for efficient syndrome decoding and error correction simulations (coming soon).
 
+The library supports both offline analysis and real-time error correction on quantum hardware,
+enabling low-latency decoding for practical quantum computing applications.
+
 Core Components
 ----------------
-``cudaq-qec`` is composed of two main interfaces - the :code:`cudaq::qec::code` and
-:code:`cudaq::qec::decoder` types. These types are meant to be extended by developers
-to provide new error correcting codes and new decoding strategies.
+``cudaq-qec`` is composed of three main interfaces:
+
+1. **QEC Codes** (:code:`cudaq::qec::code`) - Define quantum error correcting codes with logical operations
+2. **Decoders** (:code:`cudaq::qec::decoder`) - Implement syndrome decoding algorithms
+3. **Real-Time Decoding** (:code:`cudaq::qec::decoding`) - Enable online error correction on quantum hardware
+
+These types are meant to be extended by developers to provide new error correcting codes and decoding strategies.
 
 QEC Code Framework :code:`cudaq::qec::code`
 -------------------------------------------
@@ -148,7 +155,7 @@ To implement a new quantum error correcting code:
 
 
    Note that in your constructor, you have access to user-provided ``options``. For
-   example, if your code depends on an integer paramter called ``distance``, you can
+   example, if your code depends on an integer parameter called ``distance``, you can
    retrieve that from the user via
 
    .. code-block:: cpp
@@ -243,104 +250,36 @@ to prototype and develop new codes.
 
    Create a new file (e.g., :code:`my_steane.py`) with your code implementation:
 
-   .. code-block:: python
-
-       import cudaq
-       import cudaq_qec as qec
-       from cudaq_qec import patch
+   .. literalinclude:: ../../examples/qec/python/my_steane.py
+      :language: python
+      :start-after: [Begin Documentation1]
+      :end-before: [End Documentation1]
 
 2. **Define Quantum Kernels**:
 
    Implement the required quantum kernels using the :code:`@cudaq.kernel` decorator:
 
-   .. code-block:: python
-
-       @cudaq.kernel
-       def prep0(logicalQubit: patch):
-           h(logicalQubit.data[0], logicalQubit.data[4], logicalQubit.data[6])
-           x.ctrl(logicalQubit.data[0], logicalQubit.data[1])
-           x.ctrl(logicalQubit.data[4], logicalQubit.data[5])
-           # ... additional initialization gates ...
-
-       @cudaq.kernel
-       def stabilizer(logicalQubit: patch,
-                     x_stabilizers: list[int],
-                     z_stabilizers: list[int]) -> list[bool]:
-           # Measure X stabilizers
-           h(logicalQubit.ancx)
-           for xi in range(len(logicalQubit.ancx)):
-               for di in range(len(logicalQubit.data)):
-                   if x_stabilizers[xi * len(logicalQubit.data) + di] == 1:
-                       x.ctrl(logicalQubit.ancx[xi], logicalQubit.data[di])
-           h(logicalQubit.ancx)
-
-           # Measure Z stabilizers
-           for zi in range(len(logicalQubit.ancx)):
-               for di in range(len(logicalQubit.data)):
-                   if z_stabilizers[zi * len(logicalQubit.data) + di] == 1:
-                       x.ctrl(logicalQubit.data[di], logicalQubit.ancz[zi])
-
-           # Get and reset ancillas
-           results = mz(logicalQubit.ancz, logicalQubit.ancx)
-           reset(logicalQubit.ancx)
-           reset(logicalQubit.ancz)
-           return results
+   .. literalinclude:: ../../examples/qec/python/my_steane.py
+      :language: python
+      :start-after: [Begin Documentation2]
+      :end-before: [End Documentation2]
 
 3. **Implement the Code Class**:
 
    Create a class decorated with :code:`@qec.code` that implements the required interface:
 
-   .. code-block:: python
+   .. literalinclude:: ../../examples/qec/python/my_steane.py
+      :language: python
+      :start-after: [Begin Documentation3]
+      :end-before: [End Documentation3]
 
-       @qec.code('py-steane-example')
-       class MySteaneCodeImpl:
-           def __init__(self, **kwargs):
-               qec.Code.__init__(self, **kwargs)
-
-               # Define stabilizer generators
-               self.stabilizers = qec.Stabilizers([
-                   "XXXXIII", "IXXIXXI", "IIXXIXX",
-                   "ZZZZIII", "IZZIZZI", "IIZZIZZ"
-               ])
-
-               # Register quantum kernels
-               self.operation_encodings = {
-                   qec.operation.prep0: prep0,
-                   qec.operation.stabilizer_round: stabilizer
-               }
-
-           def get_num_data_qubits(self):
-               return 7
-
-           def get_num_ancilla_x_qubits(self):
-               return 3
-
-           def get_num_ancilla_z_qubits(self):
-               return 3
-
-           def get_num_ancilla_qubits(self):
-               return 6
-
-4. **Install the Code**:
-
-   Install your Python-implemented code using :code:`cudaqx-config`:
-
-   .. code-block:: bash
-
-       cudaqx-config --install-code my_steane.py
-
-5. **Using the Code**:
+4. **Using the Code**:
 
    The code can now be used like any other CUDA-Q QEC code:
 
-   .. code-block:: python
-
-       import cudaq_qec as qec
-
-       # Create instance of your code
-       code = qec.get_code('py-steane-example')
-
-       # Use the code for various numerical experiments
+   .. literalinclude:: ../../examples/qec/python/my_steane_test.py
+      :language: python
+      :start-after: [Begin Documentation]
 
 Key Points
 ^^^^^^^^^^^
@@ -457,7 +396,7 @@ Usage:
         import cudaq_qec as qec
 
         # Create distance-3 repetition code
-        code = qec.get_code('repetition', distance=3})
+        code = qec.get_code('repetition', distance=3)
 
         # Access stabilizers
         stabilizers = code.get_stabilizers()  # Returns ["ZZI", "IZZ"]
@@ -699,7 +638,32 @@ Usage Example
 Pre-built QEC Decoders
 ----------------------
 
-CUDA-Q QEC provides pre-built decoders. Here's a detailed overview of each:
+CUDA-Q QEC provides pre-built decoders for a variety of use cases.
+
++------------------------+-----------------------------+----------+----------+-------------------+--------------------------------------------------+
+| Decoder                | Decoder String Identifier   | Python   | C++      | Real-Time Enabled | Notes                                            |
++========================+=============================+==========+==========+===================+==================================================+
+| NVIDIA QLDPC Decoder¹  | `"nv-qldpc-decoder"`        | Yes      | Yes      | Yes               | Supports Relay BP and BP+OSD                     |
++------------------------+-----------------------------+----------+----------+-------------------+--------------------------------------------------+
+| Tensor Network Decoder¹| `"tensor_network_decoder"`  | Yes²     | No       | No                | Exact Maximum Likelihood Decoder                 |
++------------------------+-----------------------------+----------+----------+-------------------+--------------------------------------------------+
+| TensorRT Decoder¹      | `"trt_decoder"`             | Yes³     | Yes      | Not yet           | AI decoder. Bring your own model.                |
++------------------------+-----------------------------+----------+----------+-------------------+--------------------------------------------------+
+| Look-Up Table Decoder  | `"single_error_lut"`        | Yes      | Yes      | Yes               | Simple decoder with no configurable options      |
++                        +-----------------------------+----------+----------+-------------------+--------------------------------------------------+
+|                        | `"multi_error_lut"`         | Yes      | Yes      | Yes               | Multi-error decoder that                         |
+|                        |                             |          |          |                   | can handle up to "lut_error_depth" errors        |
++------------------------+-----------------------------+----------+----------+-------------------+--------------------------------------------------+
+| Sliding Window Decoder | `"sliding_window"`          | Yes      | Yes      | Not yet           | Decodes syndromes in a sliding window fashion.   |
+|                        |                             |          |          |                   | May be paired with any other decoder as an       |
+|                        |                             |          |          |                   | inner decoder except Tensor RT Decoder           |
++------------------------+-----------------------------+----------+----------+-------------------+--------------------------------------------------+
+
+| ¹ GPU-accelerated decoder
+| ² Requires installation with `pip install cudaq-qec[tensor-network-decoder]` for Python
+| ³ Requires installation with `pip install cudaq-qec[trt-decoder]` for Python
+
+Here's a detailed overview of each:
 
 Quantum Low-Density Parity-Check Decoder
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -708,13 +672,29 @@ The Quantum Low-Density Parity-Check (QLDPC) decoder leverages GPU-accelerated b
 Since belief propagation is an iterative method which may not converge, decoding can be improved with a second-stage post-processing step. The `nv-qldpc-decoder`
 API provides various post-processing options, which can be selected through its parameters.
 
+**Belief Propagation Methods:**
+
+The decoder supports multiple BP algorithms (configured via ``bp_method``):
+
+* **Sum-Product BP** (``bp_method=0``, default): Classic belief propagation algorithm that computes exact probabilities.
+* **Min-Sum BP** (``bp_method=1``): Approximation to sum-product that uses min operations instead of sum. Optionally accepts ``scale_factor``.
+* **Memory-based BP** (``bp_method=2``): Min-sum with uniform memory strength across all variable nodes. **Requires:** ``gamma0``.
+* **Disordered Memory BP** (``bp_method=3``): Min-sum with per-variable memory strengths. **Requires:** ``gamma_dist`` [min, max] OR ``explicit_gammas`` (2D vector).
+
+**Sequential Relay Decoding:**
+
+Starting with version 0.5.0, the decoder supports Sequential Relay BP (configured via ``composition=1``), which combines disordered memory BP 
+with multiple "relay legs" - sequential runs with different gamma configurations. **Requires:** ``bp_method=3``, ``gamma0``, ``srelay_config``, and either ``gamma_dist`` OR ``explicit_gammas``.
+
 The QLDPC decoder `nv-qldpc-decoder` requires a CUDA-Q compatible GPU. See the list below for dependencies and compatibility:
 https://nvidia.github.io/cuda-quantum/latest/using/install/local_installation.html#dependencies-and-compatibility
 
 The decoder is based on the following references:
 
 * https://arxiv.org/pdf/2005.07016 
-* https://github.com/quantumgizmos/ldpc
+* https://github.com/quantumgizmos/ldpc 
+* https://arxiv.org/pdf/2506.01779 
+* https://github.com/trmue/relay 
 
 
 Usage:
@@ -724,6 +704,7 @@ Usage:
     .. code-block:: python
 
         import cudaq_qec as qec
+        import numpy as np
 
         H_list = [
                     [1, 0, 0, 1, 0, 1, 1], 
@@ -755,6 +736,134 @@ Usage:
 
         // Alternatively, configure the decoder without instantiating a heterogeneous_map 
         auto d2 = cudaq::qec::get_decoder("nv-qldpc-decoder", H, {{"use_osd", true}, {"bp_batch_size", 100}});
+
+Tensor Network Decoder
+^^^^^^^^^^^^^^^^^^^^^^
+
+The ``tensor_network_decoder`` constructs a tensor network representation of a quantum code given its parity check matrix, logical observable(s), and noise model. It can decode individual syndromes or batches of syndromes, returning the probability that a logical observable has flipped.
+
+Due to the additional dependencies of the Tensor Network Decoder, you must
+specify the optional pip package when installing CUDA-Q QEC in order to use this
+decoder. Use `pip install cudaq-qec[tensor-network-decoder]` in order to use
+this decoder.
+
+Key Steps:
+
+1. **Define the parity check matrix**: This matrix encodes the structure of the quantum code. In the example, a simple [3,1] repetition code is used.
+
+2. **Specify the logical observable**: This is typically a row vector indicating which qubits participate in the logical operator.
+
+3. **Set the noise model**: The example uses a factorized noise model with independent bit-flip probability for each error mechanism.
+
+4. **Instantiate the decoder**: Create a decoder object using ``qec.get_decoder("tensor_network_decoder", ...)`` with the code parameters.
+
+5. **Decode syndromes**: Use the ``decode`` method for single syndromes or ``decode_batch`` for multiple syndromes.
+
+
+Usage:
+
+.. tab:: Python
+
+    .. code-block:: python
+
+        # This example demonstrates how to use the get_decoder("tensor_network_decoder", ...) API
+        # from the ``cudaq_qec`` library to decode syndromes for a simple 
+        # quantum error-correcting code using tensor networks.
+
+        import cudaq_qec as qec
+        import numpy as np
+
+        # Define code parameters
+        H = np.array([[1, 1, 0], [0, 1, 1]], dtype=np.uint8)
+        logical_obs = np.array([[1, 1, 1]], dtype=np.uint8)
+        noise_model = [0.1, 0.1, 0.1]
+
+        decoder = qec.get_decoder("tensor_network_decoder", H, logical_obs=logical_obs, noise_model=noise_model)
+
+        # Decode a single syndrome
+        syndrome = [0.0, 1.0]
+        result = decoder.decode(syndrome)
+        print(result.result)
+
+        # Decode a batch of syndromes
+        syndrome_batch = np.array([[0.0, 0.0], [0.0, 1.0], [1.0, 0.0]], dtype=np.float32)
+        batch_results = decoder.decode_batch(syndrome_batch)
+        for res in batch_results:
+            print(res.result)
+
+.. tab:: C++
+
+    The ``tensor_network_decoder`` is a Python-only implementation and it requires Python 3.11 or higher. C++ APIs are not available for this decoder.
+
+Output:
+
+The decoder returns the probability that the logical observable has flipped for each syndrome. This can be used to assess the performance of the code and the decoder under different error scenarios.
+
+.. note::
+
+    In general, the Tensor Network Decoder has the same GPU support as the
+    `Quantum Low-Density Parity-Check Decoder <https://nvidia.github.io/cudaqx/components/qec/introduction.html#quantum-low-density-parity-check-decoder>`__.
+    However, if you are using the V100 GPU (SM70), you will need to pin your
+    cuTensor version to 2.2 by running `pip install cutensor_cu12==2.2`. Note
+    that this GPU will not be supported by the Tensor Network Decoder when
+    CUDA-Q 0.5.0 is released.
+
+
+Real-Time Decoding
+------------------
+
+CUDA-Q QEC provides real-time decoding capabilities for quantum error correction on actual quantum hardware.
+Real-time decoding enables decoders to process syndromes and compute corrections within qubit coherence times,
+making active error correction practical for real quantum computers.
+
+Key Features
+^^^^^^^^^^^^
+
+* **In-Kernel Operation**: Syndrome decoding within CUDA-Q kernels.
+* **Hardware Integration**: Direct integration with quantum hardware backends (`Quantinuum's Helios QPU <https://www.quantinuum.com/products-solutions/quantinuum-systems/helios>`_).
+* **Simulation Support**: Test real-time workflows locally before deploying to hardware.
+* **Multiple Decoder Types**: For real-time decoders, see the table `Pre-built QEC Decoders <https://nvidia.github.io/cudaqx/components/qec/introduction.html#pre-built-qec-decoders>`__.
+* **GPU Acceleration**: Leverage CUDA for high-performance syndrome decoding.
+
+Note: The real-time decoding interfaces are experimental, and subject to change. Real-time decoding on Quantinuum's Helios-1 device is currently only available to partners and collaborators. Please email QCSupport@quantinuum.com for more information.
+
+Workflow and Terminology
+^^^^^^^^^^^^^^^^^^^^^^^^
+
+The real-time decoding workflow involves configuring a decoder (or many) before CUDA-Q kernel launch, and communicating to the decoders with special in-kernel functions.
+A decoder is a single software instance of a decoding algorithm, and all its relevant inputs (parity-check matrices, error rates, etc.) which will remain static for the execution of the quantum program.
+A decoder config may contain many decoders, each with different algorithms and input parameters.
+
+In a quantum kernel, a user interacts with the decoders via the `enqueue_syndromes` and `get_corrections` interfaces.
+The behavior of these functions depends on their configuration and their usage.
+
+The real-time decoding workflow can be described with respect to the offline decoding workflow.
+The non-real-time decoders require a detector error model which is specified via a detector error matrix which is the parity check matrix `H` of the decoding problem, and a vector of weights (error rates).
+This matrix has dimensions of `[numDetectors, numErrors]`, where the each row is a detector, and each column is a possible error.
+For real-time decoding, we first need to convert the circuit measurements into detectors.
+This is specified via the detector matrix `D`, which has dimensions `[numDetectors, numMeasurements]`.
+Each column of the detector matrix defines which detectors a measurement participates in by including an entry of `1`.
+This when, once all `numMeasurements` measurements are enqueued, a matrix-vector multiply can convert this buffer of raw measurements into detectors which are then passed into the decoding algorithm.
+
+Similarly, an observables flips matrix `O` of size `[numObs, numErrors]` must be provided.
+Each column of the observables flips matrix describes for each error, which observables are flipped by that error by including an entry of `1`.
+Once the decoding algorithm has process the detectors it provides a vector of predicted errors of length `numErrors`.
+This vector then executes a matrix-vector multiply with the observables flips matrix to yield a new vector of length `numObs` which contains an entry of `1` if the observable is predicted to have flipped.
+
+Thus once a decoder is configured, we can view the real-time decoder as a transformation of data starting from a vector of raw measurements, then transformed into detectors via `D`, then error predictions via `H`, then observable flip predictions via `O`. This last step is what is returned via `get_corrections`. The user configures how many bits of information are returned, and what they represent via the `O` matrix in the decoder config.
+
+Similarly, the user determines how many measurements are needed for the decoder via the `D` matrix in the decoder config, and they are sent to the decoder via `enqueue_syndromes`.
+For flexibility, the user can choose to send all measurements with a single `enqueue_syndromes` call, or send them over several calls.
+However they are split up, the decoder will not begin decoding until all `numMeasurements` have been enqueued, and will throw an error if too many are sent.
+Thus it is the final `enqueue_syndromes` call which kicks off the decoder, and is an asynchronous function.
+Additional quantum gates can be applied, and only when `get_corrections` is called does the kernel sync and wait for the corrections.
+
+For detailed information on real-time decoding, see:
+
+* :doc:`/examples_rst/qec/realtime_decoding` - Complete Guide with Examples
+* :doc:`/api/qec/cpp_api` - C++ API Reference (see Real-Time Decoding section)
+* :doc:`/api/qec/python_api` - Python API Reference (see Real-Time Decoding section)
+
 
 
 Numerical Experiments
@@ -804,7 +913,7 @@ For bitflip errors, we check that the residual error `R = D_X + E_X` is not `L_X
 with `Z`, we can check that `L_Z(D_X + E_X) = 0`. This is because we just need to check if they have mutual support on an even
 or odd number of qubits. We could also check that `R` is not a stabilizer.
 
-Similar to the parity check matrix, the logical obvervables are also stored in a matrix as
+Similar to the parity check matrix, the logical observables are also stored in a matrix as
 
 .. math::
   L = \begin{pmatrix}
@@ -1012,7 +1121,7 @@ Example of running a memory experiment:
               syndrome[i] = syndromes.at({shot, i});
 
             // Decode syndrome
-            auto [converged, v_result] = decoder->decode(syndrome);
+            auto results = decoder->decode(syndrome);
             // Process correction
             // ...
           }
@@ -1047,4 +1156,3 @@ Additional Noise Models
       noise.add_all_qubit_channel(
           "x", cudaq::depolarization2(/*probability*/ 0.01),
           /*numControls*/ 1);
-

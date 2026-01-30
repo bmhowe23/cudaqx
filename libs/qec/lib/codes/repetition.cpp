@@ -16,6 +16,8 @@ std::size_t repetition::get_num_ancilla_x_qubits() const { return 0; }
 std::size_t repetition::get_num_ancilla_z_qubits() const {
   return get_num_ancilla_qubits();
 }
+std::size_t repetition::get_num_x_stabilizers() const { return 0; }
+std::size_t repetition::get_num_z_stabilizers() const { return distance - 1; }
 
 repetition::repetition(const heterogeneous_map &options) : code() {
   if (!options.contains("distance"))
@@ -43,7 +45,7 @@ repetition::repetition(const heterogeneous_map &options) : code() {
   // Default Logical Observable is ZI...I
   // This class is only for Z basis experiments
   // so there is no X observable included.
-  cudaq::spin_op Lz = cudaq::spin::z(0) * identity;
+  cudaq::spin_op_term Lz = cudaq::spin::z(0) * identity;
 
   m_pauli_observables.push_back(Lz);
 

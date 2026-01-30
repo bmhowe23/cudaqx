@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ============================================================================ #
-# Copyright (c) 2022 - 2024 NVIDIA Corporation & Affiliates.                   #
+# Copyright (c) 2022 - 2025 NVIDIA Corporation & Affiliates.                   #
 # All rights reserved.                                                         #
 #                                                                              #
 # This source code and the accompanying materials are made available under     #
@@ -13,9 +13,13 @@ LAUNCHER=${2:-""}
 CC=${3:-"gcc"}
 CXX=${4:-"g++"}
 
+# Set CUDA suffix to, for example, "cu12" or "cu13", based on the cuquantum
+# package name.
+CUDA_SUFFIX=$(pip list | grep cuquantum-cu | head -1 | cut -d' ' -f1 | cut -d'-' -f2)
+
 LLVM_INSTALL_PREFIX=/usr/local/llvm
-CUQUANTUM_INSTALL_PREFIX="$(pip show cuquantum-python-cu12 | grep "Location:" | cut -d " " -f 2)/cuquantum"
-CUTENSOR_INSTALL_PREFIX="$(pip show cutensor-cu12 | grep "Location:" | cut -d " " -f 2)/cutensor"
+CUQUANTUM_INSTALL_PREFIX="$(pip show cuquantum-${CUDA_SUFFIX} | grep "Location:" | cut -d " " -f 2)/cuquantum"
+CUTENSOR_INSTALL_PREFIX="$(pip show cutensor-${CUDA_SUFFIX} | grep "Location:" | cut -d " " -f 2)/cutensor"
 
 cd cudaq
 

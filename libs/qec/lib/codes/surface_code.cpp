@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2024 NVIDIA Corporation & Affiliates.                         *
+ * Copyright (c) 2024 - 2025 NVIDIA Corporation & Affiliates.                  *
  * All rights reserved.                                                        *
  *                                                                             *
  * This source code and the accompanying materials are made available under    *
@@ -197,6 +197,7 @@ void stabilizer_grid::print_stabilizer_coords() const {
 }
 
 void stabilizer_grid::print_stabilizer_indices() const {
+  auto orig_flags = std::cout.flags();
   int width = std::to_string(z_stab_indices.size()).length() + 2;
   for (size_t row = 0; row < grid_length; ++row) {
     for (size_t col = 0; col < grid_length; ++col) {
@@ -221,6 +222,7 @@ void stabilizer_grid::print_stabilizer_indices() const {
     std::cout << "\n";
   }
   std::cout << "\n";
+  std::cout.flags(orig_flags);
 }
 
 void stabilizer_grid::print_stabilizer_maps() const {
@@ -248,6 +250,7 @@ void stabilizer_grid::print_stabilizer_maps() const {
 }
 
 void stabilizer_grid::print_data_grid() const {
+  auto orig_flags = std::cout.flags();
   int width = std::to_string(distance).length() + 2;
 
   for (size_t row = 0; row < distance; ++row) {
@@ -258,6 +261,7 @@ void stabilizer_grid::print_data_grid() const {
     std::cout << "\n";
   }
   std::cout << "\n";
+  std::cout.flags(orig_flags);
 }
 
 void stabilizer_grid::print_stabilizer_grid() const {
@@ -309,8 +313,9 @@ void stabilizer_grid::print_stabilizers() const {
   std::cout << "\n";
 }
 
-std::vector<cudaq::spin_op> stabilizer_grid::get_spin_op_stabilizers() const {
-  std::vector<cudaq::spin_op> spin_op_stabs;
+std::vector<cudaq::spin_op_term>
+stabilizer_grid::get_spin_op_stabilizers() const {
+  std::vector<cudaq::spin_op_term> spin_op_stabs;
   for (size_t s_i = 0; s_i < x_stabilizers.size(); ++s_i) {
     std::string stab(data_coords.size(), 'I');
     for (auto elem : x_stabilizers[s_i]) {
@@ -328,8 +333,9 @@ std::vector<cudaq::spin_op> stabilizer_grid::get_spin_op_stabilizers() const {
   return spin_op_stabs;
 }
 
-std::vector<cudaq::spin_op> stabilizer_grid::get_spin_op_observables() const {
-  std::vector<cudaq::spin_op> spin_op_obs;
+std::vector<cudaq::spin_op_term>
+stabilizer_grid::get_spin_op_observables() const {
+  std::vector<cudaq::spin_op_term> spin_op_obs;
   // X obs runs along top row of data qubits
   std::string xobs(data_coords.size(), 'I');
   for (size_t i = 0; i < distance; ++i) {
@@ -387,6 +393,14 @@ std::size_t surface_code::get_num_ancilla_x_qubits() const {
 }
 
 std::size_t surface_code::get_num_ancilla_z_qubits() const {
+  return (distance * distance - 1) / 2;
+}
+
+std::size_t surface_code::get_num_x_stabilizers() const {
+  return (distance * distance - 1) / 2;
+}
+
+std::size_t surface_code::get_num_z_stabilizers() const {
   return (distance * distance - 1) / 2;
 }
 

@@ -5,15 +5,29 @@ on:
     inputs:
       base_image:
         type: string
-        description: Base image to overlay CUDA-QX files into (e.g. nvcr.io/nvidia/nightly/cuda-quantum:cu12-latest)
-        required: false
+        description: Base image to overlay CUDA-QX files into (e.g. nvcr.io/nvidia/nightly/cuda-quantum:cu12-0.13.0)
+        default: nvcr.io/nvidia/nightly/cuda-quantum:cu12-0.13.0
+        required: true
+      cuda_version:
+        type: choice
+        description: CUDA version of the installed_files-*.zip file
+        options:
+          - 12.6
+          - 13.0
+        default: '12.6'
+        required: true
       assets_repo:
         type: string
-        description: Retrieve assets from a draft release from this repo (e.g. NVIDIA/cudaqx)
+        description: Retrieve artifacts from this repo (e.g. NVIDIA/cudaqx)
+        default: NVIDIA/cudaqx
         required: false
       assets_tag:
         type: string
-        description: Retrieve assets from a draft release with this tag (e.g. docker-files-89)
+        description: (Deprecated) Retrieve assets from a draft release with this tag (e.g. docker-files-89)
+        required: false
+      artifacts_from_run:
+        type: string
+        description: As opposed to downloading assets from a release (`asset_tag`), download them from a run of the "All Libs (Release)" workflow.
         required: false
       pub_tag:
         type: string
@@ -46,7 +60,7 @@ jobs:
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
-          username: ${{ github.actor }}
+          username: ${{ secrets.PACKAGE_USER || github.actor }}
           password: ${{ secrets.PACKAGE_TOKEN || github.token }}
 
       # Do this early to help validate user inputs (if present)
@@ -59,6 +73,12 @@ jobs:
           if [[ -n "${{ inputs.assets_repo }}" ]] && [[ -n "${{ inputs.assets_tag }}" ]]; then
             # Fetch the assets into this directory
             gh release download -R ${{ inputs.assets_repo }} ${{ inputs.assets_tag }}
+            ls
+          fi
+          if [[ -n "${{ inputs.artifacts_from_run }}" ]]; then
+            # Download the artifacts from the run
+            gh run download -R ${{ inputs.assets_repo }} ${{ inputs.artifacts_from_run }}
+            mv installed_files-*/installed_files-*.zip .
             ls
           fi
 
@@ -78,6 +98,7 @@ jobs:
           file: ./docker/release/Dockerfile
           build-args: |
             base_image=${{ env.base_image }}
+            cuda_version=${{ inputs.cuda_version }}
           labels: |
             org.opencontainers.image.source=${{ github.repositoryUrl }}
             org.opencontainers.image.revision=${{ github.sha }}

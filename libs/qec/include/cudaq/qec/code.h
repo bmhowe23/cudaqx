@@ -1,5 +1,5 @@
 /****************************************************************-*- C++ -*-****
- * Copyright (c) 2024 NVIDIA Corporation & Affiliates.                         *
+ * Copyright (c) 2024 - 2025 NVIDIA Corporation & Affiliates.                  *
  * All rights reserved.                                                        *
  *                                                                             *
  * This source code and the accompanying materials are made available under    *
@@ -95,7 +95,7 @@ enum class operation {
 /// CUDAQ_REGISTER_TYPE(my_code)
 /// @endcode
 /// @brief Supported quantum operations for error correcting codes
-class code : public extension_point<code, const heterogeneous_map &> {
+class code : public cudaqx::extension_point<code, const heterogeneous_map &> {
 public:
   /// @brief Type alias for single qubit quantum kernels
   using one_qubit_encoding = cudaq::qkernel<void(patch)>;
@@ -117,14 +117,14 @@ protected:
   std::unordered_map<operation, encoding> operation_encodings;
 
   /// @brief Stabilizer generators for the code
-  std::vector<cudaq::spin_op> m_stabilizers;
+  std::vector<cudaq::spin_op_term> m_stabilizers;
 
   /// @brief Pauli Logical operators
-  std::vector<cudaq::spin_op> m_pauli_observables;
+  std::vector<cudaq::spin_op_term> m_pauli_observables;
 
-  std::vector<cudaq::spin_op>
+  std::vector<cudaq::spin_op_term>
   fromPauliWords(const std::vector<std::string> &words) {
-    std::vector<cudaq::spin_op> ops;
+    std::vector<cudaq::spin_op_term> ops;
     for (auto &os : words)
       ops.emplace_back(cudaq::spin_op::from_word(os));
     sortStabilizerOps(ops);
@@ -148,6 +148,14 @@ public:
   /// @return Number of Z-type ancilla qubits
   virtual std::size_t get_num_ancilla_z_qubits() const = 0;
 
+  /// @brief Get number of X stabilizer that can be measured
+  /// @return Number of X-type stabilizers
+  virtual std::size_t get_num_x_stabilizers() const = 0;
+
+  /// @brief Get number of Z stabilizer that can be measured
+  /// @return Number of Z-type stabilizers
+  virtual std::size_t get_num_z_stabilizers() const = 0;
+
   code() = default;
   virtual ~code() {}
 
@@ -158,7 +166,8 @@ public:
   /// @param options Optional code-specific configuration options
   /// @return Unique pointer to created code instance
   static std::unique_ptr<code>
-  get(const std::string &name, const std::vector<cudaq::spin_op> &stabilizers,
+  get(const std::string &name,
+      const std::vector<cudaq::spin_op_term> &stabilizers,
       const heterogeneous_map options = {});
 
   /// @brief Factory method to create a code instance
@@ -194,7 +203,7 @@ public:
 
   /// @brief Get the stabilizer generators
   /// @return Reference to stabilizers
-  const std::vector<cudaq::spin_op> &get_stabilizers() const {
+  const std::vector<cudaq::spin_op_term> &get_stabilizers() const {
     return m_stabilizers;
   }
 
@@ -229,7 +238,7 @@ std::unique_ptr<code> get_code(const std::string &name,
 /// @param stab stabilizers
 /// @return Unique pointer to the created code instance
 std::unique_ptr<code> get_code(const std::string &name,
-                               const std::vector<cudaq::spin_op> &stab,
+                               const std::vector<cudaq::spin_op_term> &stab,
                                const heterogeneous_map options = {});
 
 /// Get a list of available quantum error correcting codes

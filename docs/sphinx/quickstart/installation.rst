@@ -24,7 +24,17 @@ install individual components:
     # Install both libraries
     pip install cudaq-qec cudaq-solvers
 
-.. note:: 
+CUDA-QX provides optional pip-installable components:
+
+.. code-block:: bash
+
+    # Install the Tensor Network Decoder from the QEC library
+    pip install cudaq-qec[tensor-network-decoder]
+
+    # Install the GQE algorithm from the Solvers library
+    pip install cudaq-solvers[gqe]
+
+.. note::
 
     CUDA-Q Solvers will require the presence of :code:`libgfortran`, which is
     not distributed with the Python wheel, for provided classical optimizers. If
@@ -63,89 +73,35 @@ The container includes:
 Building from Source
 ^^^^^^^^^^^^^^^^^^^^
 
-Prerequisites
-~~~~~~~~~~~~~
+The instructions for building CUDA-QX from source are maintained on our GitHub
+repository: `Building CUDA-QX from Source <https://github.com/NVIDIA/cudaqx/blob/main/Building.md>`__.
 
-Before building CUDA-QX from source, ensure your system meets the following requirements:
+.. _installing-pytorch:
 
-* **CUDA-Q**: The NVIDIA quantum-classical programming model
-* **CMake**: Version 3.28 or higher (``pip install "cmake<4"``), less than 4.0
-* **GCC**: Version 11 or higher
-* **Python**: Version 3.10, 3.11, or 3.12
-* **NVIDIA GPU**: CUDA-capable GPU with compute capability 12.0 or higher
-* **Git**: For cloning the repository
+Installing PyTorch
+------------------
 
-Build Instructions
-~~~~~~~~~~~~~~~~~~~
+PyTorch (``torch``) is required for several CUDA-QX features:
 
-1. Clone the repository:
+* **Tensor Network Decoder**: Used by the QEC library for tensor network-based decoding (CPU version of PyTorch is sufficient)
+* **GQE Algorithm**: Used by the Solvers library for the Generative Quantum Eigensolver
+* **Training AI Decoders**: Optionally used for training custom neural network decoders (see :ref:`Deploying AI Decoders with TensorRT <deploying-ai-decoders>`)
 
-.. code-block:: bash
-
-    git clone https://github.com/nvidia/cudaqx
-    cd cudaqx
-
-2. Create and enter build directory:
+PyTorch is automatically installed when you install the optional components:
 
 .. code-block:: bash
 
-    mkdir build && cd build
+    # Installs PyTorch as a dependency
+    pip install cudaq-qec[tensor-network-decoder]
+    pip install cudaq-solvers[gqe]
 
-3. Configure with CMake:
-
-.. code-block:: bash
-
-    cmake .. -G Ninja \
-        -DCUDAQX_ENABLE_LIBS="all" \
-        -DCUDAQX_INCLUDE_TESTS=ON \
-        -DCUDAQX_BINDINGS_PYTHON=ON \
-        -DCUDAQ_DIR=$HOME/.cudaq/lib/cmake/cudaq \
-        -DCMAKE_CXX_FLAGS="-Wno-attributes" \
-        -DCMAKE_BUILD_TYPE=Release \
-        -DCMAKE_INSTALL_PREFIX=$HOME/.cudaqx
-
-4. Build and install:
+Alternatively, you can install PyTorch directly. For detailed installation instructions, visit the 
+`PyTorch installation page <https://pytorch.org/get-started/locally/>`_.
 
 .. code-block:: bash
 
-    ninja install
+    pip install torch
 
-CMake Build Options
-~~~~~~~~~~~~~~~~~~~~
-
-* ``CUDAQX_ENABLE_LIBS``: Specify which libraries to build (``all``, ``qec``, ``solvers``)
-* ``CUDAQX_INCLUDE_TESTS``: Enable building of tests
-* ``CUDAQX_BINDINGS_PYTHON``: Enable Python bindings
-* ``CUDAQ_DIR``: Path to CUDA-Q installation
-* ``CMAKE_INSTALL_PREFIX``: Installation directory
-
-Verifying Installation
------------------------
-
-To verify your installation, run the following Python code:
-
-.. code-block:: python
-
-    import cudaq_qec as qec 
-    import cudaq_solvers as solvers
-
-
-Troubleshooting (Common Issues)
---------------------------------
-
-1. **CMake configuration fails**:
-    * Ensure CUDA-Q is properly installed
-    * Verify CMake version (``cmake --version``)
-    * Check GCC version (``gcc --version``)
-
-2. **CUDA device not found**:
-    * Verify NVIDIA driver installation
-    * Check CUDA toolkit installation
-    * Ensure GPU compute capability is supported
-
-3. **Python bindings not found**:
-    * Confirm ``CUDAQX_BINDINGS_PYTHON=ON`` during build
-    * Check Python environment activation
-    * Verify installation path is in ``PYTHONPATH``
-
-For additional support, please visit our `GitHub Issues <https://github.com/nvidia/cudaqx/issues>`_ page.
+.. note::
+    Users with NVIDIA Blackwell architecture GPUs require PyTorch with CUDA 12.8 or later support. 
+    When installing PyTorch, make sure to select the appropriate CUDA version for your system.

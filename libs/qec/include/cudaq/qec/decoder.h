@@ -12,6 +12,7 @@
 #include "cuda-qx/core/heterogeneous_map.h"
 #include "cuda-qx/core/tensor.h"
 #include <future>
+#include <optional>
 #include <vector>
 
 namespace cudaq::qec {
@@ -22,19 +23,57 @@ using float_t = CUDAQX_QEC_FLOAT_TYPE;
 using float_t = double;
 #endif
 
+/// @brief Validates that all keys in a heterogeneous map are found in a list of
+/// acceptable types
+/// @param config The heterogeneous map to validate
+/// @param acceptable_types List of acceptable key types
+/// @return Vector of invalid keys (empty if all keys are valid)
+inline std::vector<std::string>
+validate_config_parameters(const cudaqx::heterogeneous_map &config,
+                           const std::vector<std::string> &acceptable_types) {
+  std::vector<std::string> invalid_types;
+  for (const auto &[key, _] : config) {
+    if (std::find(acceptable_types.begin(), acceptable_types.end(), key) ==
+        acceptable_types.end()) {
+      invalid_types.push_back(key);
+    }
+  }
+  return invalid_types;
+}
+
 /// @brief Decoder results
 struct decoder_result {
-  /// @brief Whether or not the decoder converged
+  /// @brief Whether or not the decoder converged.
   bool converged = false;
 
   /// @brief Vector of length `block_size` with soft probabilities of errors in
   /// each index.
   std::vector<float_t> result;
 
+  /// @brief Optional additional results from the decoder stored in a
+  /// heterogeneous map. For equality comparison, this field is treated as a
+  /// boolean flag - two decoder_results are considered equal only if both have
+  /// empty opt_results (either std::nullopt or an empty map). If either result
+  /// has non-empty opt_results, they are considered not equal.
+  std::optional<cudaqx::heterogeneous_map> opt_results;
+
   // Manually define the equality operator
   bool operator==(const decoder_result &other) const {
-    return std::tie(converged, result) ==
-           std::tie(other.converged, other.result);
+    // First compare the non-optional fields
+    if (std::tie(converged, result) !=
+        std::tie(other.converged, other.result)) {
+      return false;
+    }
+    // If both do not have opt_results or both have empty maps, then they are
+    // equal
+    bool this_empty = !opt_results.has_value() || opt_results->size() == 0;
+    bool other_empty =
+        !other.opt_results.has_value() || other.opt_results->size() == 0;
+    if (this_empty && other_empty) {
+      return true;
+    }
+    // Otherwise, they are not equal
+    return false;
   }
 
   // Manually define the inequality operator
@@ -84,6 +123,13 @@ public:
 class decoder
     : public cudaqx::extension_point<decoder, const cudaqx::tensor<uint8_t> &,
                                      const cudaqx::heterogeneous_map &> {
+private:
+  struct rt_impl;
+  struct rt_impl_deleter {
+    void operator()(rt_impl *p) const;
+  };
+  std::unique_ptr<rt_impl, rt_impl_deleter> pimpl;
+
 public:
   decoder() = delete;
 
@@ -134,8 +180,59 @@ public:
   std::size_t get_block_size() { return block_size; }
   std::size_t get_syndrome_size() { return syndrome_size; }
 
+  // -- Begin realtime decoding API --
+
+  // Note: all of the current realtime decoding API is designed to be used with
+  // hard syndromes.
+
+  /// @brief Get the number of measurement syndromes per decode call. This
+  /// depends on D_sparse, so you must have called set_D_sparse() first.
+  uint32_t get_num_msyn_per_decode() const;
+
+  /// @brief Set the observable matrix.
+  void set_O_sparse(const std::vector<std::vector<uint32_t>> &O_sparse);
+
+  /// @brief Set the observable matrix, using a single long vector with -1 as
+  /// row terminators.
+  void set_O_sparse(const std::vector<int64_t> &O_sparse);
+
+  /// @brief Set the D_sparse matrix.
+  void set_D_sparse(const std::vector<std::vector<uint32_t>> &D_sparse);
+
+  /// @brief Set the D_sparse matrix, using a single long vector with -1 as row
+  /// terminators.
+  void set_D_sparse(const std::vector<int64_t> &D_sparse);
+
+  /// @brief Set the decoder id.
+  void set_decoder_id(uint32_t decoder_id);
+
+  /// @brief Get the decoder id.
+  uint32_t get_decoder_id() const;
+
+  /// @brief Enqueue a syndrome for decoding (pointer version)
+  /// @return True if enough syndromes have been enqueued to trigger a decode.
+  bool enqueue_syndrome(const uint8_t *syndrome, std::size_t syndrome_length);
+
+  /// @brief Enqueue a syndrome for decoding (vector version)
+  /// @return True if enough syndromes have been enqueued to trigger a decode.
+  bool enqueue_syndrome(const std::vector<uint8_t> &syndrome);
+
+  /// @brief Get the current observable corrections.
+  const uint8_t *get_obs_corrections() const;
+
+  /// @brief Get the number of observables.
+  std::size_t get_num_observables() const;
+
+  /// @brief Clear any stored corrections.
+  void clear_corrections();
+
+  /// @brief Reset the decoder, clearing all per-shot memory and corrections.
+  void reset_decoder();
+
+  // -- End realtime decoding API --
+
   /// @brief Destructor
-  virtual ~decoder() {}
+  virtual ~decoder() = default;
 
   /// @brief Get the version of the decoder. Subclasses that are not part of the
   /// standard GitHub repo should override this to provide a more tailored
@@ -152,6 +249,12 @@ protected:
 
   /// @brief The decoder's parity check matrix
   cudaqx::tensor<uint8_t> H;
+
+  /// @brief The decoder's observable matrix in sparse format
+  std::vector<std::vector<uint32_t>> O_sparse;
+
+  /// @brief The decoder's D matrix in sparse format
+  std::vector<std::vector<uint32_t>> D_sparse;
 };
 
 /// @brief Convert a vector of soft probabilities to a vector of hard
@@ -168,10 +271,9 @@ template <typename t_soft, typename t_hard,
 inline void convert_vec_soft_to_hard(const std::vector<t_soft> &in,
                                      std::vector<t_hard> &out,
                                      t_soft thresh = 0.5) {
-  out.clear();
-  out.reserve(in.size());
-  for (auto x : in)
-    out.push_back(static_cast<t_hard>(x >= thresh ? 1 : 0));
+  out.resize(in.size());
+  for (std::size_t i = 0; i < in.size(); i++)
+    out[i] = static_cast<t_hard>(in[i] >= thresh ? 1 : 0);
 }
 
 /// @brief Convert a vector of soft probabilities to a tensor<uint8_t> of hard
@@ -197,8 +299,32 @@ inline void convert_vec_soft_to_tensor_hard(const std::vector<t_soft> &in,
   if (out.shape()[0] != in.size())
     throw std::runtime_error(
         "Vector to tensor conversion requires tensor dim == vector length");
+  auto raw_ptr = out.data();
   for (size_t i = 0; i < in.size(); ++i)
-    out.at({i}) = static_cast<t_hard>(in[i] >= thresh ? 1 : 0);
+    raw_ptr[i] = static_cast<t_hard>(in[i] >= thresh ? 1 : 0);
+}
+
+/// @brief Convert a vector of hard probabilities to a vector of soft
+/// probabilities.
+/// @param in Hard probability input vector containing only 0/false or 1/true.
+/// @param in_size The size of the input vector (in elements)
+/// @param out Soft probability output vector in the range [0.0, 1.0]
+/// @param true_val The soft probability value assigned when the input is 1
+/// (default to 1.0)
+/// @param false_val The soft probability value assigned when the input is 0
+/// (default to 0.0)
+template <typename t_soft, typename t_hard,
+          typename std::enable_if<std::is_floating_point<t_soft>::value &&
+                                      (std::is_integral<t_hard>::value ||
+                                       std::is_same<t_hard, bool>::value),
+                                  int>::type = 0>
+inline void convert_vec_hard_to_soft(const t_hard *in, std::size_t in_size,
+                                     std::vector<t_soft> &out,
+                                     const t_soft true_val = 1.0,
+                                     const t_soft false_val = 0.0) {
+  out.resize(in_size);
+  for (std::size_t i = 0; i < in_size; i++)
+    out[i] = static_cast<t_soft>(in[i] ? true_val : false_val);
 }
 
 /// @brief Convert a vector of hard probabilities to a vector of soft
@@ -218,10 +344,7 @@ inline void convert_vec_hard_to_soft(const std::vector<t_hard> &in,
                                      std::vector<t_soft> &out,
                                      const t_soft true_val = 1.0,
                                      const t_soft false_val = 0.0) {
-  out.clear();
-  out.reserve(in.size());
-  for (auto x : in)
-    out.push_back(static_cast<t_soft>(x ? true_val : false_val));
+  convert_vec_hard_to_soft(in.data(), in.size(), out, true_val, false_val);
 }
 
 /// @brief Convert a 2D vector of soft probabilities to a 2D vector of hard
@@ -238,14 +361,13 @@ template <typename t_soft, typename t_hard,
 inline void convert_vec_soft_to_hard(const std::vector<std::vector<t_soft>> &in,
                                      std::vector<std::vector<t_hard>> &out,
                                      t_soft thresh = 0.5) {
-  out.clear();
-  out.reserve(in.size());
+  std::size_t row_index = 0;
+  out.resize(in.size());
   for (auto &r : in) {
-    std::vector<t_hard> out_row;
-    out_row.reserve(r.size());
-    for (auto c : r)
-      out_row.push_back(static_cast<t_hard>(c >= thresh ? 1 : 0));
-    out.push_back(std::move(out_row));
+    auto &out_row = out[row_index++];
+    out_row.resize(r.size());
+    for (std::size_t c = 0; c < r.size(); c++)
+      out_row[c] = static_cast<t_hard>(r[c] >= thresh ? 1 : 0);
   }
 }
 

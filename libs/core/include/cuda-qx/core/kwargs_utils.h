@@ -44,6 +44,34 @@ inline heterogeneous_map hetMapFromKwargs(const py::kwargs &kwargs) {
       result.insert(key, value.cast<double>());
     } else if (py::isinstance<py::str>(value)) {
       result.insert(key, value.cast<std::string>());
+    } else if (py::isinstance<py::dict>(value)) {
+      // Recursively convert nested dictionary
+      result.insert(key, hetMapFromKwargs(value.cast<py::dict>()));
+    } else if (py::isinstance<py::list>(value)) {
+      // Handle Python lists
+      py::list py_list = value.cast<py::list>();
+      if (py_list.size() > 0) {
+        // Check if it's a nested list (list of lists)
+        if (py::isinstance<py::list>(py_list[0])) {
+          std::vector<std::vector<double>> vec_vec;
+          for (const auto &item : py_list) {
+            py::list inner_list = item.cast<py::list>();
+            std::vector<double> inner_vec;
+            for (const auto &v : inner_list) {
+              inner_vec.push_back(v.cast<double>());
+            }
+            vec_vec.push_back(std::move(inner_vec));
+          }
+          result.insert(key, std::move(vec_vec));
+        } else {
+          // Single-level list - try to convert to vector<double>
+          std::vector<double> vec;
+          for (const auto &item : py_list) {
+            vec.push_back(item.cast<double>());
+          }
+          result.insert(key, std::move(vec));
+        }
+      }
     } else if (py::isinstance<py::array>(value)) {
       py::array np_array = value.cast<py::array>();
       py::buffer_info info = np_array.request();
@@ -74,12 +102,23 @@ inline heterogeneous_map hetMapFromKwargs(const py::kwargs &kwargs) {
 }
 
 template <typename T>
-tensor<T> toTensor(const py::array_t<T> &H) {
+tensor<T> toTensor(const py::array_t<T> &H, bool perform_pcm_checks = false) {
   py::buffer_info buf = H.request();
 
   if (buf.ndim >= 1 && buf.strides[0] == buf.itemsize) {
     throw std::runtime_error("toTensor: data must be in row-major order, but "
                              "column-major order was detected.");
+  }
+
+  if (perform_pcm_checks) {
+    if (buf.itemsize != sizeof(uint8_t)) {
+      throw std::runtime_error(
+          "Parity check matrix must be an array of uint8_t.");
+    }
+
+    if (buf.ndim != 2) {
+      throw std::runtime_error("Parity check matrix must be 2-dimensional.");
+    }
   }
 
   // Create a vector of the array dimensions
@@ -90,7 +129,15 @@ tensor<T> toTensor(const py::array_t<T> &H) {
 
   // Create a tensor and borrow the NumPy array data
   cudaqx::tensor<T> tensor_H(shape);
-  tensor_H.borrow(static_cast<T *>(buf.ptr), shape);
+  tensor_H.borrow(static_cast<T *>(buf.ptr), std::move(shape));
   return tensor_H;
 }
+
+/// @brief Convert a py::array_t<uint8_t> to a tensor<uint8_t>. This is the same
+/// as toTensor, but with additional checks.
+template <typename T>
+tensor<T> pcmToTensor(const py::array_t<T> &H) {
+  return toTensor(H, /*perform_pcm_checks=*/true);
+}
+
 } // namespace cudaqx

@@ -13,10 +13,12 @@ INSTANTIATE_REGISTRY(cudaq::qec::code, const cudaqx::heterogeneous_map &)
 
 namespace cudaq::qec {
 
-std::unique_ptr<code> code::get(const std::string &name,
-                                const std::vector<cudaq::spin_op> &_stabilizers,
-                                const heterogeneous_map options) {
-  auto &registry = get_registry();
+std::unique_ptr<code>
+code::get(const std::string &name,
+          const std::vector<cudaq::spin_op_term> &_stabilizers,
+          const heterogeneous_map options) {
+  auto [mutex, registry] = get_registry();
+  std::lock_guard<std::recursive_mutex> lock(mutex);
   auto iter = registry.find(name);
   if (iter == registry.end())
     throw std::runtime_error("invalid qec_code requested: " + name);
@@ -27,7 +29,8 @@ std::unique_ptr<code> code::get(const std::string &name,
 
 std::unique_ptr<code> code::get(const std::string &name,
                                 const heterogeneous_map options) {
-  auto &registry = get_registry();
+  auto [mutex, registry] = get_registry();
+  std::lock_guard<std::recursive_mutex> lock(mutex);
   auto iter = registry.find(name);
   if (iter == registry.end())
     throw std::runtime_error("invalid qec_code requested: " + name);
@@ -59,7 +62,7 @@ cudaqx::tensor<uint8_t> code::get_observables_z() const {
 }
 
 std::unique_ptr<code> get_code(const std::string &name,
-                               const std::vector<cudaq::spin_op> &stab,
+                               const std::vector<cudaq::spin_op_term> &stab,
                                const heterogeneous_map options) {
   return code::get(name, stab, options);
 }

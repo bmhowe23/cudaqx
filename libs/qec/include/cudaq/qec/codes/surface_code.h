@@ -1,5 +1,5 @@
 /****************************************************************-*- C++ -*-****
- * Copyright (c) 2024 NVIDIA Corporation & Affiliates.                         *
+ * Copyright (c) 2024 - 2025 NVIDIA Corporation & Affiliates.                  *
  * All rights reserved.                                                        *
  *                                                                             *
  * This source code and the accompanying materials are made available under    *
@@ -160,11 +160,11 @@ public:
   /// @brief Print the stabilizers in sparse pauli format
   void print_stabilizers() const;
 
-  /// @brief Get the stabilizers as a vector of cudaq::spin_ops
-  std::vector<cudaq::spin_op> get_spin_op_stabilizers() const;
+  /// @brief Get the stabilizers as a vector of cudaq::spin_op_terms
+  std::vector<cudaq::spin_op_term> get_spin_op_stabilizers() const;
 
-  /// @brief Get the observables as a vector of cudaq::spin_ops
-  std::vector<cudaq::spin_op> get_spin_op_observables() const;
+  /// @brief Get the observables as a vector of cudaq::spin_op_terms
+  std::vector<cudaq::spin_op_term> get_spin_op_observables() const;
 };
 
 /// \pure_device_kernel
@@ -249,6 +249,14 @@ protected:
   /// @brief Get the number of Z ancilla qubits in the surface_code
   /// @return Number of data qubits ((distance^2 - 1)/2 for surface_code)
   std::size_t get_num_ancilla_z_qubits() const override;
+
+  /// @brief Get number of X stabilizer that can be measured
+  /// @return Number of X-type stabilizers
+  std::size_t get_num_x_stabilizers() const override;
+
+  /// @brief Get number of Z stabilizer that can be measured
+  /// @return Number of Z-type stabilizers
+  std::size_t get_num_z_stabilizers() const override;
 
 public:
   /// @brief Constructor for the surface_code

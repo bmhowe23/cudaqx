@@ -1,5 +1,5 @@
 /****************************************************************-*- C++ -*-****
- * Copyright (c) 2024 NVIDIA Corporation & Affiliates.                         *
+ * Copyright (c) 2024 - 2025 NVIDIA Corporation & Affiliates.                  *
  * All rights reserved.                                                        *
  *                                                                             *
  * This source code and the accompanying materials are made available under    *
@@ -39,12 +39,21 @@ private:
   }
 
 public:
+  // Type aliases for iterators
+  using iterator = std::unordered_map<std::string, std::any>::iterator;
+  using const_iterator =
+      std::unordered_map<std::string, std::any>::const_iterator;
+
+  // Iterator methods
+  iterator begin() { return items.begin(); }
+  iterator end() { return items.end(); }
+  const_iterator begin() const { return items.begin(); }
+  const_iterator end() const { return items.end(); }
+  const_iterator cbegin() const { return items.cbegin(); }
+  const_iterator cend() const { return items.cend(); }
+
   /// @brief Default constructor
   heterogeneous_map() = default;
-
-  /// @brief Copy constructor
-  /// @param _other The map to copy from
-  heterogeneous_map(const heterogeneous_map &_other) { *this = _other; }
 
   /// @brief Constructor from initializer list
   /// @param list The initializer list of key-value pairs
@@ -56,17 +65,6 @@ public:
 
   /// @brief Clear the map
   void clear() { items.clear(); }
-
-  /// @brief Assignment operator
-  /// @param _other The map to assign from
-  /// @return Reference to this map
-  heterogeneous_map &operator=(const heterogeneous_map &_other) {
-    if (this != &_other) {
-      clear();
-      items = _other.items;
-    }
-    return *this;
-  }
 
   /// @brief Insert a key-value pair into the map
   /// @tparam T The type of the value
@@ -92,7 +90,8 @@ public:
   template <typename T, typename KeyT,
             std::enable_if_t<std::is_convertible_v<KeyT, std::string>, int> = 0>
   const T get(const KeyT &key) const {
-    auto iter = items.find(key);
+    const std::string keyStr{key}; // build once to avoid repeated conversions
+    auto iter = items.find(keyStr);
     if (iter == items.end())
       throw std::runtime_error("Invalid key.");
 
@@ -121,8 +120,8 @@ public:
 
     // Can't find it, throw an exception
     throw std::runtime_error(
-        "heterogeneous_map::get() error - Invalid type or key (" +
-        std::string(key) + ").");
+        "heterogeneous_map::get() error - Invalid type or key (" + keyStr +
+        ").");
 
     return T();
   }
@@ -184,6 +183,10 @@ public:
   /// @brief Get the size of the map
   /// @return The number of key-value pairs in the map
   std::size_t size() const { return items.size(); }
+
+  /// @brief Check if the map is empty
+  /// @return true if the map is empty, false otherwise
+  bool empty() const { return items.empty(); }
 
   /// @brief Check if the map contains a key
   /// @param key The key to check

@@ -1,5 +1,5 @@
 # ============================================================================ #
-# Copyright (c) 2024 NVIDIA Corporation & Affiliates.                          #
+# Copyright (c) 2024 - 2025 NVIDIA Corporation & Affiliates.                   #
 # All rights reserved.                                                         #
 #                                                                              #
 # This source code and the accompanying materials are made available under     #
@@ -27,12 +27,17 @@ cudaqx_add_pymodule(${MODULE_NAME}
   bindings/cudaqx_qec.cpp
   bindings/py_code.cpp
   bindings/py_decoder.cpp
+  bindings/py_decoding_config.cpp
+  bindings/py_decoding.cpp
+  bindings/py_surface_code.cpp
+  bindings/py_patch.cpp
 )
 
 target_link_libraries(${MODULE_NAME} 
   PRIVATE 
     cudaq-qec
-    cudaq::cudaq
+    cudaq-qec-realtime-decoding
+    cudaq::cudaq-python-interop
 )
 
 set_target_properties(${MODULE_NAME} PROPERTIES

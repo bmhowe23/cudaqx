@@ -13,15 +13,23 @@ add_compile_options(-Wno-attributes)
 # FIXME?: This must be a shared library. Trying to build a static one will fail.
 add_library(${LIBRARY_NAME} SHARED
   code.cpp
-  stabilizer_utils.cpp 
   decoder.cpp
+  detector_error_model.cpp
   experiments.cpp
-  decoders/single_error_lut.cpp
+  pcm_utils.cpp
   plugin_loader.cpp
+  stabilizer_utils.cpp 
+  decoders/lut.cpp
+  decoders/sliding_window.cpp
   version.cpp
 )
 
 add_subdirectory(decoders/plugins/example)
+
+if(CUDAQ_QEC_BUILD_TRT_DECODER)
+  add_subdirectory(decoders/plugins/trt_decoder)
+endif()
+
 add_subdirectory(codes)
 add_subdirectory(device) 
 
@@ -43,7 +51,6 @@ target_link_options(${LIBRARY_NAME} PUBLIC
 target_link_libraries(${LIBRARY_NAME}
   PUBLIC 
     cudaqx-core
-    cudaq::cudaq 
     cudaq::cudaq-operator
   PRIVATE
     cudaq::cudaq-common
@@ -86,3 +93,4 @@ install(DIRECTORY ${CUDAQX_QEC_INCLUDE_DIR}/cudaq
   FILES_MATCHING PATTERN "*.h"
 )
 
+add_subdirectory(realtime)
