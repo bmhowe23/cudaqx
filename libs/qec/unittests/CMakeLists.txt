@@ -1,5 +1,5 @@
 # ============================================================================ #
-# Copyright (c) 2024 - 2025 NVIDIA Corporation & Affiliates.                   #
+# Copyright (c) 2024 - 2026 NVIDIA Corporation & Affiliates.                   #
 # All rights reserved.                                                         #
 #                                                                              #
 # This source code and the accompanying materials are made available under     #
@@ -48,6 +48,11 @@ target_link_libraries(test_qec PRIVATE GTest::gtest_main cudaq-qec cudaq::cudaq-
 add_dependencies(CUDAQXQECUnitTests test_qec)
 gtest_discover_tests(test_qec)
 
+add_executable(test_sparse_binary_matrix test_sparse_binary_matrix.cpp)
+target_link_libraries(test_sparse_binary_matrix PRIVATE GTest::gtest_main cudaq-qec
+                                               cudaq::cudaq)
+add_dependencies(CUDAQXQECUnitTests test_sparse_binary_matrix)
+gtest_discover_tests(test_sparse_binary_matrix)
 
 # TensorRT decoder test is only built for x86 architectures
 if(CUDAQ_QEC_BUILD_TRT_DECODER AND CMAKE_SYSTEM_PROCESSOR MATCHES "(x86_64)|(AMD64|amd64)|(^i.86$)")
