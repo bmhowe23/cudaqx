@@ -8,7 +8,6 @@
 
 #include "pymatching/sparse_blossom/driver/mwpm_decoding.h"
 #include "pymatching/sparse_blossom/driver/user_graph.h"
-#include "stim.h"
 #include "cudaq/qec/decoder.h"
 #include "cudaq/qec/pcm_utils.h"
 #include <algorithm>
@@ -27,7 +26,6 @@ private:
   // Input parameters
   std::vector<double> error_rate_vec;
   pm::MERGE_STRATEGY merge_strategy_enum = pm::MERGE_STRATEGY::DISALLOW;
-  bool enable_correlations = false;
 
   // Map of edge pairs to column indices. This does not seem particularly
   // efficient.
@@ -79,48 +77,11 @@ public:
       }
     }
 
-    if (params.contains("enable_correlations")) {
-      enable_correlations = params.get<bool>("enable_correlations");
-    }
+    user_graph = pm::UserGraph(H.num_rows());
 
     std::vector<std::vector<std::uint32_t>> H_e2d = H.to_nested_csc();
     std::vector<size_t> observables;
     std::size_t col_idx = 0;
-
-    if (enable_correlations) {
-      std::cout << "Using correlated error model." << std::endl;
-      // Verify that dem_string is provided.
-      if (!params.contains("dem_string")) {
-        throw std::runtime_error(
-            "dem_string must be provided when enable_correlations is true");
-      }
-      std::string dem_string = params.get<std::string>("dem_string");
-      auto dem = stim::DetectorErrorModel(dem_string);
-      user_graph = pm::detector_error_model_to_user_graph(
-          dem, true, pm::NUM_DISTINCT_WEIGHTS);
-      // Verify that the user graph has the same number of nodes as the check
-      // matrix.
-      if (user_graph.get_num_edges() != H.num_cols()) {
-        throw std::runtime_error(
-            "Number of edges in the user graph does not match the number of "
-            "columns in the check matrix");
-      }
-      for (std::size_t col = 0; col < block_size; col++) {
-        double weight = 1.0;
-        if (H_e2d[col].size() == 2) {
-          edge2col_idx[make_canonical_edge(H_e2d[col][0], H_e2d[col][1])] =
-              col_idx;
-        } else if (H_e2d[col].size() == 1) {
-          edge2col_idx[make_canonical_edge(H_e2d[col][0], -1)] = col_idx;
-        }
-        col_idx++;
-      }
-      return;
-    }
-
-    // Non-correlated error model.
-    user_graph = pm::UserGraph(H.num_rows());
-
     for (std::size_t col = 0; col < block_size; col++) {
       double weight = 1.0;
       if (col_idx < error_rate_vec.size()) {
@@ -159,12 +120,7 @@ public:
     for (size_t i = 0; i < syndrome.size(); i++)
       if (syndrome[i] > 0.5)
         detection_events.push_back(i);
-    if (enable_correlations) {
-      pm::decode_detection_events_to_edges_with_edge_correlations(
-          mwpm, detection_events, edges);
-    } else {
-      pm::decode_detection_events_to_edges(mwpm, detection_events, edges);
-    }
+    pm::decode_detection_events_to_edges(mwpm, detection_events, edges);
     // Loop over the edge pairs
     assert(edges.size() % 2 == 0);
     for (size_t i = 0; i < edges.size(); i += 2) {
