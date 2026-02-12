@@ -8,13 +8,13 @@
 
 #include "pymatching/sparse_blossom/driver/mwpm_decoding.h"
 #include "pymatching/sparse_blossom/driver/user_graph.h"
+#include "stim.h"
 #include "cudaq/qec/decoder.h"
 #include "cudaq/qec/pcm_utils.h"
 #include <algorithm>
 #include <cassert>
 #include <map>
 #include <vector>
-#include "stim.h"
 
 namespace cudaq::qec {
 
@@ -96,8 +96,10 @@ public:
       }
       std::string dem_string = params.get<std::string>("dem_string");
       auto dem = stim::DetectorErrorModel(dem_string);
-      user_graph = pm::detector_error_model_to_user_graph(dem, true, pm::NUM_DISTINCT_WEIGHTS);
-      // Verify that the user graph has the same number of nodes as the check matrix.
+      user_graph = pm::detector_error_model_to_user_graph(
+          dem, true, pm::NUM_DISTINCT_WEIGHTS);
+      // Verify that the user graph has the same number of nodes as the check
+      // matrix.
       if (user_graph.get_num_edges() != H.num_cols()) {
         throw std::runtime_error(
             "Number of edges in the user graph does not match the number of "
@@ -115,7 +117,7 @@ public:
       }
       return;
     }
-    
+
     // Non-correlated error model.
     user_graph = pm::UserGraph(H.num_rows());
 

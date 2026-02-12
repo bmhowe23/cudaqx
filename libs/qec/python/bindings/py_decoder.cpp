@@ -12,8 +12,8 @@
 #include "cudaq/qec/detector_error_model.h"
 #include "cudaq/qec/pcm_utils.h"
 #include "cudaq/qec/plugin_loader.h"
-#include "cudaq/runtime/logger/logger.h"
 #include "cudaq/qec/sparse_binary_matrix.h"
+#include "cudaq/runtime/logger/logger.h"
 #include <filesystem>
 #include <limits>
 #include <link.h>
@@ -34,7 +34,8 @@ namespace cudaq::qec {
 
 /// Build sparse_binary_matrix from Python dict with keys layout, num_rows,
 /// num_cols, nested (nested_csc or nested_csr format).
-static sparse_binary_matrix sparse_binary_matrix_from_py_dict(const py::dict &d) {
+static sparse_binary_matrix
+sparse_binary_matrix_from_py_dict(const py::dict &d) {
   if (!d.contains("layout") || !d.contains("num_rows") ||
       !d.contains("num_cols") || !d.contains("nested"))
     throw std::runtime_error(
@@ -43,10 +44,10 @@ static sparse_binary_matrix sparse_binary_matrix_from_py_dict(const py::dict &d)
         "is a list of lists (column indices per column for csc, row "
         "indices per row for csr).");
   std::string layout = d["layout"].cast<std::string>();
-  auto num_rows =
-      static_cast<sparse_binary_matrix::index_type>(d["num_rows"].cast<std::size_t>());
-  auto num_cols =
-      static_cast<sparse_binary_matrix::index_type>(d["num_cols"].cast<std::size_t>());
+  auto num_rows = static_cast<sparse_binary_matrix::index_type>(
+      d["num_rows"].cast<std::size_t>());
+  auto num_cols = static_cast<sparse_binary_matrix::index_type>(
+      d["num_cols"].cast<std::size_t>());
   py::list nested_py = d["nested"].cast<py::list>();
   std::vector<std::vector<sparse_binary_matrix::index_type>> nested;
   nested.reserve(nested_py.size());
