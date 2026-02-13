@@ -106,6 +106,28 @@ if(CUDAQ_REALTIME_ROOT AND CMAKE_CUDA_COMPILER)
   
   add_dependencies(CUDAQXQECUnitTests test_gpu_kernels)
   gtest_discover_tests(test_gpu_kernels)
+
+  # Standalone benchmark: detector matrix from generate_timelike_sparse_detector_matrix + preprocess_all timing
+  add_executable(bench_preprocess_all
+    ${CMAKE_CURRENT_SOURCE_DIR}/decoders/realtime/bench_preprocess_all.cu
+  )
+  set_target_properties(bench_preprocess_all PROPERTIES
+    CUDA_SEPARABLE_COMPILATION ON
+    # CUDA_RESOLVE_DEVICE_SYMBOLS ON
+    CUDA_STANDARD 17
+  )
+  target_include_directories(bench_preprocess_all PRIVATE
+    ${CUDAToolkit_INCLUDE_DIRS}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../include
+    ${CMAKE_SOURCE_DIR}/libs/core/include
+  )
+  target_link_libraries(bench_preprocess_all PRIVATE
+    CUDA::cudart
+    cudaq::cudaq
+    cudaq-qec
+    cudaq-qec-realtime-cudevice
+  )
+  add_dependencies(CUDAQXQECUnitTests bench_preprocess_all)
   
   # Realtime decoding end-to-end test with mock decoder
   # This test integrates with cuda-quantum's host API (libcudaq-realtime.so)
