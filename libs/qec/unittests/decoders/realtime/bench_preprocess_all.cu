@@ -101,7 +101,8 @@ int main(int argc, char **argv) {
     }
     num_cols = std::max(num_cols, static_cast<int>(d));
   }
-  num_cols++;
+  num_cols++; // column indices are 0-based, so add 1 to get the number of
+              // columns
   printf("Detector matrix: %d rows, %d cols\n", num_rows, num_cols);
   if (num_syndromes_per_round == 0 && num_rounds == 0 &&
       include_first_round == false) {
@@ -182,7 +183,9 @@ int main(int argc, char **argv) {
 
   cudaDeviceProp prop;
   CUDA_CHECK(cudaGetDeviceProperties(&prop, device));
-  double clock_khz = static_cast<double>(prop.clockRate);
+  int clock_rate_khz = 0;
+  CUDA_CHECK(cudaDeviceGetAttribute(&clock_rate_khz, cudaDevAttrClockRate, device));
+  double clock_khz = static_cast<double>(clock_rate_khz);
   double clock_mhz = clock_khz / 1000.0;
   std::printf("GPU: %s, clock: %.1f MHz\n", prop.name, clock_mhz);
   // cycles / (cycles per second) = seconds; * 1000 = ms
