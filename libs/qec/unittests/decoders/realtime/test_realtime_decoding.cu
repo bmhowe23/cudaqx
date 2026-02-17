@@ -268,13 +268,15 @@ __global__ void init_function_table(cudaq_function_entry_t *entries) {
 
 extern "C" void launch_dispatch_kernel_wrapper(
     volatile std::uint64_t *rx_flags, volatile std::uint64_t *tx_flags,
-    cudaq_function_entry_t *function_table, std::size_t func_count,
-    volatile int *shutdown_flag, std::uint64_t *stats, std::size_t num_slots,
-    std::uint32_t num_blocks, std::uint32_t threads_per_block,
-    cudaStream_t stream) {
+    std::uint8_t *rx_data, std::uint8_t *tx_data, std::size_t rx_stride_sz,
+    std::size_t tx_stride_sz, cudaq_function_entry_t *function_table,
+    std::size_t func_count, volatile int *shutdown_flag, std::uint64_t *stats,
+    std::size_t num_slots, std::uint32_t num_blocks,
+    std::uint32_t threads_per_block, cudaStream_t stream) {
   cudaq_launch_dispatch_kernel_regular(
-      rx_flags, tx_flags, function_table, func_count, shutdown_flag, stats,
-      num_slots, num_blocks, threads_per_block, stream);
+      rx_flags, tx_flags, rx_data, tx_data, rx_stride_sz, tx_stride_sz,
+      function_table, func_count, shutdown_flag, stats, num_slots, num_blocks,
+      threads_per_block, stream);
 }
 
 // Helper function to check if a GPU is available
@@ -422,12 +424,16 @@ protected:
     cudaq_ringbuffer_t ringbuffer{};
     ringbuffer.rx_flags = rx_flags_;
     ringbuffer.tx_flags = tx_flags_;
+    ringbuffer.rx_data = rx_data_;
+    ringbuffer.tx_data = tx_data_;
+    ringbuffer.rx_stride_sz = slot_size_;
+    ringbuffer.tx_stride_sz = slot_size_;
     ASSERT_EQ(cudaq_dispatcher_set_ringbuffer(dispatcher_, &ringbuffer),
               CUDAQ_OK);
 
     cudaq_function_table_t table{};
     table.entries = d_function_entries_;
-    table.count = func_count_;
+    table.count = 1; // FIXME - why is this 1?
     ASSERT_EQ(cudaq_dispatcher_set_function_table(dispatcher_, &table),
               CUDAQ_OK);
 
@@ -571,13 +577,14 @@ protected:
            measurements.size());
   }
 
-  /// @brief Read response from TX buffer.
+  /// @brief Read response from TX buffer (symmetric: dispatch kernel writes to
+  /// TX).
   bool read_rpc_response(std::size_t slot, uint8_t &correction,
                          std::int32_t *status_out = nullptr,
                          std::uint32_t *result_len_out = nullptr) {
     __sync_synchronize();
     const uint8_t *slot_data =
-        const_cast<uint8_t *>(rx_data_host_) + slot * slot_size_;
+        const_cast<uint8_t *>(tx_data_host_) + slot * slot_size_;
 
     // Read RPCResponse
     const cudaq::nvqlink::RPCResponse *response =
@@ -632,7 +639,7 @@ protected:
 
   // Function table for dispatch kernel
   cudaq_function_entry_t *d_function_entries_ = nullptr;
-  std::size_t func_count_ = 0;
+  std::size_t func_count_ = 1;
 
   // Graph launch support
   cudaGraph_t graph_ = nullptr;
@@ -760,9 +767,9 @@ TEST_F(RealtimeDecodingTest, DispatchKernelAllShotsGraphLaunch) {
   // works
   cudaq_dispatch_graph_context *dispatch_ctx = nullptr;
   cudaError_t create_err = cudaq_create_dispatch_graph_regular(
-      rx_flags_, tx_flags_, d_function_entries_, func_count_, d_current_buffer_,
-      d_shutdown_flag_, d_stats_, num_slots_, 1, 32, dispatch_stream,
-      &dispatch_ctx);
+      rx_flags_, tx_flags_, rx_data_, tx_data_, slot_size_, slot_size_,
+      d_function_entries_, func_count_, d_current_buffer_, d_shutdown_flag_,
+      d_stats_, num_slots_, 1, 32, dispatch_stream, &dispatch_ctx);
 
   if (create_err != cudaSuccess) {
     cudaStreamDestroy(dispatch_stream);
