@@ -81,22 +81,27 @@ public:
 
     std::vector<std::vector<size_t>> errs2observables(block_size);
     if (params.contains("O")) {
-      auto O = params.get<std::vector<uint8_t>>("O");
-      int num_observables = O.size() / block_size;
-      uint8_t *O_ptr = O.data();
-      if (O.size() % block_size != 0) {
+      auto O = params.get<cudaqx::tensor<uint8_t>>("O");
+      if (O.rank() != 2) {
         throw std::runtime_error(
-            "O must be of size num_observables * block_size");
+            "O must be a 2-dimensional tensor (num_observables x block_size)");
       }
-      // Convert O to a sparse matrix and save it.
+      const size_t num_observables = O.shape()[0];
+      if (O.shape()[1] != block_size) {
+        throw std::runtime_error(
+            "O must be of shape (num_observables, block_size); got second "
+            "dimension " +
+            std::to_string(O.shape()[1]) + ", block_size " +
+            std::to_string(block_size));
+      }
       std::vector<std::vector<uint32_t>> O_sparse;
       for (size_t i = 0; i < num_observables; i++) {
         O_sparse.emplace_back();
-        const auto *row = &O_ptr[i * block_size];
+        auto *row = &O.at({i, 0});
         for (size_t j = 0; j < block_size; j++) {
           if (row[j] > 0) {
-            O_sparse.back().push_back(j);
-            errs2observables[j].push_back(i);
+            O_sparse.back().push_back(static_cast<uint32_t>(j));
+            errs2observables[j].push_back(static_cast<uint32_t>(i));
           }
         }
       }
