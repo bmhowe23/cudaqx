@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2025 NVIDIA Corporation & Affiliates.                         *
+ * Copyright (c) 2025 - 2026 NVIDIA Corporation & Affiliates.                  *
  * All rights reserved.                                                        *
  *                                                                             *
  * This source code and the accompanying materials are made available under    *
@@ -98,24 +98,28 @@ public:
 static Logger gLogger;
 
 /// @brief TensorRT-based decoder for quantum error correction
-/// This decoder leverages NVIDIA TensorRT for accelerated inference
+/// This decoder leverages NVIDIA TensorRT for accelerated inference.
+///
+/// The network is built with strong typing
+/// (NetworkDefinitionCreationFlag::kSTRONGLY_TYPED), so TensorRT preserves the
+/// data types defined in the ONNX model exactly.  I/O tensor data types
+/// (float32, uint8) are automatically detected from the engine and host-side
+/// double values are converted to/from the engine's native types transparently.
 ///
 /// Constructor parameters:
 /// - "onnx_load_path": Path to ONNX model file (will build TensorRT engine)
 /// - "engine_load_path": Path to pre-built TensorRT engine file (loads
-/// directly)
+///   directly)
 /// - "engine_save_path": Path to save built TensorRT engine (optional)
-/// - "precision": Precision mode for inference (optional, default: "best")
-///   Options: "fp16", "bf16", "int8", "fp8", "noTF32", "best"
+/// - "precision": (optional, default: "best")  Accepted values: "tf32",
+///   "noTF32", "best".  Legacy values "fp16", "bf16", "int8", "fp8" are
+///   accepted but ignored with strongly-typed networks -- export the ONNX
+///   model in the desired precision instead.
 /// - "memory_workspace": Memory workspace size in bytes (optional, default:
-/// 1GB)
+///   1GB)
 ///
 /// Note: Only one of onnx_load_path or engine_load_path should be specified,
 /// not both.
-///
-/// I/O tensor data types (float32, uint8) are automatically detected from the
-/// engine. Host-side double values are converted to/from the engine's native
-/// types transparently.
 namespace cudaq::qec {
 
 // ============================================================================
@@ -735,9 +739,9 @@ trt_decoder::decode_batch(const std::vector<std::vector<float_t>> &syndromes) {
             input_host[batch_idx * syndrome_size_per_sample_ + i] =
                 static_cast<T>(syndrome[i]);
         }
-        HANDLE_CUDA_ERROR(cudaMemcpy(
-            impl_->buffers[impl_->input_index], input_host.data(),
-            impl_->input_size * sizeof(T), cudaMemcpyHostToDevice));
+        HANDLE_CUDA_ERROR(
+            cudaMemcpy(impl_->buffers[impl_->input_index], input_host.data(),
+                       impl_->input_size * sizeof(T), cudaMemcpyHostToDevice));
       };
       if (impl_->input_dtype == nvinfer1::DataType::kUINT8)
         copy_input(uint8_t{});
@@ -751,9 +755,9 @@ trt_decoder::decode_batch(const std::vector<std::vector<float_t>> &syndromes) {
       auto extract_output = [&](auto type_tag) {
         using T = decltype(type_tag);
         std::vector<T> output_host(impl_->output_size);
-        HANDLE_CUDA_ERROR(cudaMemcpy(
-            output_host.data(), impl_->buffers[impl_->output_index],
-            impl_->output_size * sizeof(T), cudaMemcpyDeviceToHost));
+        HANDLE_CUDA_ERROR(
+            cudaMemcpy(output_host.data(), impl_->buffers[impl_->output_index],
+                       impl_->output_size * sizeof(T), cudaMemcpyDeviceToHost));
         for (size_t batch_idx = 0; batch_idx < model_batch_size_; ++batch_idx) {
           decoder_result result;
           result.converged = true;
@@ -803,65 +807,6 @@ CUDAQ_REGISTER_TYPE(trt_decoder)
 
 namespace cudaq::qec::trt_decoder_internal {
 
-// Hardware platform detection class
-class HardwarePlatform {
-private:
-  bool has_fp16_ = false;
-  bool has_int8_ = false;
-  bool has_bf16_ = false;
-  bool has_tf32_ = false;
-  bool has_fp8_ = false;
-  ;
-
-public:
-  HardwarePlatform() {
-    int device;
-    HANDLE_CUDA_ERROR(cudaGetDevice(&device));
-
-    cudaDeviceProp prop;
-    HANDLE_CUDA_ERROR(cudaGetDeviceProperties(&prop, device));
-
-    // ---- FP16 ----
-    if (prop.major > 6 || (prop.major == 6 && prop.minor >= 0))
-      has_fp16_ = true;
-    else if (prop.major == 5 && prop.minor == 3)
-      has_fp16_ = false;
-
-    // ---- INT8 ----
-    if (prop.major > 6 || (prop.major == 6 && prop.minor >= 1))
-      has_int8_ = true;
-    else
-      has_int8_ = false;
-
-    // ---- BF16 ----
-    // BF16 support is available on compute capability >= 8.0 (Ampere and later)
-    if (prop.major >= 8) {
-      has_bf16_ = true;
-    }
-
-    // ---- TF32 ----
-    // TF32 support is available on compute capability >= 8.0 (Ampere and later)
-    if (prop.major >= 8) {
-      has_tf32_ = true;
-    }
-
-    // ---- FP8 ----
-    // FP8 support is available on compute capability >= 9.0 (Hopper and later)
-    if (prop.major >= 9) {
-      has_fp8_ = true;
-    }
-  }
-
-  // Getter methods for device capabilities
-  bool device_has_fp16() const { return has_fp16_; }
-  bool device_has_int8() const { return has_int8_; }
-  bool device_has_bf16() const { return has_bf16_; }
-  bool device_has_tf32() const { return has_tf32_; }
-  bool device_has_fp8() const { return has_fp8_; }
-};
-
-// Free function to build TensorRT engine from ONNX model
-
 // Utility: load binary files (ONNX models or TensorRT engines)
 std::vector<char> load_file(const std::string &filename) {
   std::ifstream file(filename, std::ios::binary | std::ios::ate);
@@ -893,59 +838,22 @@ void validate_trt_decoder_parameters(const cudaqx::heterogeneous_map &params) {
   }
 }
 
-// Implementation of the helper function to parse and configure precision
-// settings
 void parse_precision(const std::string &precision,
                      nvinfer1::IBuilderConfig *config) {
-  // Create hardware platform detector
-  HardwarePlatform platform;
-
-  if (precision == "fp16") {
-    if (platform.device_has_fp16()) {
-      config->setFlag(nvinfer1::BuilderFlag::kFP16);
-    } else {
-      CUDAQ_WARN("Warning: FP16 requested but not supported on this platform, "
-                 "using FP32");
-    }
-  } else if (precision == "bf16") {
-    if (platform.device_has_bf16()) {
-      config->setFlag(nvinfer1::BuilderFlag::kBF16);
-    } else {
-      CUDAQ_WARN("Warning: BF16 requested but not supported on this platform, "
-                 "using FP32");
-    }
-  } else if (precision == "int8") {
-    if (platform.device_has_int8()) {
-      config->setFlag(nvinfer1::BuilderFlag::kINT8);
-    } else {
-      CUDAQ_WARN("Warning: INT8 requested but not supported on this platform, "
-                 "using FP32");
-    }
-  } else if (precision == "fp8") {
-    if (platform.device_has_fp8()) {
-      config->setFlag(nvinfer1::BuilderFlag::kFP8);
-    } else {
-      CUDAQ_WARN("Warning: FP8 requested but not supported on this platform, "
-                 "using FP32");
-    }
-  } else if (precision == "tf32") {
-    if (platform.device_has_tf32()) {
-      config->setFlag(nvinfer1::BuilderFlag::kTF32);
-    } else {
-      CUDAQ_WARN("Warning: TF32 requested but not supported on this platform, "
-                 "using FP32");
-    }
+  if (precision == "tf32") {
+    config->setFlag(nvinfer1::BuilderFlag::kTF32);
   } else if (precision == "noTF32") {
-    config->setFlag(nvinfer1::BuilderFlag::kDISABLE_TIMING_CACHE);
-    // Note: This disables timing cache, not TF32 directly
-    // TF32 is controlled by the kTF32 flag, which is enabled by default in
-    // newer TensorRT versions
+    config->clearFlag(nvinfer1::BuilderFlag::kTF32);
   } else if (precision == "best") {
-    // Let TensorRT choose the best precision automatically
-    // This is the default behavior, no additional flags needed
+    // With strongly-typed networks the ONNX model's native types are used.
+  } else if (precision == "fp16" || precision == "bf16" ||
+             precision == "int8" || precision == "fp8") {
+    CUDAQ_WARN("Precision '{}' is ignored when building strongly-typed "
+               "networks. TensorRT uses the data types defined in the ONNX "
+               "model. To use {}, export the model with the desired types.",
+               precision, precision);
   } else {
-    CUDAQ_WARN("Warning: Unknown precision '{}', using default (best)",
-               precision);
+    CUDAQ_WARN("Unknown precision '{}', using default (best)", precision);
   }
 }
 
@@ -960,8 +868,10 @@ build_engine_from_onnx(const std::string &onnx_model_path,
     throw std::runtime_error("Failed to create TensorRT builder");
   }
 
-  auto network = std::unique_ptr<nvinfer1::INetworkDefinition>(
-      builder->createNetworkV2(0U));
+  auto network =
+      std::unique_ptr<nvinfer1::INetworkDefinition>(builder->createNetworkV2(
+          1U << static_cast<uint32_t>(
+              nvinfer1::NetworkDefinitionCreationFlag::kSTRONGLY_TYPED)));
   if (!network) {
     throw std::runtime_error("Failed to create TensorRT network");
   }
