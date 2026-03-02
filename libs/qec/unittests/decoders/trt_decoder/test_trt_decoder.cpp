@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2024 - 2025 NVIDIA Corporation & Affiliates.                  *
+ * Copyright (c) 2024 - 2026 NVIDIA Corporation & Affiliates.                  *
  * All rights reserved.                                                        *
  *                                                                             *
  * This source code and the accompanying materials are made available under    *
@@ -18,6 +18,17 @@
 #include <vector>
 
 using namespace cudaq::qec;
+
+// Path to ONNX test asset. Set by CMake (absolute path) so the test finds it
+// regardless of the executable's run directory.
+static std::string get_onnx_asset_path() {
+#ifdef TRT_TEST_ONNX_PATH
+  return std::string(TRT_TEST_ONNX_PATH);
+#else
+  // Fallback when not built with CMake: relative to project root
+  return "assets/tests/surface_code_decoder.onnx";
+#endif
+}
 
 // Test fixture for TRT decoder tests
 class TRTDecoderTest : public ::testing::Test {
@@ -150,8 +161,7 @@ TEST_F(TRTDecoderTest, ValidateParameters_EdgeCases) {
 // This test validates that the TRT decoder produces identical results to
 // PyTorch
 TEST_F(TRTDecoderTest, ValidateAgainstPyTorchModel) {
-  // Check if the ONNX model file exists
-  std::string onnx_path = "surface_code_decoder.onnx";
+  std::string onnx_path = get_onnx_asset_path();
   if (!std::filesystem::exists(onnx_path)) {
     GTEST_SKIP() << "ONNX model file not found: " << onnx_path;
   }
@@ -248,8 +258,7 @@ TEST_F(TRTDecoderTest, ValidateAgainstPyTorchModel) {
 
 // Test a single specific case for detailed debugging
 TEST_F(TRTDecoderTest, ValidateSingleTestCase) {
-  // Check if the ONNX model file exists
-  std::string onnx_path = "surface_code_decoder.onnx";
+  std::string onnx_path = get_onnx_asset_path();
   if (!std::filesystem::exists(onnx_path)) {
     GTEST_SKIP() << "ONNX model file not found: " << onnx_path;
   }
@@ -300,8 +309,7 @@ TEST_F(TRTDecoderTest, ValidateSingleTestCase) {
 
 // Test performance comparison: CUDA Graph vs Traditional execution
 TEST_F(TRTDecoderTest, PerformanceComparisonCudaGraphVsTraditional) {
-  // Check if the ONNX model file exists
-  std::string onnx_path = "surface_code_decoder.onnx";
+  std::string onnx_path = get_onnx_asset_path();
   if (!std::filesystem::exists(onnx_path)) {
     GTEST_SKIP() << "ONNX model file not found: " << onnx_path;
   }

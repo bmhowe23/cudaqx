@@ -70,6 +70,9 @@ if(CUDAQ_QEC_BUILD_TRT_DECODER AND CMAKE_SYSTEM_PROCESSOR MATCHES "(x86_64)|(AMD
   )
 
   target_link_libraries(test_trt_decoder PRIVATE GTest::gtest_main cudaq-qec cudaq-qec-trt-decoder cudaq::cudaq)
+  # Path to ONNX test asset at repo root (absolute so test finds it regardless of CWD)
+  target_compile_definitions(test_trt_decoder PRIVATE
+    TRT_TEST_ONNX_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../../../assets/tests/surface_code_decoder.onnx")
   add_dependencies(CUDAQXQECUnitTests test_trt_decoder)
   gtest_discover_tests(test_trt_decoder)
 endif()
