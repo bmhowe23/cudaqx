@@ -537,17 +537,15 @@ trt_decoder::trt_decoder(const cudaqx::tensor<uint8_t> &H,
 
     if (impl_->input_dtype != nvinfer1::DataType::kFLOAT &&
         impl_->input_dtype != nvinfer1::DataType::kUINT8) {
-      throw std::runtime_error(
-          "Unsupported input tensor data type: " +
-          std::string(dataTypeName(impl_->input_dtype)) +
-          ". Supported types: float32, uint8");
+      throw std::runtime_error("Unsupported input tensor data type: " +
+                               std::string(dataTypeName(impl_->input_dtype)) +
+                               ". Supported types: float32, uint8");
     }
     if (impl_->output_dtype != nvinfer1::DataType::kFLOAT &&
         impl_->output_dtype != nvinfer1::DataType::kUINT8) {
-      throw std::runtime_error(
-          "Unsupported output tensor data type: " +
-          std::string(dataTypeName(impl_->output_dtype)) +
-          ". Supported types: float32, uint8");
+      throw std::runtime_error("Unsupported output tensor data type: " +
+                               std::string(dataTypeName(impl_->output_dtype)) +
+                               ". Supported types: float32, uint8");
     }
 
     auto inputDims = impl_->engine->getTensorShape(inputTensorName);
