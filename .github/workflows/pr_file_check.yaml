@@ -26,11 +26,21 @@ jobs:
 
       - name: Check for large files
         run: |
-          MAX_SIZE=100K  # Set max file size limit
-          LARGE_FILES=$(git diff --name-only --diff-filter=A origin/${{ github.event.pull_request.base.ref }} | xargs du -h | awk -v max="$MAX_SIZE" '$1 > max {print $2}')
+          MAX_SIZE_BYTES=102400  # 100KB
+          MAX_SIZE_HUMAN="100KB"
+          LARGE_FILES=""
+          while IFS= read -r file; do
+            if [[ -f "$file" ]]; then
+              size=$(stat --format='%s' "$file")
+              if (( size > MAX_SIZE_BYTES )); then
+                human_size=$(numfmt --to=iec "$size")
+                LARGE_FILES+="  $file ($human_size)"$'\n'
+              fi
+            fi
+          done < <(git diff --name-only --diff-filter=A origin/${{ github.event.pull_request.base.ref }})
 
-          if [[ ! -z "$LARGE_FILES" ]]; then
-            echo "❌ The following files exceed the allowed size of $MAX_SIZE:"
+          if [[ -n "$LARGE_FILES" ]]; then
+            echo "❌ The following files exceed the allowed size of $MAX_SIZE_HUMAN:"
             echo "$LARGE_FILES"
             exit 1
           fi
