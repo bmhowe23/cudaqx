@@ -71,6 +71,20 @@ struct detector_error_model {
 
 /// Parse Stim DEM text into detector/observable flip matrices and error rates.
 /// DEM-native decoders should consume raw DEM text instead.
-detector_error_model dem_from_stim_text(const std::string &dem_text);
+///
+/// @param dem_text The Stim detector error model text to parse.
+/// @param decompose_errors Controls how '^' separators (Stim's suggested
+/// graph-like decomposition) are handled. When false (the default), the
+/// separators are ignored and each error instruction becomes a single error
+/// mechanism. When true, the decomposition is honored: each '^'-separated
+/// component becomes its own error mechanism (column), carrying the
+/// instruction's full probability (matching the graph-like edge semantics of
+/// matching decoders).
+/// @note This is a faithful, one-column-per-component transcription: identical
+/// components (same detectors and observables) are not merged here. Combining
+/// duplicate edges into a single mechanism with the appropriate probability is
+/// left to a downstream canonicalization pass (e.g. canonicalize_for_rounds).
+detector_error_model dem_from_stim_text(const std::string &dem_text,
+                                        bool decompose_errors = false);
 
 } // namespace cudaq::qec

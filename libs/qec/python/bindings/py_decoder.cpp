@@ -768,8 +768,16 @@ void bindDecoder(nb::module_ &mod) {
 
   qecmod.def(
       "dem_from_stim_text", &dem_from_stim_text,
-      "Parse a Stim detector error model string into a DetectorErrorModel.",
-      nb::arg("dem_text"));
+      "Parse a Stim detector error model string into a DetectorErrorModel.\n\n"
+      "When decompose_errors is False (the default), '^' separators in the Stim "
+      "DEM are ignored and each error instruction becomes a single error "
+      "mechanism. When True, the suggested graph-like decomposition is honored: "
+      "each '^'-separated component becomes its own error mechanism, carrying "
+      "the instruction's full probability.\n\n"
+      "This is a faithful, one-column-per-component transcription: identical "
+      "components are not merged here. Combining duplicate edges into a single "
+      "mechanism is left to a downstream canonicalization pass.",
+      nb::arg("dem_text"), nb::arg("decompose_errors") = false);
 
   // Expose decorator function that handles inheritance
   qecmod.def("decoder", [&](const std::string &name) {

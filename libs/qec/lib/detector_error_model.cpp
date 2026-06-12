@@ -20,7 +20,8 @@
 
 namespace cudaq::qec {
 
-detector_error_model dem_from_stim_text(const std::string &dem_text) {
+detector_error_model dem_from_stim_text(const std::string &dem_text,
+                                        bool decompose_errors) {
   auto dem = [&dem_text]() {
     try {
       return stim::DetectorErrorModel(dem_text);
@@ -50,11 +51,33 @@ detector_error_model dem_from_stim_text(const std::string &dem_text) {
                                std::to_string(prob) +
                                " out of range [0, 1] at instruction index " +
                                std::to_string(instruction_index));
+
+    // A Stim error instruction may contain '^' separators that suggest a
+    // decomposition of the error into graph-like components. When
+    // decompose_errors is false, the separators are ignored and the whole
+    // instruction becomes a single error mechanism (one column). When true,
+    // the suggested decomposition is honored: each '^'-separated component
+    // becomes its own error mechanism, each carrying the instruction's
+    // probability.
     std::vector<std::size_t> dets;
     std::vector<std::size_t> obs;
+    auto flush_component = [&]() {
+      // Skip components with no targets (e.g. a stray separator).
+      if (dets.empty() && obs.empty())
+        return;
+      detector_hits.push_back(std::move(dets));
+      observable_hits.push_back(std::move(obs));
+      rates.push_back(prob);
+      dets = {};
+      obs = {};
+    };
+
     for (const auto &target : inst.target_data) {
-      if (target.is_separator())
+      if (target.is_separator()) {
+        if (decompose_errors)
+          flush_component();
         continue;
+      }
       if (target.is_relative_detector_id()) {
         dets.push_back(static_cast<std::size_t>(target.val()));
       } else if (target.is_observable_id()) {
@@ -67,9 +90,7 @@ detector_error_model dem_from_stim_text(const std::string &dem_text) {
             "L* (observable) targets are supported by the fallback parser");
       }
     }
-    detector_hits.push_back(std::move(dets));
-    observable_hits.push_back(std::move(obs));
-    rates.push_back(prob);
+    flush_component();
     ++instruction_index;
   });
 

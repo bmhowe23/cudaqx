@@ -852,6 +852,58 @@ def test_dem_from_stim_text_explicit_parse_then_get_decoder():
     assert decoder.get_block_size() == 3
 
 
+def test_dem_from_stim_text_ignores_decomposition_by_default():
+    # The '^' separator suggests a graph-like decomposition. By default it is
+    # ignored and the whole instruction is a single error mechanism.
+    dem_text = "error(0.125) D0 D1 ^ D2 L0\n"
+
+    dem = qec.dem_from_stim_text(dem_text)
+    assert dem.num_detectors() == 3
+    assert dem.num_observables() == 1
+    assert dem.num_error_mechanisms() == 1
+
+    H = np.array(dem.detector_error_matrix)
+    O = np.array(dem.observables_flips_matrix)
+    assert H[:, 0].tolist() == [1, 1, 1]
+    assert O[:, 0].tolist() == [1]
+    assert list(dem.error_rates) == [0.125]
+
+
+def test_dem_from_stim_text_honors_decomposition_when_requested():
+    # With decompose_errors=True, each '^'-separated component becomes its own
+    # error mechanism, each carrying the instruction's full probability.
+    dem_text = "error(0.125) D0 D1 ^ D2 L0\n"
+
+    dem = qec.dem_from_stim_text(dem_text, decompose_errors=True)
+    assert dem.num_detectors() == 3
+    assert dem.num_observables() == 1
+    assert dem.num_error_mechanisms() == 2
+
+    H = np.array(dem.detector_error_matrix)
+    O = np.array(dem.observables_flips_matrix)
+    # Component 0: {D0, D1}, no observable flip.
+    assert H[:, 0].tolist() == [1, 1, 0]
+    assert O[:, 0].tolist() == [0]
+    # Component 1: {D2, L0}.
+    assert H[:, 1].tolist() == [0, 0, 1]
+    assert O[:, 1].tolist() == [1]
+    assert list(dem.error_rates) == [0.125, 0.125]
+
+
+def test_dem_from_stim_text_decomposition_is_opt_in_per_instruction():
+    # A DEM mixing a graph-like error with a decomposable one: only the
+    # decomposable instruction splits, and undecomposed errors are unaffected.
+    dem_text = ("error(0.1) D0 L0\n"
+                "error(0.2) D0 D1 ^ D1 D2\n")
+
+    plain = qec.dem_from_stim_text(dem_text)
+    assert plain.num_error_mechanisms() == 2
+
+    decomposed = qec.dem_from_stim_text(dem_text, decompose_errors=True)
+    assert decomposed.num_error_mechanisms() == 3
+    assert list(decomposed.error_rates) == [0.1, 0.2, 0.2]
+
+
 def test_get_decoder_rejects_malformed_stim_dem_text():
     with pytest.raises(RuntimeError):
         qec.get_decoder("single_error_lut", "not a valid DEM")

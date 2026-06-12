@@ -818,6 +818,49 @@ error(0.1) L0 L0
       << "duplicate L0 in error 1 should XOR-cancel to 0";
 }
 
+TEST(StimDemGetDecoder, IgnoresGraphLikeDecompositionByDefault) {
+  // A single error instruction with a '^' separator. By default the separator
+  // is ignored and the whole instruction is one error mechanism.
+  const std::string dem_text = "error(0.125) D0 D1 ^ D2 L0\n";
+
+  auto dem = cudaq::qec::dem_from_stim_text(dem_text);
+  ASSERT_EQ(dem.num_detectors(), 3u);
+  ASSERT_EQ(dem.num_observables(), 1u);
+  ASSERT_EQ(dem.num_error_mechanisms(), 1u);
+  EXPECT_EQ(dem.detector_error_matrix.at({0u, 0u}), 1u);
+  EXPECT_EQ(dem.detector_error_matrix.at({1u, 0u}), 1u);
+  EXPECT_EQ(dem.detector_error_matrix.at({2u, 0u}), 1u);
+  EXPECT_EQ(dem.observables_flips_matrix.at({0u, 0u}), 1u);
+  EXPECT_DOUBLE_EQ(dem.error_rates[0], 0.125);
+}
+
+TEST(StimDemGetDecoder, HonorsGraphLikeDecompositionWhenRequested) {
+  // The same instruction, but now the '^'-separated components each become
+  // their own error mechanism, each carrying the instruction's probability.
+  const std::string dem_text = "error(0.125) D0 D1 ^ D2 L0\n";
+
+  auto dem = cudaq::qec::dem_from_stim_text(dem_text,
+                                            /*decompose_errors=*/true);
+  ASSERT_EQ(dem.num_detectors(), 3u);
+  ASSERT_EQ(dem.num_observables(), 1u);
+  ASSERT_EQ(dem.num_error_mechanisms(), 2u);
+
+  // Component 0: {D0, D1}, no observable flip.
+  EXPECT_EQ(dem.detector_error_matrix.at({0u, 0u}), 1u);
+  EXPECT_EQ(dem.detector_error_matrix.at({1u, 0u}), 1u);
+  EXPECT_EQ(dem.detector_error_matrix.at({2u, 0u}), 0u);
+  EXPECT_EQ(dem.observables_flips_matrix.at({0u, 0u}), 0u);
+
+  // Component 1: {D2, L0}.
+  EXPECT_EQ(dem.detector_error_matrix.at({0u, 1u}), 0u);
+  EXPECT_EQ(dem.detector_error_matrix.at({1u, 1u}), 0u);
+  EXPECT_EQ(dem.detector_error_matrix.at({2u, 1u}), 1u);
+  EXPECT_EQ(dem.observables_flips_matrix.at({0u, 1u}), 1u);
+
+  EXPECT_DOUBLE_EQ(dem.error_rates[0], 0.125);
+  EXPECT_DOUBLE_EQ(dem.error_rates[1], 0.125);
+}
+
 TEST(StimDemGetDecoder, DemWithoutObservablesDoesNotAddODefault) {
   auto dem = cudaq::qec::dem_from_stim_text("error(0.1) D0\n");
   auto defaults = cudaq::qec::details::dem_defaults_for_missing_keys(
