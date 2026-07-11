@@ -308,6 +308,9 @@ def test_trt_decoder_config_set_and_get_each_optional(name, meta):
     assert getattr(trt, name) is None
 
 
+@pytest.mark.skipif(
+    qec.decoder_param_schema("trt_decoder") is None,
+    reason="trt_decoder plugin (and its parameter schema) not available")
 def test_trt_decoder_config_yaml_roundtrip():
     trt = qec.trt_decoder_config()
     trt.engine_load_path = "/path/to/engine.trt"
@@ -442,6 +445,9 @@ def test_pymatching_config_yaml_roundtrip():
     assert pm2.merge_strategy == "smallest_weight"
 
 
+@pytest.mark.skipif(
+    qec.decoder_param_schema("trt_decoder") is None,
+    reason="trt_decoder plugin (and its parameter schema) not available")
 def test_trt_decoder_chromobius_global_config_yaml_roundtrip():
     chromobius = qec.chromobius_config()
     chromobius.ignore_decomposition_failures = True

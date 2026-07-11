@@ -161,18 +161,22 @@ bool custom_args_maps_equal(const cudaqx::heterogeneous_map &a,
 }
 
 // ---------------------------------------------------------------------------
-// Built-in decoder schemas
+// Hosted decoder schemas
 //
-// These describe the custom-args of the decoders that ship with CUDA-Q QEC
-// (plus the proprietary nv-qldpc-decoder plugin, whose schema is hosted here
-// until the plugin registers it itself). Third-party decoders register their
-// schema from their own plugin library instead of editing this file.
+// Decoder schemas are registered by the shared library that ships the
+// decoder: lut.cpp and sliding_window.cpp register theirs in this library,
+// and the pymatching / chromobius / trt_decoder plugins register theirs from
+// their own .so. The nv-qldpc-decoder schema is hosted here temporarily: the
+// decoder is a proprietary out-of-tree plugin, and its schema (plus the
+// srelay_bp subschema it references) moves into that plugin once it links
+// against this registry. Third-party decoders register their schema from
+// their own plugin library instead of editing this file.
 // ---------------------------------------------------------------------------
 
 namespace {
 
-struct builtin_schema_registrar {
-  builtin_schema_registrar() {
+struct hosted_schema_registrar {
+  hosted_schema_registrar() {
     using k = param_kind;
 
     register_decoder_schema(
@@ -210,62 +214,10 @@ struct builtin_schema_registrar {
              {"composition", k::int32},
              {"repeatable", k::boolean},
          }});
-
-    register_decoder_schema({"single_error_lut", {}});
-
-    register_decoder_schema({"multi_error_lut",
-                             {
-                                 {"lut_error_depth", k::int32},
-                             }});
-
-    register_decoder_schema({"pymatching",
-                             {
-                                 {"error_rate_vec", k::f64_vec},
-                                 {"merge_strategy", k::string},
-                             }});
-
-    register_decoder_schema(
-        {"chromobius",
-         {
-             {"drop_mobius_errors_involving_remnant_errors", k::boolean},
-             {"ignore_decomposition_failures", k::boolean},
-             {"include_coords_in_mobius_dem", k::boolean},
-             {"return_weight", k::boolean},
-             {"write_mobius_match_to_stderr", k::boolean},
-         }});
-
-    register_decoder_schema(
-        {"trt_decoder",
-         {
-             {"onnx_load_path", k::string},
-             {"engine_load_path", k::string},
-             {"engine_save_path", k::string},
-             {"precision", k::string},
-             {"memory_workspace", k::uint64},
-             {"batch_size", k::uint64},
-             {"use_cuda_graph", k::boolean},
-             {"global_decoder", k::string},
-             {"global_decoder_params", k::discriminated, false, "",
-              "global_decoder", /*materialize_empty=*/true},
-         }});
-
-    register_decoder_schema(
-        {"sliding_window",
-         {
-             {"window_size", k::uint64},
-             {"step_size", k::uint64},
-             {"num_syndromes_per_round", k::uint64},
-             {"straddle_start_round", k::boolean},
-             {"straddle_end_round", k::boolean},
-             {"error_rate_vec", k::f64_vec, /*required=*/true},
-             {"inner_decoder_name", k::string, /*required=*/true},
-             {"inner_decoder_params", k::discriminated, false, "",
-              "inner_decoder_name", /*materialize_empty=*/false},
-         }});
   }
 };
 
-builtin_schema_registrar builtin_schemas;
+hosted_schema_registrar hosted_schemas;
 
 } // namespace
 

@@ -197,6 +197,14 @@ create_test_decoder_config_nv_qldpc(int id) {
   return config;
 }
 
+// The trt_decoder schema is registered by the trt_decoder plugin, which is
+// only built when TensorRT is available. YAML paths for trt configs require
+// it; typed-struct conversions do not.
+bool is_trt_decoder_schema_available() {
+  return cudaq::qec::decoding::config::find_decoder_schema("trt_decoder") !=
+         nullptr;
+}
+
 bool is_nv_qldpc_decoder_available() {
   try {
     std::size_t block_size = 7;
@@ -302,6 +310,8 @@ create_test_decoder_config_trt(int id) {
 }
 
 TEST(DecoderYAMLTest, TrtDecoderConfigRoundTrip) {
+  if (!is_trt_decoder_schema_available())
+    GTEST_SKIP() << "trt_decoder plugin (and its parameter schema) not built";
   cudaq::qec::decoding::config::multi_decoder_config multi_config;
   multi_config.decoders.push_back(create_test_decoder_config_trt(0));
 
@@ -354,6 +364,8 @@ TEST(DecoderYAMLTest, TrtDecoderRealtimeParamsIncludeObservableMatrix) {
 }
 
 TEST(DecoderYAMLTest, TrtDecoderMonostateGlobalDecoderParams) {
+  if (!is_trt_decoder_schema_available())
+    GTEST_SKIP() << "trt_decoder plugin (and its parameter schema) not built";
   auto config = create_test_decoder_config_trt(0);
   auto trt_config =
       config.decoder_custom_args
@@ -393,6 +405,8 @@ TEST(DecoderYAMLTest, TrtDecoderMonostateGlobalDecoderParams) {
 }
 
 TEST(DecoderYAMLTest, TrtDecoderDefaultGlobalDecoderParams) {
+  if (!is_trt_decoder_schema_available())
+    GTEST_SKIP() << "trt_decoder plugin (and its parameter schema) not built";
   cudaqx::heterogeneous_map map;
   map.insert("global_decoder", std::string("chromobius"));
 
@@ -649,6 +663,8 @@ TEST(DecoderConfigMapTest, DecoderCustomArgsCoversNvQldpcAndTrtVariants) {
 }
 
 TEST(DecoderYAMLTest, TrtDecoderConfigRoundTripWithoutInstantiation) {
+  if (!is_trt_decoder_schema_available())
+    GTEST_SKIP() << "trt_decoder plugin (and its parameter schema) not built";
   using namespace cudaq::qec::decoding::config;
 
   multi_decoder_config multi_config;
@@ -818,12 +834,20 @@ TEST(DecoderSchemaTest, ThirdPartySchemaRegistrationEnablesCustomArgs) {
   // a static initializer in its own shared library); the YAML layer then
   // accepts and round-trips its decoder_custom_args with no framework
   // changes.
+  register_decoder_schema({"third_party_demo_engine",
+                           {
+                               {"gain", param_kind::f64},
+                           }});
   register_decoder_schema({"third_party_demo_decoder",
                            {
                                {"strength", param_kind::f64},
                                {"passes", param_kind::int32},
                                {"mode", param_kind::string, /*required=*/true},
                                {"weights", param_kind::f64_vec},
+                               {"engine", param_kind::string},
+                               {"engine_params", param_kind::discriminated,
+                                false, "", "engine",
+                                /*materialize_empty=*/true},
                            }});
 
   const std::string yaml = R"(
@@ -840,6 +864,7 @@ decoders:
       passes: 3
       mode: fast
       weights: [0.25, 0.75]
+      engine: third_party_demo_engine
 )";
   auto config = multi_decoder_config::from_yaml_str(yaml);
   const auto &args = config.decoders[0].decoder_custom_args.map();
@@ -848,6 +873,10 @@ decoders:
   EXPECT_EQ(args.get<std::string>("mode"), "fast");
   EXPECT_EQ(args.get<std::vector<double>>("weights"),
             (std::vector<double>{0.25, 0.75}));
+  // The discriminated engine_params section is materialized (empty) because
+  // "engine" names a registered schema and materialize_empty is set.
+  ASSERT_TRUE(args.contains("engine_params"));
+  EXPECT_TRUE(args.get<cudaqx::heterogeneous_map>("engine_params").empty());
 
   const auto emitted = config.to_yaml_str(200);
   auto round_tripped = multi_decoder_config::from_yaml_str(emitted);
@@ -885,6 +914,49 @@ decoders:
       strength: 1.5
 )";
   EXPECT_THROW(multi_decoder_config::from_yaml_str(missing_required),
+               std::runtime_error);
+
+  // A populated discriminated section round-trips, and one that names an
+  // unregistered schema is rejected.
+  const std::string with_engine_params = R"(
+decoders:
+  - id: 0
+    type: third_party_demo_decoder
+    block_size: 2
+    syndrome_size: 1
+    H_sparse: [0, -1]
+    O_sparse: [0, -1]
+    D_sparse: [0, -1]
+    decoder_custom_args:
+      mode: fast
+      engine: third_party_demo_engine
+      engine_params:
+        gain: 2.5
+)";
+  auto engine_config = multi_decoder_config::from_yaml_str(with_engine_params);
+  const auto &engine_args = engine_config.decoders[0].decoder_custom_args.map();
+  EXPECT_EQ(engine_args.get<cudaqx::heterogeneous_map>("engine_params")
+                .get<double>("gain"),
+            2.5);
+  auto engine_round_tripped =
+      multi_decoder_config::from_yaml_str(engine_config.to_yaml_str(200));
+  EXPECT_EQ(engine_round_tripped, engine_config);
+
+  const std::string unknown_engine = R"(
+decoders:
+  - id: 0
+    type: third_party_demo_decoder
+    block_size: 2
+    syndrome_size: 1
+    H_sparse: [0, -1]
+    O_sparse: [0, -1]
+    D_sparse: [0, -1]
+    decoder_custom_args:
+      mode: fast
+      engine: engine_without_schema
+      engine_params: {}
+)";
+  EXPECT_THROW(multi_decoder_config::from_yaml_str(unknown_engine),
                std::runtime_error);
 }
 

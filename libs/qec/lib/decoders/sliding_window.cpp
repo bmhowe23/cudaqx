@@ -7,6 +7,7 @@
  ******************************************************************************/
 
 #include "sliding_window.h"
+#include "cudaq/qec/decoder_config_schema.h"
 #include "cudaq/qec/logger.h"
 #include "cudaq/qec/pcm_utils.h"
 #include <cassert>
@@ -499,5 +500,31 @@ std::size_t sliding_window::get_num_syndromes_per_round() const {
 }
 
 CUDAQ_EXT_PT_REGISTER_TYPE(sliding_window)
+
+// Parameter schema for the realtime decoding YAML (`decoder_custom_args` for
+// `type: sliding_window`). `inner_decoder_params` is a discriminated section
+// parsed with the schema registered under the value of `inner_decoder_name`
+// (whichever decoder that names must have registered its own schema).
+namespace {
+struct sliding_window_schema_registrar {
+  sliding_window_schema_registrar() {
+    using k = decoding::config::param_kind;
+    decoding::config::register_decoder_schema(
+        {"sliding_window",
+         {
+             {"window_size", k::uint64},
+             {"step_size", k::uint64},
+             {"num_syndromes_per_round", k::uint64},
+             {"straddle_start_round", k::boolean},
+             {"straddle_end_round", k::boolean},
+             {"error_rate_vec", k::f64_vec, /*required=*/true},
+             {"inner_decoder_name", k::string, /*required=*/true},
+             {"inner_decoder_params", k::discriminated, false, "",
+              "inner_decoder_name", /*materialize_empty=*/false},
+         }});
+  }
+};
+sliding_window_schema_registrar register_sliding_window_schema;
+} // namespace
 
 } // namespace cudaq::qec

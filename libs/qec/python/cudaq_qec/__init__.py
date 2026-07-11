@@ -123,6 +123,8 @@ configure_decoders_from_file = qecrt.config.configure_decoders_from_file
 configure_decoders_from_str = qecrt.config.configure_decoders_from_str
 finalize_decoders = qecrt.config.finalize_decoders
 configure_decoders = qecrt.config.configure_decoders
+decoder_param_schema = qecrt.config.decoder_param_schema
+registered_decoder_schemas = qecrt.config.registered_decoder_schemas
 
 stabilizer_grid = qecrt.stabilizer_grid
 role_to_str = qecrt.role_to_str
