@@ -1000,6 +1000,33 @@ decoders:
   EXPECT_THROW(config.validate_custom_args(), std::runtime_error);
 }
 
+TEST(DecoderSchemaTest, JsonSchemaExportReflectsRegistry) {
+  using namespace cudaq::qec::decoding::config;
+
+  // Structural spot checks; the python test suite parses the document and
+  // exercises it against real YAML configurations with the jsonschema
+  // package.
+  const std::string text = decoder_config_json_schema();
+  EXPECT_NE(text.find("\"https://json-schema.org/draft/2020-12/schema\""),
+            std::string::npos);
+  EXPECT_NE(text.find("\"decoder_params\""), std::string::npos);
+  EXPECT_NE(text.find("\"decoder_config\""), std::string::npos);
+  EXPECT_NE(text.find("\"sparse_matrix\""), std::string::npos);
+
+  // Every registered schema (built-in and plugin-registered alike) has a
+  // $defs entry, referenced from the per-type dispatch.
+  for (const auto &name : registered_decoder_schema_names()) {
+    EXPECT_NE(text.find("\"" + name + "\""), std::string::npos) << name;
+    EXPECT_NE(text.find("\"#/$defs/decoder_params/" + name + "\""),
+              std::string::npos)
+        << name;
+  }
+
+  // Required keys and unknown-key rejection are carried over.
+  EXPECT_NE(text.find("\"error_rate_vec\""), std::string::npos);
+  EXPECT_NE(text.find("\"additionalProperties\": false"), std::string::npos);
+}
+
 TEST(DecoderConfigTest, SimulationHostPointerWrappersForwardToHostRuntime) {
   using namespace cudaq::qec::decoding::config;
 

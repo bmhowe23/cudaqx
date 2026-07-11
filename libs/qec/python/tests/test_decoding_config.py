@@ -206,6 +206,65 @@ def test_validate_custom_args_runs_schema_validate_hook():
         dc.validate_custom_args()
 
 
+def test_decoder_config_json_schema_validates_yaml_documents():
+    # The exported JSON Schema lets standard third-party tooling validate
+    # user-provided configuration YAML without loading this library.
+    jsonschema = pytest.importorskip("jsonschema")
+    yaml = pytest.importorskip("yaml")
+    import json
+
+    schema = json.loads(qec.decoder_config_json_schema())
+    jsonschema.Draft202012Validator.check_schema(schema)
+    validator = jsonschema.Draft202012Validator(schema)
+
+    # Every registered decoder schema appears in the export.
+    assert set(qec.registered_decoder_schemas()) == set(
+        schema["$defs"]["decoder_params"])
+
+    # A real emitted configuration validates.
+    dc = qec.decoder_config()
+    dc.id = 0
+    dc.type = "pymatching"
+    dc.block_size = 3
+    dc.syndrome_size = 3
+    dc.H_sparse = [0, -1, 1, -1, 2, -1]
+    dc.O_sparse = [0, -1, 1, -1, 2, -1]
+    dc.D_sparse = [0, -1, 1, -1, 2, -1]
+    dc.decoder_custom_args = {
+        "error_rate_vec": [0.1, 0.1, 0.1],
+        "merge_strategy": "smallest_weight",
+    }
+    document = yaml.safe_load(qec_yaml_for(dc))
+    validator.validate(document)
+
+    # Unknown custom-arg keys fail validation.
+    bad = yaml.safe_load(qec_yaml_for(dc))
+    bad["decoders"][0]["decoder_custom_args"]["merge_stratgey"] = \
+        bad["decoders"][0]["decoder_custom_args"].pop("merge_strategy")
+    with pytest.raises(jsonschema.ValidationError):
+        validator.validate(bad)
+
+    # Missing required custom-arg keys fail validation (sliding_window
+    # requires error_rate_vec and inner_decoder_name).
+    missing = yaml.safe_load(qec_yaml_for(dc))
+    missing["decoders"][0]["type"] = "sliding_window"
+    missing["decoders"][0]["decoder_custom_args"] = {"window_size": 2}
+    with pytest.raises(jsonschema.ValidationError):
+        validator.validate(missing)
+
+    # Custom args for a type with no registered schema fail validation.
+    unregistered = yaml.safe_load(qec_yaml_for(dc))
+    unregistered["decoders"][0]["type"] = "decoder_without_registered_schema"
+    with pytest.raises(jsonschema.ValidationError):
+        validator.validate(unregistered)
+
+    # Missing envelope fields fail validation.
+    no_type = yaml.safe_load(qec_yaml_for(dc))
+    del no_type["decoders"][0]["type"]
+    with pytest.raises(jsonschema.ValidationError):
+        validator.validate(no_type)
+
+
 def qec_yaml_for(dc):
     mdc = qec.multi_decoder_config()
     mdc.decoders = [dc]

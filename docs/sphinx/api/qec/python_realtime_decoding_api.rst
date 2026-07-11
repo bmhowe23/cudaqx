@@ -115,6 +115,16 @@ keys follow the schema of the named global decoder).
    Names of all decoders (and nested parameter sections) with registered
    parameter schemas.
 
+.. py:function:: cudaq_qec.decoder_config_json_schema()
+
+   Return a JSON Schema (draft 2020-12) document, as a string, that
+   validates ``multi_decoder_config`` YAML files. Generated from the decoder
+   parameter schemas registered in this installation (including loaded
+   third-party decoder plugins), for use with standard tools such as
+   ``check-jsonschema``, the python ``jsonschema`` package, or editor YAML
+   language servers. Schema validation hooks are not representable in JSON
+   Schema, so a passing document may still be rejected when parsed.
+
 .. py:method:: decoder_config.validate_custom_args()
 
    Validate ``decoder_custom_args`` against the parameter schema registered

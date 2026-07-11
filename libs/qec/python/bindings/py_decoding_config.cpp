@@ -151,5 +151,14 @@ void bindDecodingConfig(nb::module_ &mod) {
       "registered_decoder_schemas", &registered_decoder_schema_names,
       "Names of all decoders (and nested sections) with registered "
       "custom-args parameter schemas.");
+  mod_cfg.def(
+      "decoder_config_json_schema", &decoder_config_json_schema,
+      "Return a JSON Schema (draft 2020-12) document, as a string, that "
+      "validates multi_decoder_config YAML files. Generated from the decoder "
+      "parameter schemas registered in this installation (including loaded "
+      "third-party decoder plugins), for use with standard tools such as "
+      "check-jsonschema or the python jsonschema package. Schema validate "
+      "hooks are not representable in JSON Schema, so a passing document may "
+      "still be rejected when parsed.");
 }
 } // namespace cudaq::qec::decoding::config

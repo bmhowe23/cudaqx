@@ -120,6 +120,7 @@ finalize_decoders = qecrt.config.finalize_decoders
 configure_decoders = qecrt.config.configure_decoders
 decoder_param_schema = qecrt.config.decoder_param_schema
 registered_decoder_schemas = qecrt.config.registered_decoder_schemas
+decoder_config_json_schema = qecrt.config.decoder_config_json_schema
 
 stabilizer_grid = qecrt.stabilizer_grid
 role_to_str = qecrt.role_to_str

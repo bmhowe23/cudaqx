@@ -106,6 +106,18 @@ public:
   from_yaml_str(const std::string_view yaml_str);
 };
 
+/// @brief Generate a JSON Schema (draft 2020-12) document describing valid
+/// `multi_decoder_config` YAML files, so third-party tools (check-jsonschema,
+/// python jsonschema, yaml-language-server, ...) can validate user-provided
+/// configurations offline. The per-decoder `decoder_custom_args` sections are
+/// generated from the parameter schemas registered at call time, so decoder
+/// plugins (in-tree and out-of-tree alike) appear automatically once their
+/// library is loaded. Schema `validate` hooks are arbitrary C++ and are not
+/// representable; a document that passes the JSON Schema may still be
+/// rejected by those hooks when parsed.
+__attribute__((visibility("default"))) std::string
+decoder_config_json_schema();
+
 /// @brief Configure the decoders (`multi_decoder_config` variant). This
 /// function configures both local decoders, and if running on remote target
 /// hardware, will submit the configuration to the remote target for further

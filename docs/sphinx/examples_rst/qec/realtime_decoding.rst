@@ -214,6 +214,24 @@ serialized or used -- by calling ``decoder_config::validate_custom_args()``
 Python via ``qec.decoder_param_schema("my_decoder")`` and
 ``qec.registered_decoder_schemas()``.
 
+The registered schemas can also be exported as a standard JSON Schema
+(draft 2020-12) document via ``qec.decoder_config_json_schema()``, so
+configuration YAML files can be validated by third-party tooling -- editors,
+CI checks, or the `check-jsonschema
+<https://check-jsonschema.readthedocs.io/>`_ command line tool -- without
+loading the CUDA-Q QEC libraries:
+
+.. code-block:: bash
+
+   python3 -c "import cudaq_qec; print(cudaq_qec.decoder_config_json_schema())" > decoder_config_schema.json
+   check-jsonschema --schemafile decoder_config_schema.json my_config.yaml
+
+The export is generated from the schemas registered at call time, so decoder
+plugins loaded in the process (including out-of-tree ones) appear in it
+automatically. Schema ``validate`` hooks are arbitrary code and cannot be
+represented in JSON Schema, so a file that passes the exported schema may
+still be rejected by a hook when the configuration is parsed.
+
 Here is how to create and save a decoder configuration:
 
 .. tab:: Python

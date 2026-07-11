@@ -8,6 +8,7 @@
 
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/Base64.h"
+#include "llvm/Support/JSON.h"
 #include "llvm/Support/YAMLTraits.h"
 #include "llvm/Support/raw_ostream.h"
 #include "realtime_decoding.h"
@@ -428,6 +429,237 @@ cudaq::qec::decoding::config::decoder_config::to_yaml_str(int column_wrap) {
 }
 
 namespace cudaq::qec::decoding::config {
+
+// ---------------------------------------------------------------------------
+// JSON Schema export
+//
+// Translates the registered decoder parameter schemas plus the fixed
+// decoder_config envelope (the fields MappingTraits<decoder_config> maps
+// above) into a JSON Schema draft 2020-12 document, so standard tooling can
+// validate user-provided configuration YAML offline. The document is a
+// snapshot of what this installation can parse: it enumerates the schemas
+// registered at call time, exactly as the runtime parser resolves them.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// JSON-pointer token escaping for schema names used inside $ref paths.
+std::string json_pointer_escape(const std::string &name) {
+  std::string out;
+  for (char c : name) {
+    if (c == '~')
+      out += "~0";
+    else if (c == '/')
+      out += "~1";
+    else
+      out += c;
+  }
+  return out;
+}
+
+std::string params_ref(const std::string &name) {
+  return "#/$defs/decoder_params/" + json_pointer_escape(name);
+}
+
+llvm::json::Object json_schema_for_param(const param_spec &spec) {
+  using k = param_kind;
+  switch (spec.kind) {
+  case k::boolean:
+    return llvm::json::Object{{"type", "boolean"}};
+  case k::int32:
+    return llvm::json::Object{{"type", "integer"}};
+  case k::uint64:
+    return llvm::json::Object{{"type", "integer"}, {"minimum", 0}};
+  case k::f64:
+    return llvm::json::Object{{"type", "number"}};
+  case k::string:
+    return llvm::json::Object{{"type", "string"}};
+  case k::f64_vec:
+    return llvm::json::Object{
+        {"type", "array"}, {"items", llvm::json::Object{{"type", "number"}}}};
+  case k::f64_matrix:
+    return llvm::json::Object{
+        {"type", "array"},
+        {"items",
+             llvm::json::Object{
+                 {"type", "array"},
+                 {"items", llvm::json::Object{{"type", "number"}}}}}};
+  case k::subschema:
+    return llvm::json::Object{{"$ref", params_ref(spec.subschema)}};
+  case k::discriminated:
+    // The concrete shape is selected by the discriminator value; the
+    // dispatch clauses emitted below refine this.
+    return llvm::json::Object{{"type", "object"}};
+  }
+  return llvm::json::Object{};
+}
+
+llvm::json::Array registered_name_array(const std::vector<std::string> &names) {
+  llvm::json::Array arr;
+  for (const auto &name : names)
+    arr.push_back(name);
+  return arr;
+}
+
+llvm::json::Object
+decoder_params_json_schema(const decoder_schema &schema,
+                           const std::vector<std::string> &all_names) {
+  llvm::json::Object properties;
+  llvm::json::Array required;
+  llvm::json::Array all_of;
+  for (const auto &spec : schema.params) {
+    properties[spec.key] = json_schema_for_param(spec);
+    if (spec.required)
+      required.push_back(spec.key);
+    if (spec.kind == param_kind::discriminated) {
+      // When the section is present, its discriminator must be present and
+      // name a registered schema (mirrors the parser's checks).
+      all_of.push_back(llvm::json::Object{
+          {"if", llvm::json::Object{{"required", llvm::json::Array{spec.key}}}},
+          {"then",
+           llvm::json::Object{
+               {"required", llvm::json::Array{spec.discriminator}},
+               {"properties",
+                llvm::json::Object{
+                    {spec.discriminator,
+                     llvm::json::Object{
+                         {"enum", registered_name_array(all_names)}}}}}}}});
+      // Each candidate discriminator value selects that schema for the
+      // section.
+      for (const auto &name : all_names)
+        all_of.push_back(llvm::json::Object{
+            {"if",
+             llvm::json::Object{
+                 {"properties",
+                  llvm::json::Object{{spec.discriminator,
+                                      llvm::json::Object{{"const", name}}}}},
+                 {"required",
+                  llvm::json::Array{spec.discriminator, spec.key}}}},
+            {"then",
+             llvm::json::Object{
+                 {"properties",
+                  llvm::json::Object{
+                      {spec.key,
+                       llvm::json::Object{{"$ref", params_ref(name)}}}}}}}});
+    }
+  }
+  llvm::json::Object out{{"type", "object"},
+                         {"additionalProperties", false},
+                         {"properties", std::move(properties)}};
+  if (!required.empty())
+    out["required"] = std::move(required);
+  if (!all_of.empty())
+    out["allOf"] = std::move(all_of);
+  return out;
+}
+
+} // namespace
+
+std::string decoder_config_json_schema() {
+  const auto names = registered_decoder_schema_names();
+
+  llvm::json::Object decoder_params;
+  for (const auto &name : names)
+    decoder_params[name] =
+        decoder_params_json_schema(*find_decoder_schema(name), names);
+
+  // The fixed decoder_config envelope; keep in sync with
+  // MappingTraits<decoder_config> above.
+  llvm::json::Object config_properties{
+      {"id", llvm::json::Object{{"type", "integer"}}},
+      {"type", llvm::json::Object{{"type", "string"}}},
+      {"transport",
+       llvm::json::Object{{"enum", llvm::json::Array{"cpu_roce", "gpu_roce"}}}},
+      {"block_size", llvm::json::Object{{"type", "integer"}, {"minimum", 0}}},
+      {"syndrome_size",
+       llvm::json::Object{{"type", "integer"}, {"minimum", 0}}},
+      {"H_sparse", llvm::json::Object{{"$ref", "#/$defs/sparse_matrix"}}},
+      {"O_sparse", llvm::json::Object{{"$ref", "#/$defs/sparse_matrix"}}},
+      {"D_sparse", llvm::json::Object{{"$ref", "#/$defs/sparse_matrix"}}},
+      {"decoder_custom_args", llvm::json::Object{{"type", "object"}}},
+  };
+
+  // Per-type dispatch of decoder_custom_args, generated from the registry:
+  // a registered type's args follow its schema; a type with no registered
+  // schema accepts no args (the parser rejects the section outright).
+  llvm::json::Array dispatch;
+  for (const auto &name : names)
+    dispatch.push_back(llvm::json::Object{
+        {"if",
+         llvm::json::Object{
+             {"properties",
+              llvm::json::Object{{"type",
+                                  llvm::json::Object{{"const", name}}}}},
+             {"required", llvm::json::Array{"type"}}}},
+        {"then",
+         llvm::json::Object{
+             {"properties",
+              llvm::json::Object{
+                  {"decoder_custom_args",
+                   llvm::json::Object{{"$ref", params_ref(name)}}}}}}}});
+  dispatch.push_back(llvm::json::Object{
+      {"if",
+       llvm::json::Object{
+           {"properties",
+            llvm::json::Object{
+                {"type",
+                 llvm::json::Object{
+                     {"not", llvm::json::Object{
+                                 {"enum", registered_name_array(names)}}}}}}},
+           {"required", llvm::json::Array{"type"}}}},
+      {"then",
+       llvm::json::Object{
+           {"properties",
+            llvm::json::Object{{"decoder_custom_args",
+                                llvm::json::Object{{"maxProperties", 0}}}}}}}});
+
+  llvm::json::Object defs{
+      {"sparse_matrix",
+       llvm::json::Object{
+           {"type", "array"},
+           {"items",
+            llvm::json::Object{{"type", "integer"}, {"minimum", -1}}}}},
+      {"decoder_config",
+       llvm::json::Object{
+           {"type", "object"},
+           {"properties", std::move(config_properties)},
+           {"required",
+            llvm::json::Array{"id", "type", "block_size", "syndrome_size",
+                              "H_sparse", "O_sparse", "D_sparse"}},
+           {"additionalProperties", false},
+           {"allOf", std::move(dispatch)}}},
+      {"decoder_params", std::move(decoder_params)},
+  };
+
+  llvm::json::Object root{
+      {"$schema", "https://json-schema.org/draft/2020-12/schema"},
+      {"title", "CUDA-Q QEC realtime decoding configuration"},
+      {"description",
+       "Validates multi_decoder_config YAML documents. Generated from the "
+       "decoder parameter schemas registered in this installation, so it "
+       "reflects the decoder plugins loaded at generation time. Per-schema "
+       "validate hooks (arbitrary cross-field checks) are not representable "
+       "in JSON Schema; a document that passes may still be rejected when "
+       "parsed."},
+      {"type", "object"},
+      {"properties",
+       llvm::json::Object{
+           {"decoders",
+            llvm::json::Object{
+                {"type", "array"},
+                {"items",
+                 llvm::json::Object{{"$ref", "#/$defs/decoder_config"}}}}}}},
+      {"required", llvm::json::Array{"decoders"}},
+      {"additionalProperties", false},
+      {"$defs", std::move(defs)},
+  };
+
+  std::string out;
+  llvm::raw_string_ostream os(out);
+  llvm::json::OStream json_out(os, /*IndentSize=*/2);
+  json_out.value(llvm::json::Value(std::move(root)));
+  return out;
+}
 
 // Stash a copy for consumers that build their own decoder instances from the
 // process-wide configuration -- the decoding-server DeviceCallService plugin
