@@ -52,13 +52,14 @@ if(CUDAQ_REALTIME_INCLUDE_DIR)
   if(CUDAQ_QEC_REALTIME_BRIDGE_API_LIBRARY AND CUDAQ_REALTIME_DISPATCH_LIBRARY
       AND CUDAToolkit_FOUND)
     set(CUDAQ_GPU_ROCE_AVAILABLE TRUE CACHE INTERNAL
-      "GPU RoCE transport compiled into cudaq-qec-decoding-server")
-    # CMP0126 (NEW): the plain set(... FALSE) above shadows the cache entry in
-    # this directory scope; set the normal variable too so gates in THIS file
-    # and its includers see TRUE (same fix as PR 670).
+      "GPU RoCE transport component cudaq-qec-decoding-server-gpuroce available")
+    # Under CMP0126 (NEW) the CACHE set above does NOT update the normal
+    # variable initialized FALSE at the top of this file, and the normal
+    # variable shadows the cache in this scope -- so the component gate
+    # below would never fire.  Set the normal variable explicitly.
     set(CUDAQ_GPU_ROCE_AVAILABLE TRUE)
     message(STATUS
-      "cudaq-qec-decoding-server: GPU RoCE ENABLED "
+      "cudaq-qec-decoding-server-gpuroce: GPU RoCE ENABLED "
       "(bridge provider resolved at runtime; api=${CUDAQ_QEC_REALTIME_BRIDGE_API_LIBRARY})")
   else()
     message(STATUS
@@ -78,6 +79,12 @@ message(STATUS
 # ---------------------------------------------------------------------------
 # Core decoding server (always built): transport abstraction, session registry,
 # per-decoder worker threads, RPC dispatcher.  No dependency on CUDAQ_REALTIME.
+#
+# Deliberately excludes GpuRoceTransceiver: consumers of this library (unit
+# tests, the CQR plugin) must stay loadable on driverless machines, and the
+# GPU RoCE deps (DOCA, the hololink bridge) require libcuda.so.1 at load
+# time.  gpu_roce lives in the cudaq-qec-decoding-server-gpuroce component
+# below, reached through a weak factory symbol (see DecodingServer.cpp).
 # ---------------------------------------------------------------------------
 add_library(cudaq-qec-decoding-server STATIC
   RoundAccumulator.cpp
@@ -86,7 +93,6 @@ add_library(cudaq-qec-decoding-server STATIC
   RpcDispatcher.cpp
   DecodingServer.cpp
   CpuRoceTransceiver.cpp
-  GpuRoceTransceiver.cpp
 )
 
 target_compile_features(cudaq-qec-decoding-server PUBLIC cxx_std_20)
@@ -109,20 +115,6 @@ target_link_libraries(cudaq-qec-decoding-server
     cudaq-qec-realtime-decoding
 )
 
-if(CUDAQ_GPU_ROCE_AVAILABLE)
-  target_compile_definitions(cudaq-qec-decoding-server PRIVATE CUDAQ_GPU_ROCE_AVAILABLE)
-  target_include_directories(cudaq-qec-decoding-server PRIVATE
-    "${CUDAQ_REALTIME_INCLUDE_DIR}"
-    ${CUDAToolkit_INCLUDE_DIRS}
-  )
-  # Only the bridge C API (loader + cudaq_bridge_*) and the CUDA runtime; the
-  # Hololink/DOCA chain lives inside the provider .so loaded at runtime.
-  target_link_libraries(cudaq-qec-decoding-server PRIVATE
-    "${CUDAQ_QEC_REALTIME_BRIDGE_API_LIBRARY}"
-    CUDA::cudart
-  )
-endif()
-
 set_target_properties(cudaq-qec-decoding-server PROPERTIES
   ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib
   POSITION_INDEPENDENT_CODE ON
@@ -132,6 +124,66 @@ install(TARGETS cudaq-qec-decoding-server
   COMPONENT qec-lib
   ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
 )
+
+# ---------------------------------------------------------------------------
+# Optional GPU RoCE component: GpuRoceTransceiver plus the strong definition
+# (GpuRoceFactory.cpp) of the factory that DecodingServer.cpp references
+# weakly.  Kept out of the core library so core consumers stay loadable on
+# machines without the CUDA runtime.  The transport itself is a runtime-
+# loaded bridge provider (libcudaq-realtime-bridge-hololink.so or a
+# CUDAQ_REALTIME_BRIDGE_LIB drop-in), so this component links only the
+# CUDA-Q realtime bridge C API and the CUDA runtime -- no Hololink / DOCA /
+# HSB link-time dependencies.
+#
+# Consumers must link this WHOLE_ARCHIVE: the only reference to the factory
+# is weak, which does not pull archive members on its own.
+# ---------------------------------------------------------------------------
+if(CUDAQ_GPU_ROCE_AVAILABLE)
+  add_library(cudaq-qec-decoding-server-gpuroce STATIC
+    GpuRoceTransceiver.cpp
+    GpuRoceFactory.cpp
+  )
+
+  target_compile_definitions(cudaq-qec-decoding-server-gpuroce
+    PRIVATE CUDAQ_GPU_ROCE_AVAILABLE)
+
+  target_include_directories(cudaq-qec-decoding-server-gpuroce PRIVATE
+    "${CUDAQ_REALTIME_INCLUDE_DIR}"
+    ${CUDAToolkit_INCLUDE_DIRS}
+  )
+
+  target_link_libraries(cudaq-qec-decoding-server-gpuroce
+    PUBLIC
+      cudaq-qec-decoding-server
+      "${CUDAQ_QEC_REALTIME_BRIDGE_API_LIBRARY}"
+      CUDA::cudart
+  )
+
+  set_target_properties(cudaq-qec-decoding-server-gpuroce PROPERTIES
+    ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib
+    POSITION_INDEPENDENT_CODE ON
+  )
+
+  install(TARGETS cudaq-qec-decoding-server-gpuroce
+    COMPONENT qec-lib
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+  )
+
+  # Link canary (never executed, not installed, not a test): a static
+  # archive alone never resolves symbols, and the one real consumer
+  # (decoding_server's gpu_roce block) is additionally gated on the
+  # proprietary cudevice archive, which CI does not provision.  Without
+  # this target, nothing would validate the component's link against the
+  # CUDA-Q realtime bridge API.  The strong factory reference pulls the
+  # component's members, and the component's PUBLIC deps complete the
+  # resolution.
+  add_executable(cudaq-qec-decoding-server-gpuroce-linkcheck
+    GpuRoceLinkCheck.cpp
+  )
+  target_link_libraries(cudaq-qec-decoding-server-gpuroce-linkcheck PRIVATE
+    cudaq-qec-decoding-server-gpuroce
+  )
+endif()
 
 # ---------------------------------------------------------------------------
 # CQR host-dispatch plugin (only when CUDAQ device_call headers are available):
