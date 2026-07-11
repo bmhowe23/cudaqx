@@ -16,17 +16,16 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
-#include <thread>
 
 #include <cuda_runtime.h>
 
-// Hololink Sensor Bridge + CUDAQ dispatcher C API.
-// Both are provided by cudaq-realtime-bridge-hololink and
-// cudaq-realtime-dispatch.
-#include "cudaq/realtime/daemon/bridge/hololink/hololink_wrapper.h"
+// CUDA-Q realtime transport-provider interface.  The Hololink transceiver is
+// behind a runtime-loaded bridge provider (libcudaq-realtime-bridge-hololink),
+// so this library carries NO Hololink / DOCA link-time dependencies.
+#include "cudaq/realtime/daemon/bridge/bridge_interface.h"
 
 // Forward-declare the opaque scheduler context so the header stays independent
-// of the full cudaq_realtime.h.
+// of the dispatch-graph API.
 struct cudaq_dispatch_graph_context;
 
 namespace cudaq::qec::decoding_server {
@@ -51,11 +50,19 @@ struct GpuRoceConfig {
 ///
 /// ## Architecture
 ///
-/// Hololink DMA's RPC frames from the FPGA directly into DOCA GPU ring buffers.
-/// `launch_scheduler()` wires those ring buffers to the CUDAQ device-graph
-/// scheduler (`cudaq_create_dispatch_graph_regular`) and the captured decoder
-/// CUDA graph, replicating the pattern in
-/// `libs/qec/unittests/utils/hololink_qldpc_graph_decoder_bridge.cpp`.
+/// The Hololink transceiver (DOCA GPU ring buffers fed by FPGA RDMA writes)
+/// is brought up through the CUDA-Q realtime bridge-provider interface: the
+/// constructor loads the provider (the built-in
+/// `libcudaq-realtime-bridge-hololink.so`, or the library named by
+/// `CUDAQ_REALTIME_BRIDGE_LIB` when set), and adopts the provider's
+/// RING_BUFFER context.  `launch_scheduler()` wires those ring buffers to the
+/// CUDAQ device-graph scheduler (`cudaq_create_dispatch_graph_regular`) and
+/// the captured decoder CUDA graph, then starts the provider's I/O loop.
+///
+/// Consequence of the provider split: this library needs only the CUDA-Q
+/// realtime headers + libcudaq-realtime.so at build time; the Hololink /
+/// DOCA / HSB dependency chain lives entirely inside the provider .so, which
+/// is built (and dlopen'd) on the machine with the hardware.
 ///
 /// After `launch_scheduler()` returns, the GPU handles the full
 /// RX → dispatch → decode → TX loop autonomously.  No CPU `recv()` or `send()`
@@ -91,22 +98,29 @@ public:
   void shutdown() override;
 
   /// RDMA target info printed after launch_scheduler() for the orchestration
-  /// script (QP number, rkey, buffer address).
-  uint32_t qp_number() const;
-  uint32_t rkey() const;
-  uint64_t buffer_addr() const;
+  /// script (QP number, rkey, buffer address).  Parsed from the provider's
+  /// endpoint-info query; 0 when the provider predates bridge interface v2.
+  uint32_t qp_number() const { return qp_number_; }
+  uint32_t rkey() const { return rkey_; }
+  uint64_t buffer_addr() const { return buffer_addr_; }
 
 private:
-  hololink_transceiver_t transceiver_{};
+  cudaq_realtime_bridge_handle_t bridge_{nullptr};
   int gpu_id_{0};
 
-  // DOCA ring buffer pointers (GPU VRAM — device addresses).
+  // DOCA ring buffer pointers (GPU VRAM — device addresses), adopted from the
+  // provider's RING_BUFFER context.
   uint8_t *rx_ring_data_{nullptr};
   volatile uint64_t *rx_ring_flag_{nullptr};
   uint8_t *tx_ring_data_{nullptr};
   volatile uint64_t *tx_ring_flag_{nullptr};
   size_t num_pages_{0};
   size_t page_size_{0};
+
+  // RDMA target identity from the provider's endpoint-info query (v2).
+  uint32_t qp_number_{0};
+  uint32_t rkey_{0};
+  uint64_t buffer_addr_{0};
 
   // CUDAQ device-graph scheduler state (set by launch_scheduler).
   cudaq_dispatch_graph_context *sched_ctx_{nullptr};
@@ -121,7 +135,6 @@ private:
       nullptr};
 
   std::atomic<bool> stopped_{false};
-  std::thread monitor_thread_; ///< runs hololink_blocking_monitor()
 };
 
 } // namespace cudaq::qec::decoding_server

@@ -19,11 +19,15 @@
 #include <cstring>
 #include <dlfcn.h>
 #include <iostream>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <vector>
 
-// CUDAQ device-graph scheduler API (cudaq-realtime-dispatch).
+// CUDAQ device-graph scheduler types (cudaq-realtime-dispatch) and the
+// RPCHeader wire struct the provider's --payload-size argument is defined
+// against.
 #include "cudaq/realtime/hololink_bridge_common.h"
 
 namespace cudaq::qec::decoding_server {
@@ -89,6 +93,22 @@ bool populate_device_call(cudaq_function_entry_t &entry, const char *symbol,
           cudaGetErrorString(_err) + " (" #expr ")");                          \
   } while (0)
 
+// Parse one `key=` token out of the provider's endpoint-info line (base 0:
+// accepts the provider's 0x-hex qp/buffer_addr and decimal rkey alike).
+// Leaves \p out untouched when the key is absent.
+template <typename T>
+void parse_endpoint_token(const std::string &info, const char *key, T &out) {
+  std::istringstream in(info);
+  std::string token;
+  const std::string prefix = std::string(key) + "=";
+  while (in >> token)
+    if (token.rfind(prefix, 0) == 0) {
+      out = static_cast<T>(
+          std::stoull(token.substr(prefix.size()), nullptr, 0));
+      return;
+    }
+}
+
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -144,57 +164,106 @@ GpuRoceTransceiver::GpuRoceTransceiver(const GpuRoceConfig &config)
   size_t page_size = config.page_size ? config.page_size : config.frame_size;
   page_size = (page_size + 127) & ~static_cast<size_t>(127);
 
-  // Matches the call shape in hololink_qldpc_graph_decoder_bridge.cpp (lines
-  // 288-291).
-  transceiver_ = hololink_create_transceiver(
-      config.device_name.c_str(),
-      /*arg1=*/1, config.remote_qp, config.gpu_id, config.frame_size, page_size,
-      config.num_pages, config.peer_ip.c_str(),
-      /*forward=*/0,
-      /*rx_only=*/1,
-      /*tx_only=*/1);
-  if (!transceiver_)
+  // The provider computes frame_size = sizeof(RPCHeader) + payload_size, so
+  // hand it the payload remainder of our frame budget.
+  if (config.frame_size < sizeof(cudaq::realtime::RPCHeader))
     throw std::runtime_error(
-        "GpuRoceTransceiver: hololink_create_transceiver() failed for device=" +
-        config.device_name + " peer=" + config.peer_ip);
+        "GpuRoceTransceiver: HOLOLINK_FRAME_SIZE smaller than the RPC header");
+  const size_t payload_size =
+      config.frame_size - sizeof(cudaq::realtime::RPCHeader);
 
-  // Do NOT destroy a half-initialized transceiver on start failure (mirrors
-  // the guard at lines 297-306 in the bridge: DOCA teardown may double-free
-  // GPU memory that was never allocated, causing a segfault).
-  if (!hololink_start(transceiver_))
+  // Bring the Hololink transceiver up through the bridge-provider interface:
+  // create() = hololink_create_transceiver + hololink_start (3-kernel shape:
+  // no --forward / --unified => rx_only + tx_only kernels, with dispatch
+  // supplied by our device-graph scheduler in launch_scheduler()).
+  const std::vector<std::string> args = {
+      "--device=" + config.device_name,
+      "--peer-ip=" + config.peer_ip,
+      "--remote-qp=" + std::to_string(config.remote_qp),
+      "--gpu=" + std::to_string(config.gpu_id),
+      "--page-size=" + std::to_string(page_size),
+      "--num-pages=" + std::to_string(config.num_pages),
+      "--payload-size=" + std::to_string(payload_size),
+  };
+  std::vector<char *> argv;
+  argv.reserve(args.size());
+  for (auto &a : args)
+    argv.push_back(const_cast<char *>(a.c_str()));
+
+  // Built-in Hololink provider by default; CUDAQ_REALTIME_BRIDGE_LIB selects
+  // a replacement provider library (same mechanism as the decoding server's
+  // --transport=<path>.so partner drop-in).
+  const auto provider = std::getenv("CUDAQ_REALTIME_BRIDGE_LIB")
+                            ? CUDAQ_PROVIDER_EXTERNAL
+                            : CUDAQ_PROVIDER_HOLOLINK;
+  if (cudaq_bridge_create(&bridge_, provider, static_cast<int>(argv.size()),
+                          argv.data()) != CUDAQ_OK ||
+      !bridge_)
     throw std::runtime_error(
-        "GpuRoceTransceiver: hololink_start() failed (check that the IB "
-        "netdev has an IPv4 address assigned for RoCE v2 GID)");
+        "GpuRoceTransceiver: bridge provider create failed for device=" +
+        config.device_name + " peer=" + config.peer_ip +
+        " (is libcudaq-realtime-bridge-hololink.so on the loader path, and "
+        "does the IB netdev have an IPv4 address assigned for RoCE v2 GID?)");
 
-  // Adopt the DOCA ring buffer GPU VRAM pointers.
-  rx_ring_data_ =
-      reinterpret_cast<uint8_t *>(hololink_get_rx_ring_data_addr(transceiver_));
-  rx_ring_flag_ = reinterpret_cast<volatile uint64_t *>(
-      hololink_get_rx_ring_flag_addr(transceiver_));
-  tx_ring_data_ =
-      reinterpret_cast<uint8_t *>(hololink_get_tx_ring_data_addr(transceiver_));
-  tx_ring_flag_ = reinterpret_cast<volatile uint64_t *>(
-      hololink_get_tx_ring_flag_addr(transceiver_));
-
+  // Adopt the DOCA ring buffer GPU VRAM pointers from the provider.
+  cudaq_ringbuffer_t ring{};
+  if (cudaq_bridge_get_transport_context(bridge_, RING_BUFFER, &ring) !=
+      CUDAQ_OK) {
+    cudaq_bridge_destroy(bridge_);
+    bridge_ = nullptr;
+    throw std::runtime_error(
+        "GpuRoceTransceiver: provider has no ring-buffer context");
+  }
+  rx_ring_data_ = ring.rx_data;
+  rx_ring_flag_ = ring.rx_flags;
+  tx_ring_data_ = ring.tx_data;
+  tx_ring_flag_ = ring.tx_flags;
   if (!rx_ring_data_ || !rx_ring_flag_ || !tx_ring_data_ || !tx_ring_flag_) {
-    hololink_close(transceiver_);
-    hololink_destroy_transceiver(transceiver_);
-    transceiver_ = {};
+    cudaq_bridge_destroy(bridge_);
+    bridge_ = nullptr;
     throw std::runtime_error(
-        "GpuRoceTransceiver: null DOCA ring pointer(s) after hololink_start");
+        "GpuRoceTransceiver: null DOCA ring pointer(s) from provider");
   }
 
-  num_pages_ = hololink_get_num_pages(transceiver_);
-  page_size_ = hololink_get_page_size(transceiver_);
+  // Ring geometry from the provider when it supports the v2 query; fall back
+  // to the locally-derived values (identical arithmetic) for a v1 provider.
+  uint32_t num_slots = 0, slot_size = 0;
+  if (cudaq_bridge_get_ring_geometry(bridge_, &num_slots, &slot_size) ==
+      CUDAQ_OK) {
+    num_pages_ = num_slots;
+    page_size_ = slot_size;
+  } else {
+    num_pages_ = config.num_pages;
+    page_size_ = page_size;
+  }
 
-  CUDA_QEC_INFO("GpuRoceTransceiver: Hololink started  device={} peer={} "
-                "gpu={} pages={} page_size={}  "
+  // RDMA target identity for the orchestration handshake (v2 query; a v1
+  // provider prints its own '=== Bridge Ready ===' banner in connect() and
+  // these stay 0).
+  char info[512] = {0};
+  if (cudaq_bridge_get_endpoint_info(bridge_, info, sizeof(info)) ==
+      CUDAQ_OK) {
+    const std::string s(info);
+    parse_endpoint_token(s, "qp", qp_number_);
+    parse_endpoint_token(s, "rkey", rkey_);
+    parse_endpoint_token(s, "buffer_addr", buffer_addr_);
+  }
+
+  // connect(): the provider publishes its QP/RKey/Buffer handshake for the
+  // orchestration script (no wire traffic; the playback tool alone programs
+  // the FPGA control plane).
+  if (cudaq_bridge_connect(bridge_) != CUDAQ_OK) {
+    cudaq_bridge_destroy(bridge_);
+    bridge_ = nullptr;
+    throw std::runtime_error("GpuRoceTransceiver: provider connect() failed");
+  }
+
+  CUDA_QEC_INFO("GpuRoceTransceiver: Hololink provider started  device={} "
+                "peer={} gpu={} pages={} page_size={}  "
                 "QP=0x{:X} rkey={} buf=0x{:X}  "
                 "(call launch_scheduler() before run())",
                 config.device_name, config.peer_ip, config.gpu_id, num_pages_,
-                page_size_, hololink_get_qp_number(transceiver_),
-                hololink_get_rkey(transceiver_),
-                hololink_get_buffer_addr(transceiver_));
+                page_size_, qp_number_, rkey_, buffer_addr_);
 }
 
 // ---------------------------------------------------------------------------
@@ -338,25 +407,29 @@ void GpuRoceTransceiver::launch_scheduler(void *raw_graph_resources) {
         cudaGetErrorString(cerr));
   }
 
-  monitor_thread_ =
-      std::thread([this] { hololink_blocking_monitor(transceiver_); });
+  // Start the provider's I/O loop (Hololink RX/TX kernels + monitor thread,
+  // owned by the provider) now that the scheduler is polling the rings.
+  if (cudaq_bridge_launch(bridge_) != CUDAQ_OK) {
+    __atomic_store_n(shutdown_host_, 1, __ATOMIC_RELEASE);
+    throw std::runtime_error(
+        "GpuRoceTransceiver::launch_scheduler: provider launch() failed");
+  }
 
   CUDA_QEC_INFO("GpuRoceTransceiver: GPU scheduler launched  "
                 "QP=0x{:X} rkey={} buf=0x{:X}  "
                 "(3 DEVICE_CALL entries, graph_exec={:p})",
-                hololink_get_qp_number(transceiver_),
-                hololink_get_rkey(transceiver_),
-                hololink_get_buffer_addr(transceiver_),
+                qp_number_, rkey_, buffer_addr_,
                 static_cast<void *>(graph_res->graph_exec));
 
   // Print RDMA target info to stdout so the orchestration script can grep it.
   // Matches the format in hololink_qldpc_graph_decoder_bridge.cpp lines
-  // 441-444.
-  std::cout << "QP Number: 0x" << std::hex
-            << hololink_get_qp_number(transceiver_) << std::dec << "\n"
-            << "RKey: " << hololink_get_rkey(transceiver_) << "\n"
-            << "Buffer Addr: 0x" << std::hex
-            << hololink_get_buffer_addr(transceiver_) << std::dec << "\n";
+  // 441-444.  Values come from the provider's v2 endpoint-info query; with a
+  // v1 provider they are 0 here and the provider's own '=== Bridge Ready ==='
+  // banner (printed by connect()) is the authoritative copy.
+  std::cout << "QP Number: 0x" << std::hex << qp_number_ << std::dec << "\n"
+            << "RKey: " << rkey_ << "\n"
+            << "Buffer Addr: 0x" << std::hex << buffer_addr_ << std::dec
+            << "\n";
   std::cout.flush();
 }
 
@@ -392,9 +465,9 @@ void GpuRoceTransceiver::shutdown() {
   if (shutdown_host_)
     __atomic_store_n(shutdown_host_, 1, __ATOMIC_RELEASE);
 
-  // Stop the Hololink RX/TX kernels to unblock hololink_blocking_monitor().
-  if (transceiver_)
-    hololink_close(transceiver_);
+  // Stop the Hololink RX/TX kernels and join the provider's monitor thread.
+  if (bridge_)
+    cudaq_bridge_disconnect(bridge_);
 }
 
 GpuRoceTransceiver::~GpuRoceTransceiver() {
@@ -402,12 +475,9 @@ GpuRoceTransceiver::~GpuRoceTransceiver() {
   if (!stopped_.exchange(true, std::memory_order_acq_rel)) {
     if (shutdown_host_)
       __atomic_store_n(shutdown_host_, 1, __ATOMIC_RELEASE);
-    if (transceiver_)
-      hololink_close(transceiver_);
+    if (bridge_)
+      cudaq_bridge_disconnect(bridge_);
   }
-
-  if (monitor_thread_.joinable())
-    monitor_thread_.join();
 
   if (sched_stream_) {
     cudaStreamSynchronize(sched_stream_); // drain the self-relaunch chain
@@ -422,22 +492,8 @@ GpuRoceTransceiver::~GpuRoceTransceiver() {
     cudaFreeHost(const_cast<int *>(shutdown_host_));
   if (d_stats_)
     cudaFree(d_stats_);
-  if (transceiver_)
-    hololink_destroy_transceiver(transceiver_);
-}
-
-// ---------------------------------------------------------------------------
-// RDMA target info
-// ---------------------------------------------------------------------------
-
-uint32_t GpuRoceTransceiver::qp_number() const {
-  return hololink_get_qp_number(transceiver_);
-}
-uint32_t GpuRoceTransceiver::rkey() const {
-  return hololink_get_rkey(transceiver_);
-}
-uint64_t GpuRoceTransceiver::buffer_addr() const {
-  return hololink_get_buffer_addr(transceiver_);
+  if (bridge_)
+    cudaq_bridge_destroy(bridge_);
 }
 
 } // namespace cudaq::qec::decoding_server

@@ -14,69 +14,31 @@ else()
 endif()
 
 # ---------------------------------------------------------------------------
-# Optional: GPU RoCE transport via Hololink Sensor Bridge + DOCA
+# Optional: GPU RoCE transport via the CUDA-Q realtime bridge-provider
+# interface.
 #
-# Library names and DOCA path mirror libs/qec/unittests/utils/CMakeLists.txt
-# (the existing hololink_qldpc_graph_decoder_bridge target) so both targets
-# find the same libraries from the same build tree.
+# The Hololink transceiver sits behind a runtime-loaded provider
+# (libcudaq-realtime-bridge-hololink.so, built in cuda-quantum where
+# HSB + DOCA are provisioned), so compiling this path needs only the CUDA-Q
+# realtime headers, libcudaq-realtime.so (the bridge loader + C API), and the
+# CUDA toolkit -- NO Hololink / DOCA / HSB build-time dependencies here.  The
+# provider .so is resolved at runtime (dlopen), so a build without it still
+# produces a server whose gpu_roce mode fails loudly at startup.
+#
+# cudaq-realtime-dispatch (the device-graph scheduler shims resolved via
+# dlsym) is found here for the server target's link; see
+# tools/decoding-server/CMakeLists.txt.
 # ---------------------------------------------------------------------------
 set(CUDAQ_GPU_ROCE_AVAILABLE FALSE)
 
-if(HOLOSCAN_SENSOR_BRIDGE_BUILD_DIR AND CUDAQ_REALTIME_INCLUDE_DIR)
-  find_library(HOLOLINK_CORE_LIB
-    NAMES hololink_core
-    PATHS "${HOLOSCAN_SENSOR_BRIDGE_BUILD_DIR}"
-          "${HOLOSCAN_SENSOR_BRIDGE_BUILD_DIR}/src/hololink/core"
-          "${HOLOSCAN_SENSOR_BRIDGE_BUILD_DIR}/lib"
-    NO_DEFAULT_PATH)
-
-  find_library(GPU_ROCE_TRANSCEIVER_LIB
-    NAMES gpu_roce_transceiver
-    PATHS "${HOLOSCAN_SENSOR_BRIDGE_BUILD_DIR}"
-          "${HOLOSCAN_SENSOR_BRIDGE_BUILD_DIR}/src/hololink/operators/gpu_roce_transceiver"
-          "${HOLOSCAN_SENSOR_BRIDGE_BUILD_DIR}/lib"
-    NO_DEFAULT_PATH)
-
-  find_library(HOLOLINK_COMMON_LIB
-    NAMES hololink
-    PATHS "${HOLOSCAN_SENSOR_BRIDGE_BUILD_DIR}"
-          "${HOLOSCAN_SENSOR_BRIDGE_BUILD_DIR}/src/hololink/common"
-          "${HOLOSCAN_SENSOR_BRIDGE_BUILD_DIR}/lib"
-    NO_DEFAULT_PATH)
-
-  find_library(BASE_RECEIVER_OP_LIB
-    NAMES base_receiver_op
-    PATHS "${HOLOSCAN_SENSOR_BRIDGE_BUILD_DIR}"
-          "${HOLOSCAN_SENSOR_BRIDGE_BUILD_DIR}/src/hololink/operators"
-          "${HOLOSCAN_SENSOR_BRIDGE_BUILD_DIR}/lib"
-    NO_DEFAULT_PATH)
-
-  find_library(IBVERBS_LIB NAMES ibverbs)
-
-  # DOCA at the standard Mellanox install path.
-  # Arch-specific lib dir mirrors libs/qec/unittests/utils/CMakeLists.txt.
-  set(_doca_root "/opt/mellanox/doca")
-  if(CMAKE_SYSTEM_PROCESSOR MATCHES "(x86_64)|(AMD64|amd64)")
-    set(_doca_lib_dir "${_doca_root}/lib/x86_64-linux-gnu")
-  elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "(aarch64)|(arm64)")
-    set(_doca_lib_dir "${_doca_root}/lib/aarch64-linux-gnu")
-  else()
-    set(_doca_lib_dir "${_doca_root}/lib")
-  endif()
-  find_library(DOCA_VERBS_LIB   doca_verbs   PATHS "${_doca_lib_dir}" NO_DEFAULT_PATH)
-  find_library(DOCA_GPUNETIO_LIB doca_gpunetio PATHS "${_doca_lib_dir}" NO_DEFAULT_PATH)
-  find_library(DOCA_COMMON_LIB  doca_common  PATHS "${_doca_lib_dir}" NO_DEFAULT_PATH)
-
-  # hololink_wrapper.h lives in CUDAQ_REALTIME_INCLUDE_DIR.
-  # Derive the lib search dir from the already-found CUDAQ_REALTIME_LIBRARY
-  # (set by the parent CMakeLists or the CQR plugin detection above).
+if(CUDAQ_REALTIME_INCLUDE_DIR)
   if(CUDAQ_REALTIME_LIBRARY)
     get_filename_component(_cudaq_rt_lib_dir "${CUDAQ_REALTIME_LIBRARY}" DIRECTORY)
   else()
     get_filename_component(_cudaq_rt_lib_dir "${CUDAQ_REALTIME_INCLUDE_DIR}/../lib" ABSOLUTE)
   endif()
-  find_library(CUDAQ_REALTIME_BRIDGE_HOLOLINK_LIBRARY
-    NAMES cudaq-realtime-bridge-hololink
+  find_library(CUDAQ_QEC_REALTIME_BRIDGE_API_LIBRARY
+    NAMES cudaq-realtime
     HINTS "${_cudaq_rt_lib_dir}"
     NO_DEFAULT_PATH)
 
@@ -87,31 +49,27 @@ if(HOLOSCAN_SENSOR_BRIDGE_BUILD_DIR AND CUDAQ_REALTIME_INCLUDE_DIR)
     HINTS "${_cudaq_rt_lib_dir}"
     NO_DEFAULT_PATH)
 
-  # cudaq-realtime-host-dispatch: required transitive dep of the bridge path.
-  find_library(CUDAQ_REALTIME_HOST_DISPATCH_LIBRARY
-    NAMES cudaq-realtime-host-dispatch
-    HINTS "${_cudaq_rt_lib_dir}"
-    NO_DEFAULT_PATH)
-
-  if(HOLOLINK_CORE_LIB AND GPU_ROCE_TRANSCEIVER_LIB AND HOLOLINK_COMMON_LIB
-      AND BASE_RECEIVER_OP_LIB AND DOCA_VERBS_LIB AND DOCA_GPUNETIO_LIB
-      AND DOCA_COMMON_LIB AND CUDAQ_REALTIME_BRIDGE_HOLOLINK_LIBRARY
-      AND CUDAQ_REALTIME_DISPATCH_LIBRARY AND CUDAQ_REALTIME_HOST_DISPATCH_LIBRARY)
+  if(CUDAQ_QEC_REALTIME_BRIDGE_API_LIBRARY AND CUDAQ_REALTIME_DISPATCH_LIBRARY
+      AND CUDAToolkit_FOUND)
     set(CUDAQ_GPU_ROCE_AVAILABLE TRUE CACHE INTERNAL
       "GPU RoCE transport compiled into cudaq-qec-decoding-server")
+    # CMP0126 (NEW): the plain set(... FALSE) above shadows the cache entry in
+    # this directory scope; set the normal variable too so gates in THIS file
+    # and its includers see TRUE (same fix as PR 670).
+    set(CUDAQ_GPU_ROCE_AVAILABLE TRUE)
     message(STATUS
-      "cudaq-qec-decoding-server: GPU RoCE ENABLED (core=${HOLOLINK_CORE_LIB})")
+      "cudaq-qec-decoding-server: GPU RoCE ENABLED "
+      "(bridge provider resolved at runtime; api=${CUDAQ_QEC_REALTIME_BRIDGE_API_LIBRARY})")
   else()
     message(STATUS
       "cudaq-qec-decoding-server: GPU RoCE DISABLED "
-      "(missing one or more of: hololink_core gpu_roce_transceiver hololink "
-      "base_receiver_op ibverbs doca_* cudaq-realtime-bridge-hololink "
-      "cudaq-realtime-dispatch cudaq-realtime-host-dispatch)")
+      "(missing one or more of: libcudaq-realtime "
+      "cudaq-realtime-dispatch CUDA toolkit)")
   endif()
 else()
   message(STATUS
     "cudaq-qec-decoding-server: GPU RoCE DISABLED "
-    "(HOLOSCAN_SENSOR_BRIDGE_BUILD_DIR or CUDAQ_REALTIME_INCLUDE_DIR not set)")
+    "(CUDAQ_REALTIME_INCLUDE_DIR not set)")
 endif()
 
 message(STATUS
@@ -155,18 +113,12 @@ if(CUDAQ_GPU_ROCE_AVAILABLE)
   target_compile_definitions(cudaq-qec-decoding-server PRIVATE CUDAQ_GPU_ROCE_AVAILABLE)
   target_include_directories(cudaq-qec-decoding-server PRIVATE
     "${CUDAQ_REALTIME_INCLUDE_DIR}"
-    "${_doca_root}/include"
+    ${CUDAToolkit_INCLUDE_DIRS}
   )
+  # Only the bridge C API (loader + cudaq_bridge_*) and the CUDA runtime; the
+  # Hololink/DOCA chain lives inside the provider .so loaded at runtime.
   target_link_libraries(cudaq-qec-decoding-server PRIVATE
-    "${CUDAQ_REALTIME_BRIDGE_HOLOLINK_LIBRARY}"
-    "${GPU_ROCE_TRANSCEIVER_LIB}"
-    "${BASE_RECEIVER_OP_LIB}"
-    "${HOLOLINK_CORE_LIB}"
-    "${HOLOLINK_COMMON_LIB}"
-    "${DOCA_VERBS_LIB}"
-    "${DOCA_GPUNETIO_LIB}"
-    "${DOCA_COMMON_LIB}"
-    $<$<BOOL:${IBVERBS_LIB}>:${IBVERBS_LIB}>
+    "${CUDAQ_QEC_REALTIME_BRIDGE_API_LIBRARY}"
     CUDA::cudart
   )
 endif()
