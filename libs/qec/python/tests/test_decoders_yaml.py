@@ -237,10 +237,10 @@ def test_sliding_window_decoder():
     sw_config.straddle_end_round = True
     sw_config.error_rate_vec = [0.1] * config.block_size
 
-    # Inner decoder config
+    # Inner decoder config: a parameter dict validated against the schema
+    # registered under inner_decoder_name.
     sw_config.inner_decoder_name = "multi_error_lut"
-    sw_config.multi_error_lut_params = qec.multi_error_lut_config()
-    sw_config.multi_error_lut_params.lut_error_depth = 2
+    sw_config.inner_decoder_params = {"lut_error_depth": 2}
 
     config.set_decoder_custom_args(sw_config)
 

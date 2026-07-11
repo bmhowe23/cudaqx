@@ -14,7 +14,6 @@
 #include <optional>
 #include <string>
 #include <type_traits>
-#include <variant>
 #include <vector>
 
 namespace cudaq::qec::decoding::config {
@@ -125,9 +124,6 @@ struct chromobius_config {
   from_heterogeneous_map(const cudaqx::heterogeneous_map &map);
 };
 
-using global_decoder_config =
-    std::variant<std::monostate, pymatching_config, chromobius_config>;
-
 struct trt_decoder_config {
   std::optional<std::string> onnx_load_path;
   std::optional<std::string> engine_load_path;
@@ -137,9 +133,14 @@ struct trt_decoder_config {
   std::optional<std::size_t> batch_size;
   std::optional<bool> use_cuda_graph;
   std::optional<std::string> global_decoder;
-  global_decoder_config global_decoder_params;
+  /// Constructor parameters for the global decoder named by
+  /// `global_decoder`. Keys are validated against the parameter schema that
+  /// decoder registered (see cudaq/qec/decoder_config_schema.h); no decoder
+  /// types are hardcoded here.
+  std::optional<cudaqx::heterogeneous_map> global_decoder_params;
 
-  bool operator==(const trt_decoder_config &) const = default;
+  __attribute__((visibility("default"))) bool
+  operator==(const trt_decoder_config &) const;
 
   __attribute__((visibility("default"))) cudaqx::heterogeneous_map
   to_heterogeneous_map() const;
@@ -157,13 +158,13 @@ struct sliding_window_config {
   std::vector<double> error_rate_vec;
   std::string inner_decoder_name;
 
-  // Concrete inner decoder configurations (only one should be set based on
-  // inner_decoder_name)
-  std::optional<single_error_lut_config> single_error_lut_params;
-  std::optional<multi_error_lut_config> multi_error_lut_params;
-  std::optional<nv_qldpc_decoder_config> nv_qldpc_decoder_params;
+  /// Constructor parameters for the inner decoder named by
+  /// `inner_decoder_name`. Keys are validated against the parameter schema
+  /// that decoder registered; no decoder types are hardcoded here.
+  cudaqx::heterogeneous_map inner_decoder_params;
 
-  bool operator==(const sliding_window_config &) const = default;
+  __attribute__((visibility("default"))) bool
+  operator==(const sliding_window_config &) const;
 
   __attribute__((visibility("default"))) cudaqx::heterogeneous_map
   to_heterogeneous_map() const;

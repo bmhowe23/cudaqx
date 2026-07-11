@@ -303,7 +303,7 @@ create_test_decoder_config_trt(int id) {
   pymatching_params.merge_strategy = "smallest_weight";
   pymatching_params.error_rate_vec =
       std::vector<double>(config.block_size, 0.1);
-  trt_config.global_decoder_params = pymatching_params;
+  trt_config.global_decoder_params = pymatching_params.to_heterogeneous_map();
   config.decoder_custom_args = trt_config;
 
   return config;
@@ -320,9 +320,10 @@ TEST(DecoderYAMLTest, TrtDecoderConfigRoundTrip) {
       multi_config.decoders[0]
           .decoder_custom_args
           .as<cudaq::qec::decoding::config::trt_decoder_config>();
-  EXPECT_TRUE(
-      std::holds_alternative<cudaq::qec::decoding::config::pymatching_config>(
-          trt_config.global_decoder_params));
+  ASSERT_TRUE(trt_config.global_decoder_params.has_value());
+  EXPECT_EQ(trt_config.global_decoder_params->get<std::string>(
+                "merge_strategy"),
+            "smallest_weight");
 }
 
 TEST(DecoderYAMLTest, TrtDecoderConfigToHeterogeneousMap) {
@@ -371,7 +372,7 @@ TEST(DecoderYAMLTest, TrtDecoderMonostateGlobalDecoderParams) {
       config.decoder_custom_args
           .as<cudaq::qec::decoding::config::trt_decoder_config>();
   trt_config.global_decoder = "pymatching";
-  trt_config.global_decoder_params = std::monostate{};
+  trt_config.global_decoder_params = std::nullopt;
   config.decoder_custom_args = trt_config;
 
   auto params = config.decoder_custom_args_to_heterogeneous_map();
@@ -390,9 +391,7 @@ TEST(DecoderYAMLTest, TrtDecoderMonostateGlobalDecoderParams) {
       round_tripped.decoders[0]
           .decoder_custom_args
           .as<cudaq::qec::decoding::config::trt_decoder_config>();
-  EXPECT_TRUE(
-      std::holds_alternative<cudaq::qec::decoding::config::pymatching_config>(
-          round_tripped_trt_config.global_decoder_params));
+  EXPECT_TRUE(round_tripped_trt_config.global_decoder_params.has_value());
 
   params = cudaq::qec::decoding::host::prepare_decoder_params(config);
   EXPECT_TRUE(params.contains("global_decoder_params"));
@@ -413,9 +412,8 @@ TEST(DecoderYAMLTest, TrtDecoderDefaultGlobalDecoderParams) {
   auto trt_config =
       cudaq::qec::decoding::config::trt_decoder_config::from_heterogeneous_map(
           map);
-  EXPECT_TRUE(
-      std::holds_alternative<cudaq::qec::decoding::config::chromobius_config>(
-          trt_config.global_decoder_params));
+  ASSERT_TRUE(trt_config.global_decoder_params.has_value());
+  EXPECT_TRUE(trt_config.global_decoder_params->empty());
   auto params = trt_config.to_heterogeneous_map();
   EXPECT_TRUE(params.contains("global_decoder_params"));
   EXPECT_TRUE(
@@ -440,16 +438,14 @@ decoders:
       parsed_without_params.decoders[0]
           .decoder_custom_args
           .as<cudaq::qec::decoding::config::trt_decoder_config>();
-  EXPECT_TRUE(
-      std::holds_alternative<cudaq::qec::decoding::config::chromobius_config>(
-          parsed_trt_config.global_decoder_params));
+  EXPECT_TRUE(parsed_trt_config.global_decoder_params.has_value());
 
   auto config = create_test_decoder_config_trt(0);
   auto yaml_trt_config =
       config.decoder_custom_args
           .as<cudaq::qec::decoding::config::trt_decoder_config>();
   yaml_trt_config.global_decoder = "chromobius";
-  yaml_trt_config.global_decoder_params = std::monostate{};
+  yaml_trt_config.global_decoder_params = std::nullopt;
   config.decoder_custom_args = yaml_trt_config;
   cudaq::qec::decoding::config::multi_decoder_config multi_config;
   multi_config.decoders.push_back(config);
@@ -461,9 +457,7 @@ decoders:
       round_tripped.decoders[0]
           .decoder_custom_args
           .as<cudaq::qec::decoding::config::trt_decoder_config>();
-  EXPECT_TRUE(
-      std::holds_alternative<cudaq::qec::decoding::config::chromobius_config>(
-          round_tripped_trt_config.global_decoder_params));
+  EXPECT_TRUE(round_tripped_trt_config.global_decoder_params.has_value());
 }
 
 TEST(DecoderYAMLTest, UnknownTrtGlobalDecoderParamsThrow) {
@@ -486,8 +480,7 @@ TEST(DecoderYAMLTest, UnknownTrtGlobalDecoderParamsThrow) {
   trt_config =
       cudaq::qec::decoding::config::trt_decoder_config::from_heterogeneous_map(
           map);
-  EXPECT_TRUE(
-      std::holds_alternative<std::monostate>(trt_config.global_decoder_params));
+  EXPECT_FALSE(trt_config.global_decoder_params.has_value());
 
   const std::string yaml_with_unknown_params = R"(
 decoders:
@@ -523,7 +516,7 @@ TEST(DecoderYAMLTest, TrtDecoderParamsWithoutDecoderThrows) {
   trt_config.onnx_load_path = "/tmp/predecoder.onnx";
   auto pymatching_params = cudaq::qec::decoding::config::pymatching_config();
   pymatching_params.merge_strategy = "smallest_weight";
-  trt_config.global_decoder_params = pymatching_params;
+  trt_config.global_decoder_params = pymatching_params.to_heterogeneous_map();
   EXPECT_THROW(trt_config.to_heterogeneous_map(), std::runtime_error);
 }
 
@@ -564,9 +557,9 @@ TEST(DecoderYAMLTest, SlidingWindowDecoder) {
 
   // Inner decoder config
   sw_config.inner_decoder_name = "multi_error_lut";
-  sw_config.multi_error_lut_params =
-      cudaq::qec::decoding::config::multi_error_lut_config();
-  sw_config.multi_error_lut_params->lut_error_depth = 2;
+  cudaq::qec::decoding::config::multi_error_lut_config inner_lut_config;
+  inner_lut_config.lut_error_depth = 2;
+  sw_config.inner_decoder_params = inner_lut_config.to_heterogeneous_map();
   config.decoder_custom_args = sw_config;
 
   multi_config.decoders.push_back(config);
@@ -707,15 +700,16 @@ TEST(DecoderYAMLTest, SlidingWindowInnerDecoderVariantRoundTrips) {
   single_lut_sw.num_syndromes_per_round = std::size_t{2};
   single_lut_sw.error_rate_vec = std::vector<double>(6, 0.1);
   single_lut_sw.inner_decoder_name = "single_error_lut";
-  single_lut_sw.single_error_lut_params = single_error_lut_config();
+  single_lut_sw.inner_decoder_params =
+      single_error_lut_config().to_heterogeneous_map();
   check_roundtrip(single_lut_sw);
 
   sliding_window_config nv_sw = single_lut_sw;
   nv_sw.inner_decoder_name = "nv-qldpc-decoder";
-  nv_sw.single_error_lut_params.reset();
-  nv_sw.nv_qldpc_decoder_params = nv_qldpc_decoder_config();
-  nv_sw.nv_qldpc_decoder_params->max_iterations = 5;
-  nv_sw.nv_qldpc_decoder_params->error_rate_vec = std::vector<double>(6, 0.1);
+  nv_qldpc_decoder_config nv_inner;
+  nv_inner.max_iterations = 5;
+  nv_inner.error_rate_vec = std::vector<double>(6, 0.1);
+  nv_sw.inner_decoder_params = nv_inner.to_heterogeneous_map();
   check_roundtrip(nv_sw);
 }
 

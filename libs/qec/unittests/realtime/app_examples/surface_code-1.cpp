@@ -171,7 +171,7 @@ void save_dem_to_file(const cudaq::qec::detector_error_model &dem,
       // Configure inner multi_error_lut decoder
       cudaq::qec::decoding::config::multi_error_lut_config lut_config;
       lut_config.lut_error_depth = 2;
-      sw_config.multi_error_lut_params = lut_config;
+      sw_config.inner_decoder_params = lut_config.to_heterogeneous_map();
       config.decoder_custom_args = sw_config;
     }
 

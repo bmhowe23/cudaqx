@@ -353,9 +353,10 @@ def test_trt_decoder_config_chromobius_global_params_roundtrip():
     trt.global_decoder = "chromobius"
     trt.global_decoder_params = chromobius
 
+    # global_decoder_params is a plain parameter dict; its keys are governed
+    # by the schema registered under the global_decoder name.
     got = trt.global_decoder_params
-    assert isinstance(got, qec.chromobius_config)
-    assert got.return_weight is True
+    assert got["return_weight"] is True
 
     as_map = trt.to_heterogeneous_map()
     assert as_map["global_decoder"] == "chromobius"
@@ -363,23 +364,19 @@ def test_trt_decoder_config_chromobius_global_params_roundtrip():
 
     trt2 = qec.trt_decoder_config.from_heterogeneous_map(as_map)
     got2 = trt2.global_decoder_params
-    assert isinstance(got2, qec.chromobius_config)
-    assert got2.return_weight is True
+    assert got2["return_weight"] is True
 
     trt2.global_decoder_params = None
     assert trt2.global_decoder_params is None
 
 
 def test_trt_decoder_config_defaults_omitted_global_params():
-    for global_decoder, config_type in (
-        ("pymatching", qec.pymatching_config),
-        ("chromobius", qec.chromobius_config),
-    ):
+    for global_decoder in ("pymatching", "chromobius"):
         trt = qec.trt_decoder_config.from_heterogeneous_map(
             {"global_decoder": global_decoder})
 
         got = trt.global_decoder_params
-        assert isinstance(got, config_type)
+        assert got == {}
 
         as_map = trt.to_heterogeneous_map()
         assert as_map["global_decoder"] == global_decoder
@@ -480,8 +477,8 @@ def test_trt_decoder_chromobius_global_config_yaml_roundtrip():
 
     chromobius2 = trt2.global_decoder_params
     assert chromobius2 is not None
-    assert chromobius2.ignore_decomposition_failures is True
-    assert chromobius2.return_weight is False
+    assert chromobius2["ignore_decomposition_failures"] is True
+    assert chromobius2["return_weight"] is False
 
 
 # decoder_config tests

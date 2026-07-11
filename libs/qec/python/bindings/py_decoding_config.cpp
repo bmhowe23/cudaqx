@@ -142,29 +142,19 @@ void bindDecodingConfig(nb::module_ &mod) {
       .def_prop_rw(
           "global_decoder_params",
           [](const trt_decoder_config &self) -> nb::object {
-            if (std::holds_alternative<pymatching_config>(
-                    self.global_decoder_params)) {
-              return nb::cast(
-                  std::get<pymatching_config>(self.global_decoder_params));
-            }
-            if (std::holds_alternative<chromobius_config>(
-                    self.global_decoder_params)) {
-              return nb::cast(
-                  std::get<chromobius_config>(self.global_decoder_params));
-            }
-            return nb::none();
+            if (!self.global_decoder_params.has_value())
+              return nb::none();
+            return nb::cast(self.global_decoder_params.value());
           },
           [](trt_decoder_config &self, nb::object value) {
             if (value.is_none()) {
-              self.global_decoder_params = std::monostate();
-            } else if (nb::isinstance<pymatching_config>(value)) {
-              self.global_decoder_params = nb::cast<pymatching_config>(value);
-            } else if (nb::isinstance<chromobius_config>(value)) {
-              self.global_decoder_params = nb::cast<chromobius_config>(value);
+              self.global_decoder_params = std::nullopt;
+            } else if (nb::hasattr(value, "to_heterogeneous_map")) {
+              self.global_decoder_params = nb::cast<cudaqx::heterogeneous_map>(
+                  value.attr("to_heterogeneous_map")());
             } else {
-              throw nb::type_error(
-                  "global_decoder_params must be pymatching_config, "
-                  "chromobius_config, or None.");
+              self.global_decoder_params =
+                  nb::cast<cudaqx::heterogeneous_map>(value);
             }
           },
           setter_accepts_none)
@@ -263,12 +253,20 @@ void bindDecodingConfig(nb::module_ &mod) {
       .def_rw("straddle_end_round", &sliding_window_config::straddle_end_round)
       .def_rw("error_rate_vec", &sliding_window_config::error_rate_vec)
       .def_rw("inner_decoder_name", &sliding_window_config::inner_decoder_name)
-      .def_rw("single_error_lut_params",
-              &sliding_window_config::single_error_lut_params)
-      .def_rw("multi_error_lut_params",
-              &sliding_window_config::multi_error_lut_params)
-      .def_rw("nv_qldpc_decoder_params",
-              &sliding_window_config::nv_qldpc_decoder_params)
+      .def_prop_rw(
+          "inner_decoder_params",
+          [](const sliding_window_config &self) -> nb::object {
+            return nb::cast(self.inner_decoder_params);
+          },
+          [](sliding_window_config &self, nb::object value) {
+            if (nb::hasattr(value, "to_heterogeneous_map")) {
+              self.inner_decoder_params = nb::cast<cudaqx::heterogeneous_map>(
+                  value.attr("to_heterogeneous_map")());
+            } else {
+              self.inner_decoder_params =
+                  nb::cast<cudaqx::heterogeneous_map>(value);
+            }
+          })
       .def("to_heterogeneous_map", &sliding_window_config::to_heterogeneous_map,
            nb::rv_policy::move)
       .def_static("from_heterogeneous_map",

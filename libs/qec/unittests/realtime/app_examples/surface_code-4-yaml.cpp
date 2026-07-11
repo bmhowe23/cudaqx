@@ -358,7 +358,7 @@ void save_dem_to_file(
       } else {
         pm_config.error_rate_vec = edem.error_rates;
       }
-      trt_config.global_decoder_params = pm_config;
+      trt_config.global_decoder_params = pm_config.to_heterogeneous_map();
 
       config.decoder_custom_args = trt_config;
     }

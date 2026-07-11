@@ -195,116 +195,21 @@ single_error_lut_config single_error_lut_config::from_heterogeneous_map(
   return config;
 }
 
-cudaqx::heterogeneous_map global_decoder_config_to_heterogeneous_map(
-    const global_decoder_config &global_decoder_params) {
-  return std::visit(
-      [](const auto &params) -> cudaqx::heterogeneous_map {
-        using config_t = std::decay_t<decltype(params)>;
-        if constexpr (std::is_same_v<config_t, std::monostate>) {
-          return cudaqx::heterogeneous_map();
-        } else {
-          return params.to_heterogeneous_map();
-        }
-      },
-      global_decoder_params);
-}
-
-global_decoder_config global_decoder_config_from_heterogeneous_map(
-    const cudaqx::heterogeneous_map &map,
-    const std::optional<std::string> &global_decoder) {
-  if (!global_decoder.has_value()) {
-    throw std::runtime_error(
-        "global_decoder_params present but global_decoder is not set.");
+// Validate a discriminated params section against the schema registry:
+// present params require the discriminator to be set and to name a decoder
+// with a registered parameter schema.
+static void validate_discriminated_params(
+    const std::string &params_key, const std::string &discriminator_key,
+    const std::optional<std::string> &discriminator_value) {
+  if (!discriminator_value.has_value()) {
+    throw std::runtime_error(params_key + " present but " + discriminator_key +
+                             " is not set.");
   }
-
-  if (global_decoder.value() == "pymatching") {
-    return pymatching_config::from_heterogeneous_map(map);
+  if (!find_decoder_schema(discriminator_value.value())) {
+    throw std::runtime_error(params_key + " does not support " +
+                             discriminator_key + " '" +
+                             discriminator_value.value() + "'.");
   }
-
-  if (global_decoder.value() == "chromobius") {
-    return chromobius_config::from_heterogeneous_map(map);
-  }
-
-  throw std::runtime_error(
-      "global_decoder_params does not support global_decoder '" +
-      global_decoder.value() + "'.");
-}
-
-global_decoder_config default_global_decoder_params(
-    const std::optional<std::string> &global_decoder) {
-  if (!global_decoder.has_value())
-    return std::monostate{};
-
-  if (global_decoder.value() == "pymatching")
-    return pymatching_config{};
-
-  if (global_decoder.value() == "chromobius")
-    return chromobius_config{};
-
-  return std::monostate{};
-}
-
-void validate_global_decoder_params(
-    const global_decoder_config &global_decoder_params,
-    const std::optional<std::string> &global_decoder);
-
-global_decoder_config global_decoder_config_from_value(
-    const std::any &val, const std::optional<std::string> &global_decoder) {
-  if (!global_decoder.has_value()) {
-    throw std::runtime_error(
-        "global_decoder_params present but global_decoder is not set.");
-  }
-
-  if (auto *global_cfg = std::any_cast<global_decoder_config>(&val)) {
-    validate_global_decoder_params(*global_cfg, global_decoder);
-    return *global_cfg;
-  }
-
-  if (auto *nested_map = std::any_cast<cudaqx::heterogeneous_map>(&val)) {
-    return global_decoder_config_from_heterogeneous_map(*nested_map,
-                                                        global_decoder);
-  }
-
-  global_decoder_config parsed_params;
-  if (auto *pymatching_cfg = std::any_cast<pymatching_config>(&val)) {
-    parsed_params = *pymatching_cfg;
-  } else if (auto *chromobius_cfg = std::any_cast<chromobius_config>(&val)) {
-    parsed_params = *chromobius_cfg;
-  } else {
-    throw std::runtime_error(
-        "global_decoder_params has an unsupported value type for "
-        "global_decoder '" +
-        global_decoder.value() + "'.");
-  }
-
-  validate_global_decoder_params(parsed_params, global_decoder);
-  return parsed_params;
-}
-
-void validate_global_decoder_params(
-    const global_decoder_config &global_decoder_params,
-    const std::optional<std::string> &global_decoder) {
-  if (std::holds_alternative<std::monostate>(global_decoder_params))
-    return;
-
-  if (!global_decoder.has_value()) {
-    throw std::runtime_error(
-        "global_decoder_params present but global_decoder is not set.");
-  }
-
-  if (global_decoder.value() == "pymatching" &&
-      std::holds_alternative<pymatching_config>(global_decoder_params)) {
-    return;
-  }
-
-  if (global_decoder.value() == "chromobius" &&
-      std::holds_alternative<chromobius_config>(global_decoder_params)) {
-    return;
-  }
-
-  throw std::runtime_error(
-      "global_decoder_params type does not match global_decoder '" +
-      global_decoder.value() + "'.");
 }
 
 // ------ pymatching_config ------
@@ -361,17 +266,15 @@ cudaqx::heterogeneous_map trt_decoder_config::to_heterogeneous_map() const {
   INSERT_ARG(batch_size);
   INSERT_ARG(use_cuda_graph);
   INSERT_ARG(global_decoder);
-  auto effective_global_decoder_params = global_decoder_params;
-  if (std::holds_alternative<std::monostate>(effective_global_decoder_params))
-    effective_global_decoder_params =
-        default_global_decoder_params(global_decoder);
-  if (!std::holds_alternative<std::monostate>(
-          effective_global_decoder_params)) {
-    validate_global_decoder_params(effective_global_decoder_params,
-                                   global_decoder);
-    config_map.insert("global_decoder_params",
-                      global_decoder_config_to_heterogeneous_map(
-                          effective_global_decoder_params));
+  if (global_decoder_params.has_value()) {
+    validate_discriminated_params("global_decoder_params", "global_decoder",
+                                  global_decoder);
+    config_map.insert("global_decoder_params", global_decoder_params.value());
+  } else if (global_decoder.has_value() &&
+             find_decoder_schema(global_decoder.value())) {
+    // Materialize an empty params section for a known global decoder so the
+    // trt_decoder plugin attaches it with default parameters.
+    config_map.insert("global_decoder_params", cudaqx::heterogeneous_map());
   }
 
   return config_map;
@@ -389,16 +292,13 @@ trt_decoder_config trt_decoder_config::from_heterogeneous_map(
   GET_ARG(use_cuda_graph);
   GET_ARG(global_decoder);
   if (map.contains("global_decoder_params")) {
-    for (const auto &[key, val] : map) {
-      if (key == "global_decoder_params") {
-        config.global_decoder_params =
-            global_decoder_config_from_value(val, config.global_decoder);
-        break;
-      }
-    }
-  } else {
+    validate_discriminated_params("global_decoder_params", "global_decoder",
+                                  config.global_decoder);
     config.global_decoder_params =
-        default_global_decoder_params(config.global_decoder);
+        map.get<cudaqx::heterogeneous_map>("global_decoder_params");
+  } else if (config.global_decoder.has_value() &&
+             find_decoder_schema(config.global_decoder.value())) {
+    config.global_decoder_params = cudaqx::heterogeneous_map();
   }
 
   return config;
@@ -415,19 +315,11 @@ cudaqx::heterogeneous_map sliding_window_config::to_heterogeneous_map() const {
   INSERT_ARG_PLAIN(error_rate_vec);
   INSERT_ARG_PLAIN(inner_decoder_name);
 
-  // Handle concrete inner decoder configs
-  cudaqx::heterogeneous_map inner_decoder_params;
-  if (single_error_lut_params.has_value()) {
-    inner_decoder_params =
-        single_error_lut_params.value().to_heterogeneous_map();
-  } else if (multi_error_lut_params.has_value()) {
-    inner_decoder_params =
-        multi_error_lut_params.value().to_heterogeneous_map();
-  } else if (nv_qldpc_decoder_params.has_value()) {
-    inner_decoder_params =
-        nv_qldpc_decoder_params.value().to_heterogeneous_map();
-  }
   if (!inner_decoder_params.empty()) {
+    validate_discriminated_params("inner_decoder_params", "inner_decoder_name",
+                                  inner_decoder_name.empty()
+                                      ? std::nullopt
+                                      : std::optional(inner_decoder_name));
     config_map.insert("inner_decoder_params", inner_decoder_params);
   }
 
@@ -444,31 +336,43 @@ sliding_window_config sliding_window_config::from_heterogeneous_map(
   GET_ARG(straddle_end_round);
   GET_ARG_PLAIN(error_rate_vec);
   GET_ARG_PLAIN(inner_decoder_name);
-
-  // Reconstruct inner decoder configs based on the decoder type
-  if (!config.inner_decoder_name.empty() &&
-      map.contains("inner_decoder_params")) {
-    const auto &inner_decoder_params =
-        map.get<cudaqx::heterogeneous_map>("inner_decoder_params");
-    const std::string &decoder_name = config.inner_decoder_name;
-
-    if (decoder_name == "single_error_lut") {
-      config.single_error_lut_params =
-          single_error_lut_config::from_heterogeneous_map(inner_decoder_params);
-    } else if (decoder_name == "multi_error_lut") {
-      config.multi_error_lut_params =
-          multi_error_lut_config::from_heterogeneous_map(inner_decoder_params);
-    } else if (decoder_name == "nv-qldpc-decoder") {
-      config.nv_qldpc_decoder_params =
-          nv_qldpc_decoder_config::from_heterogeneous_map(inner_decoder_params);
-    }
-  }
+  GET_ARG_PLAIN(inner_decoder_params);
 
   return config;
 }
 
 #undef INSERT_ARG
 #undef GET_ARG
+
+bool trt_decoder_config::operator==(const trt_decoder_config &other) const {
+  if (global_decoder_params.has_value() !=
+      other.global_decoder_params.has_value())
+    return false;
+  if (global_decoder_params.has_value() &&
+      !custom_args_maps_equal(global_decoder_params.value(),
+                              other.global_decoder_params.value()))
+    return false;
+  return onnx_load_path == other.onnx_load_path &&
+         engine_load_path == other.engine_load_path &&
+         engine_save_path == other.engine_save_path &&
+         precision == other.precision &&
+         memory_workspace == other.memory_workspace &&
+         batch_size == other.batch_size &&
+         use_cuda_graph == other.use_cuda_graph &&
+         global_decoder == other.global_decoder;
+}
+
+bool sliding_window_config::operator==(
+    const sliding_window_config &other) const {
+  return window_size == other.window_size && step_size == other.step_size &&
+         num_syndromes_per_round == other.num_syndromes_per_round &&
+         straddle_start_round == other.straddle_start_round &&
+         straddle_end_round == other.straddle_end_round &&
+         error_rate_vec == other.error_rate_vec &&
+         inner_decoder_name == other.inner_decoder_name &&
+         custom_args_maps_equal(inner_decoder_params,
+                                other.inner_decoder_params);
+}
 
 bool decoder_custom_args_t::operator==(
     const decoder_custom_args_t &other) const {
