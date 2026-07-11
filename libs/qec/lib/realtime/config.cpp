@@ -778,13 +778,20 @@ struct MappingTraits<cudaq::qec::decoding::config::decoder_config> {
         cudaq::qec::decoding::config::find_decoder_schema(config.type);
     if (io.outputting()) {
       if (!config.decoder_custom_args.empty()) {
-        if (!schema)
-          throw std::runtime_error(
-              "decoder_custom_args set for decoder type '" + config.type +
-              "' but no parameter schema is registered under that name.");
-        auto args_map = config.decoder_custom_args.map();
-        schema_binding binding{&args_map, schema};
-        io.mapRequired("decoder_custom_args", binding);
+        if (!schema) {
+          // Match the historical emission behavior (args for unknown types
+          // were silently dropped) so configuration flows still fail with a
+          // status code at decoder construction rather than throwing here.
+          CUDA_QEC_WARN(
+              "decoder_custom_args set for decoder type '{}' but no parameter "
+              "schema is registered under that name; the args are omitted "
+              "from the emitted YAML.",
+              config.type);
+        } else {
+          auto args_map = config.decoder_custom_args.map();
+          schema_binding binding{&args_map, schema};
+          io.mapRequired("decoder_custom_args", binding);
+        }
       }
     } else if (schema) {
       bool args_present = false;

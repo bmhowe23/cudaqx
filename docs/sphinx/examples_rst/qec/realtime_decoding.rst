@@ -164,6 +164,43 @@ arguments:
          error_rate_vec: [ 0.1, 0.1, 0.1 ]
          merge_strategy: smallest_weight
 
+The ``decoder_custom_args`` section is converted between YAML and the
+parameter map a decoder's constructor receives using a *parameter schema*
+registered under the decoder's name. All built-in decoders ship with a
+schema, and custom (out-of-tree) decoder plugins can register their own so
+their parameters become configurable through the same YAML -- no changes to
+the CUDA-Q QEC libraries are required. A plugin registers its schema from a
+static initializer in the same shared library that registers the decoder
+itself (see ``cudaq/qec/decoder_config_schema.h`` and the in-tree example
+plugin ``single_error_lut_example``):
+
+.. code-block:: cpp
+
+   #include "cudaq/qec/decoder_config_schema.h"
+
+   namespace {
+   struct schema_registrar {
+     schema_registrar() {
+       using k = cudaq::qec::decoding::config::param_kind;
+       cudaq::qec::decoding::config::register_decoder_schema(
+           {"my_decoder",
+            {
+                {"strength", k::f64},
+                {"passes", k::int32},
+                {"mode", k::string, /*required=*/true},
+            }});
+     }
+   };
+   schema_registrar register_schema;
+   } // namespace
+
+With the schema in place, a ``decoder_custom_args`` section for
+``type: my_decoder`` is validated (unknown keys and missing required keys are
+rejected) and delivered to the decoder's constructor as a
+``cudaqx::heterogeneous_map``. The registered schemas can be inspected from
+Python via ``qec.decoder_param_schema("my_decoder")`` and
+``qec.registered_decoder_schemas()``.
+
 Here is how to create and save a decoder configuration:
 
 .. tab:: Python
