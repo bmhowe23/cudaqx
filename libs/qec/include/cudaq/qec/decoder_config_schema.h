@@ -96,6 +96,18 @@ find_decoder_schema(const std::string &name);
 __attribute__((visibility("default"))) std::vector<std::string>
 registered_decoder_schema_names();
 
+/// Validate a custom-args map against the schema registered under
+/// `schema_name`: every key must appear in the schema (nested sections are
+/// checked recursively), every required key must be present, and the schema's
+/// `validate` hook (if any) runs last. Throws std::runtime_error describing
+/// the first violation. Maps that did not come from the YAML parser (e.g.
+/// built programmatically or from a Python dict) get the same checks the
+/// parser applies, so configurations can be validated before use. A map for
+/// a name with no registered schema is rejected unless it is empty.
+__attribute__((visibility("default"))) void
+validate_custom_args(const std::string &schema_name,
+                     const cudaqx::heterogeneous_map &args);
+
 /// Deep equality over the canonical value kinds stored in custom-args maps
 /// (scalars, double vectors/matrices, and nested maps). Values of other
 /// types compare unequal.

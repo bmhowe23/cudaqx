@@ -11,6 +11,7 @@
 #include <map>
 #include <mutex>
 #include <optional>
+#include <stdexcept>
 
 namespace cudaq::qec::decoding::config {
 
@@ -51,6 +52,81 @@ std::vector<std::string> registered_decoder_schema_names() {
   for (const auto &[name, schema] : schema_registry())
     names.push_back(name);
   return names;
+}
+
+// ---------------------------------------------------------------------------
+// Schema validation of programmatically built custom-args maps
+// ---------------------------------------------------------------------------
+
+namespace {
+
+void validate_args_against_schema(const decoder_schema &schema,
+                                  const cudaqx::heterogeneous_map &args,
+                                  const std::string &context) {
+  for (const auto &kv : args) {
+    const std::string &key = kv.first;
+    const param_spec *spec = nullptr;
+    for (const auto &candidate : schema.params) {
+      if (candidate.key == key) {
+        spec = &candidate;
+        break;
+      }
+    }
+    if (!spec)
+      throw std::runtime_error("Unknown key '" + key + "' in " + context +
+                               ".");
+    if (spec->kind == param_kind::subschema) {
+      const auto *nested_schema = find_decoder_schema(spec->subschema);
+      if (!nested_schema)
+        throw std::runtime_error("No schema registered under '" +
+                                 spec->subschema + "' (needed to validate '" +
+                                 key + "').");
+      validate_args_against_schema(
+          *nested_schema, args.get<cudaqx::heterogeneous_map>(key),
+          context + "." + key);
+    } else if (spec->kind == param_kind::discriminated) {
+      std::string discriminator_value;
+      if (args.contains(spec->discriminator))
+        discriminator_value = args.get<std::string>(spec->discriminator);
+      if (discriminator_value.empty())
+        throw std::runtime_error("'" + key + "' is present but '" +
+                                 spec->discriminator + "' is not set in " +
+                                 context + ".");
+      const auto *nested_schema = find_decoder_schema(discriminator_value);
+      if (!nested_schema)
+        throw std::runtime_error(
+            "'" + key + "' does not support " + spec->discriminator + " '" +
+            discriminator_value +
+            "': no parameter schema is registered under that name.");
+      validate_args_against_schema(
+          *nested_schema, args.get<cudaqx::heterogeneous_map>(key),
+          context + "." + key);
+    }
+  }
+  for (const auto &spec : schema.params)
+    if (spec.required && !args.contains(spec.key))
+      throw std::runtime_error("Missing required key '" + spec.key + "' in " +
+                               context + ".");
+  if (schema.validate)
+    schema.validate(args);
+}
+
+} // namespace
+
+void validate_custom_args(const std::string &schema_name,
+                          const cudaqx::heterogeneous_map &args) {
+  const auto *schema = find_decoder_schema(schema_name);
+  if (!schema) {
+    if (args.empty())
+      return;
+    throw std::runtime_error(
+        "Decoder type '" + schema_name +
+        "' has no registered parameter schema; its decoder_custom_args "
+        "cannot be validated (or serialized to YAML). Register a schema from "
+        "the decoder's plugin library with register_decoder_schema().");
+  }
+  validate_args_against_schema(*schema, args,
+                               "'" + schema_name + "' parameters");
 }
 
 // ---------------------------------------------------------------------------

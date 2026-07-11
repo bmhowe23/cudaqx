@@ -59,6 +59,13 @@ void bindDecodingConfig(nb::module_ &mod) {
           },
           nb::arg("custom_args"),
           "Set the decoder parameter dict for this decoder.")
+      .def("validate_custom_args", &decoder_config::validate_custom_args,
+           "Validate decoder_custom_args against the parameter schema "
+           "registered for this decoder type: unknown keys, missing required "
+           "keys, and the schema's own validation hook. Raises RuntimeError "
+           "on the first violation. YAML parsing applies the same checks "
+           "automatically; call this to vet a configuration built "
+           "programmatically before using it.")
       .def("to_yaml_str", &decoder_config::to_yaml_str,
            nb::arg("column_wrap") = 80)
       .def_static("from_yaml_str", &decoder_config::from_yaml_str,
@@ -71,6 +78,9 @@ void bindDecodingConfig(nb::module_ &mod) {
   nb::class_<multi_decoder_config>(mod_cfg, "multi_decoder_config")
       .def(nb::init<>())
       .def_rw("decoders", &multi_decoder_config::decoders)
+      .def("validate_custom_args", &multi_decoder_config::validate_custom_args,
+           "Validate every decoder's custom args against its registered "
+           "parameter schema (see decoder_config.validate_custom_args).")
       .def("to_yaml_str", &multi_decoder_config::to_yaml_str,
            nb::arg("column_wrap") = 80)
       .def_static("from_yaml_str", &multi_decoder_config::from_yaml_str,

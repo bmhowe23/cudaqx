@@ -30,6 +30,15 @@ bool decoder_custom_args_t::operator==(
   return custom_args_maps_equal(map_, other.map_);
 }
 
+void decoder_config::validate_custom_args() const {
+  config::validate_custom_args(type, decoder_custom_args.map());
+}
+
+void multi_decoder_config::validate_custom_args() const {
+  for (const auto &decoder : decoders)
+    decoder.validate_custom_args();
+}
+
 // Post-parse pass over a schema-parsed custom-args map: materialize defaulted
 // discriminated sections, enforce required keys, and run per-schema validation
 // hooks. Only invoked when the section was present in the input document,

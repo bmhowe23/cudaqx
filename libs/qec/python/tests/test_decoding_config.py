@@ -153,6 +153,59 @@ def test_unknown_custom_arg_key_is_rejected():
         qec.multi_decoder_config.from_yaml_str(misspelled)
 
 
+def test_validate_custom_args_checks_dict_built_configs():
+    # Dicts assigned to decoder_custom_args never pass through the YAML
+    # parser; validate_custom_args applies the same schema checks explicitly.
+    dc = qec.decoder_config()
+    dc.type = "pymatching"
+    dc.decoder_custom_args = {"merge_strategy": "smallest_weight"}
+    dc.validate_custom_args()
+
+    dc.decoder_custom_args = {"merge_stratgey": "smallest_weight"}
+    with pytest.raises(RuntimeError, match="merge_stratgey"):
+        dc.validate_custom_args()
+
+    # Non-empty args for a type with no registered schema are rejected.
+    dc.type = "decoder_without_registered_schema"
+    dc.decoder_custom_args = {"anything": 1}
+    with pytest.raises(RuntimeError, match="no registered parameter schema"):
+        dc.validate_custom_args()
+
+    # multi_decoder_config validates every decoder.
+    mdc = qec.multi_decoder_config()
+    mdc.decoders = [dc]
+    with pytest.raises(RuntimeError):
+        mdc.validate_custom_args()
+
+
+def test_validate_custom_args_runs_schema_validate_hook():
+    # sliding_window registers a validate hook for cross-field constraints
+    # (step_size must be between 1 and window_size).
+    dc = qec.decoder_config()
+    dc.type = "sliding_window"
+    dc.decoder_custom_args = {
+        "window_size": 4,
+        "step_size": 2,
+        "error_rate_vec": [0.01, 0.01],
+        "inner_decoder_name": "single_error_lut",
+    }
+    dc.validate_custom_args()
+
+    dc.decoder_custom_args = {
+        "window_size": 2,
+        "step_size": 4,
+        "error_rate_vec": [0.01, 0.01],
+        "inner_decoder_name": "single_error_lut",
+    }
+    with pytest.raises(RuntimeError, match="step_size"):
+        dc.validate_custom_args()
+
+    # Missing required key (error_rate_vec).
+    dc.decoder_custom_args = {"inner_decoder_name": "single_error_lut"}
+    with pytest.raises(RuntimeError, match="error_rate_vec"):
+        dc.validate_custom_args()
+
+
 def qec_yaml_for(dc):
     mdc = qec.multi_decoder_config()
     mdc.decoders = [dc]

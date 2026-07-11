@@ -873,6 +873,133 @@ TEST(DecoderSchemaTest, ExamplePluginRegistersSchema) {
             nullptr);
 }
 
+TEST(DecoderSchemaTest, ValidateCustomArgsChecksProgrammaticMaps) {
+  using namespace cudaq::qec::decoding::config;
+
+  // Maps built programmatically (or from Python dicts) never pass through the
+  // YAML parser, so validate_custom_args applies the same schema checks
+  // explicitly.
+  register_decoder_schema({"third_party_demo_engine",
+                           {
+                               {"gain", param_kind::f64},
+                           }});
+  register_decoder_schema({"third_party_demo_decoder",
+                           {
+                               {"strength", param_kind::f64},
+                               {"passes", param_kind::int32},
+                               {"mode", param_kind::string, /*required=*/true},
+                               {"weights", param_kind::f64_vec},
+                               {"engine", param_kind::string},
+                               {"engine_params", param_kind::discriminated,
+                                false, "", "engine",
+                                /*materialize_empty=*/true},
+                           }});
+
+  decoder_config config;
+  config.type = "third_party_demo_decoder";
+  cudaqx::heterogeneous_map args;
+  args.insert("strength", 1.5);
+  args.insert("mode", std::string("fast"));
+  config.decoder_custom_args = args;
+  EXPECT_NO_THROW(config.validate_custom_args());
+
+  // Unknown key.
+  args.insert("strenght", 1.5);
+  config.decoder_custom_args = args;
+  EXPECT_THROW(config.validate_custom_args(), std::runtime_error);
+
+  // Missing required key.
+  cudaqx::heterogeneous_map missing_mode;
+  missing_mode.insert("strength", 1.5);
+  config.decoder_custom_args = missing_mode;
+  EXPECT_THROW(config.validate_custom_args(), std::runtime_error);
+
+  // Nested discriminated sections are validated with the schema named by the
+  // discriminator.
+  cudaqx::heterogeneous_map engine_params;
+  engine_params.insert("gain", 2.5);
+  cudaqx::heterogeneous_map with_engine;
+  with_engine.insert("mode", std::string("fast"));
+  with_engine.insert("engine", std::string("third_party_demo_engine"));
+  with_engine.insert("engine_params", engine_params);
+  config.decoder_custom_args = with_engine;
+  EXPECT_NO_THROW(config.validate_custom_args());
+
+  engine_params.insert("gian", 2.5);
+  with_engine.insert("engine_params", engine_params);
+  config.decoder_custom_args = with_engine;
+  EXPECT_THROW(config.validate_custom_args(), std::runtime_error);
+
+  // Unregistered decoder types reject non-empty args (and accept empty ones).
+  decoder_config unregistered;
+  unregistered.type = "decoder_without_registered_schema";
+  EXPECT_NO_THROW(unregistered.validate_custom_args());
+  cudaqx::heterogeneous_map anything;
+  anything.insert("anything", 1);
+  unregistered.decoder_custom_args = anything;
+  EXPECT_THROW(unregistered.validate_custom_args(), std::runtime_error);
+
+  // multi_decoder_config validates every decoder.
+  multi_decoder_config multi;
+  multi.decoders.push_back(unregistered);
+  EXPECT_THROW(multi.validate_custom_args(), std::runtime_error);
+}
+
+TEST(DecoderSchemaTest, SlidingWindowValidateHookRejectsBadWindowing) {
+  using namespace cudaq::qec::decoding::config;
+
+  // The sliding_window schema registers a validate hook for the cross-field
+  // constraints its per-key specs can't express; the hook runs both when YAML
+  // is parsed and from validate_custom_args.
+  const std::string yaml_template = R"(
+decoders:
+  - id: 0
+    type: sliding_window
+    block_size: 2
+    syndrome_size: 2
+    H_sparse: [0, -1, 1, -1]
+    O_sparse: [0, -1, 1, -1]
+    D_sparse: [0, -1, 1, -1]
+    decoder_custom_args:
+      window_size: WINDOW
+      step_size: STEP
+      error_rate_vec: [0.01, 0.01]
+      inner_decoder_name: single_error_lut
+)";
+  auto make_yaml = [&](const std::string &window, const std::string &step) {
+    std::string yaml = yaml_template;
+    yaml.replace(yaml.find("WINDOW"), 6, window);
+    yaml.replace(yaml.find("STEP"), 4, step);
+    return yaml;
+  };
+
+  EXPECT_NO_THROW(multi_decoder_config::from_yaml_str(make_yaml("4", "2")));
+  // step_size > window_size
+  EXPECT_THROW(multi_decoder_config::from_yaml_str(make_yaml("2", "4")),
+               std::runtime_error);
+  // step_size == 0
+  EXPECT_THROW(multi_decoder_config::from_yaml_str(make_yaml("2", "0")),
+               std::runtime_error);
+
+  decoder_config config;
+  config.type = "sliding_window";
+  cudaqx::heterogeneous_map args;
+  args.insert("window_size", std::size_t(2));
+  args.insert("step_size", std::size_t(4));
+  args.insert("error_rate_vec", std::vector<double>{0.01, 0.01});
+  args.insert("inner_decoder_name", std::string("single_error_lut"));
+  config.decoder_custom_args = args;
+  EXPECT_THROW(config.validate_custom_args(), std::runtime_error);
+
+  args.insert("step_size", std::size_t(2));
+  config.decoder_custom_args = args;
+  EXPECT_NO_THROW(config.validate_custom_args());
+
+  args.insert("error_rate_vec", std::vector<double>{});
+  config.decoder_custom_args = args;
+  EXPECT_THROW(config.validate_custom_args(), std::runtime_error);
+}
+
 TEST(DecoderConfigTest, SimulationHostPointerWrappersForwardToHostRuntime) {
   using namespace cudaq::qec::decoding::config;
 

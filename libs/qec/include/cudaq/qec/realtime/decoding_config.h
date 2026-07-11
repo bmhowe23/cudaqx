@@ -77,6 +77,13 @@ struct decoder_config {
     decoder_custom_args = map;
   }
 
+  /// Validate `decoder_custom_args` against the parameter schema registered
+  /// for `type`: unknown keys, missing required keys, and the schema's own
+  /// validate hook (if any). Throws std::runtime_error on the first
+  /// violation. YAML parsing applies the same checks automatically; call this
+  /// to vet a configuration built programmatically before using it.
+  __attribute__((visibility("default"))) void validate_custom_args() const;
+
   __attribute__((visibility("default"))) std::string
   to_yaml_str(int column_wrap = 80);
   __attribute__((visibility("default"))) static decoder_config
@@ -88,6 +95,10 @@ public:
   std::vector<decoder_config> decoders;
 
   bool operator==(const multi_decoder_config &) const = default;
+
+  /// Validate every decoder's custom args (see
+  /// decoder_config::validate_custom_args).
+  __attribute__((visibility("default"))) void validate_custom_args() const;
 
   __attribute__((visibility("default"))) std::string
   to_yaml_str(int column_wrap = 80);

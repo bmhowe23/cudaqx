@@ -182,13 +182,22 @@ plugin ``single_error_lut_example``):
    struct schema_registrar {
      schema_registrar() {
        using k = cudaq::qec::decoding::config::param_kind;
+       cudaq::qec::decoding::config::decoder_schema schema{
+           "my_decoder",
+           {
+               {"strength", k::f64},
+               {"passes", k::int32},
+               {"mode", k::string, /*required=*/true},
+           }};
+       // Optional: cross-field constraints the per-key specs can't express.
+       // Unknown keys and missing required keys are already rejected by the
+       // framework; a decoder never implements those checks itself.
+       schema.validate = [](const cudaqx::heterogeneous_map &args) {
+         if (args.contains("strength") && args.get<double>("strength") <= 0.0)
+           throw std::runtime_error("my_decoder: strength must be positive");
+       };
        cudaq::qec::decoding::config::register_decoder_schema(
-           {"my_decoder",
-            {
-                {"strength", k::f64},
-                {"passes", k::int32},
-                {"mode", k::string, /*required=*/true},
-            }});
+           std::move(schema));
      }
    };
    schema_registrar register_schema;
@@ -196,8 +205,12 @@ plugin ``single_error_lut_example``):
 
 With the schema in place, a ``decoder_custom_args`` section for
 ``type: my_decoder`` is validated (unknown keys and missing required keys are
-rejected) and delivered to the decoder's constructor as a
-``cudaqx::heterogeneous_map``. The registered schemas can be inspected from
+rejected, then the schema's ``validate`` hook runs) and delivered to the
+decoder's constructor as a ``cudaqx::heterogeneous_map``. The same checks can
+be applied to a configuration built programmatically -- before it is
+serialized or used -- by calling ``decoder_config::validate_custom_args()``
+(``config.validate_custom_args()`` in Python, also available on
+``multi_decoder_config``). The registered schemas can be inspected from
 Python via ``qec.decoder_param_schema("my_decoder")`` and
 ``qec.registered_decoder_schemas()``.
 

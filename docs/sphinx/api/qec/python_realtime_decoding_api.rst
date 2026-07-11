@@ -115,6 +115,15 @@ keys follow the schema of the named global decoder).
    Names of all decoders (and nested parameter sections) with registered
    parameter schemas.
 
+.. py:method:: decoder_config.validate_custom_args()
+
+   Validate ``decoder_custom_args`` against the parameter schema registered
+   for this decoder ``type``: unknown keys, missing required keys, and the
+   schema's own validation hook. Raises ``RuntimeError`` on the first
+   violation. YAML parsing applies the same checks automatically; call this
+   to vet a configuration built programmatically before using it. Also
+   available on ``multi_decoder_config`` to validate every decoder at once.
+
 Configuration Functions
 ^^^^^^^^^^^^^^^^^^^^^^^^
 

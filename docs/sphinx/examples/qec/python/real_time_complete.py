@@ -110,6 +110,9 @@ def main():
     # Decoder parameters are a plain dict; keys are governed by the parameter
     # schema the decoder registered (see qec.decoder_param_schema).
     config.decoder_custom_args = {"lut_error_depth": 2}
+    # Check the dict against the decoder's schema (unknown keys, missing
+    # required keys, decoder-specific constraints) before using the config.
+    config.validate_custom_args()
 
     multi_config = qec.multi_decoder_config()
     multi_config.decoders = [config]
