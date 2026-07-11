@@ -72,65 +72,48 @@ Configuration API
 
 The configuration API enables setting up decoders before circuit execution. Decoders are configured using YAML files or programmatically constructed configuration objects.
 
-Configuration Types
-^^^^^^^^^^^^^^^^^^^
+Decoder Parameters
+^^^^^^^^^^^^^^^^^^
 
-.. py:class:: cudaq_qec.pymatching_config
+Decoder-specific parameters (``decoder_config.decoder_custom_args``) are
+plain dicts. The set of accepted keys, their types, and which are required
+are defined by the *parameter schema* each decoder registers -- including
+out-of-tree decoder plugins. Use ``cudaq_qec.decoder_param_schema(name)`` to
+inspect a decoder's parameters and ``cudaq_qec.registered_decoder_schemas()``
+to list all decoders with registered schemas.
 
-   Configuration for the PyMatching decoder in the real-time decoding system.
-   Use this with ``decoder_config.type = "pymatching"``.
-   Set ``decoder_config.type`` before passing this object to
-   ``decoder_config.set_decoder_custom_args``.
-   The decoder input matrix must be graphlike: each ``H_sparse`` column can
-   contain only one or two detector entries.
+For example, the ``pymatching`` decoder accepts ``error_rate_vec``
+(per-error prior probabilities in the range ``(0, 0.5]``, length matching
+the decoder ``block_size``) and ``merge_strategy`` (one of ``"disallow"``,
+``"independent"``, ``"smallest_weight"``, ``"keep_original"``,
+``"replace"``):
 
-   **Attributes:**
+.. code-block:: python
 
-   .. py:attribute:: error_rate_vec
-      :type: Optional[List[float]]
+   config.type = "pymatching"
+   config.decoder_custom_args = {
+       "error_rate_vec": [0.1, 0.1, 0.1],
+       "merge_strategy": "smallest_weight",
+   }
 
-      Per-error prior probabilities. When provided, the length must match the
-      decoder ``block_size`` and each value must be in the range ``(0, 0.5]``.
+The ``trt_decoder`` accepts ``onnx_load_path`` or ``engine_load_path``
+(mutually exclusive), ``engine_save_path``, ``precision`` ("fp16", "bf16",
+"int8", "fp8", "tf32", "noTF32", or "best"), ``memory_workspace`` (bytes),
+``batch_size``, ``use_cuda_graph``, and an optional global decoder attached
+via ``global_decoder`` plus ``global_decoder_params`` (a nested dict whose
+keys follow the schema of the named global decoder).
 
-   .. py:attribute:: merge_strategy
-      :type: Optional[str]
+.. py:function:: cudaq_qec.decoder_param_schema(decoder_name)
 
-      PyMatching edge merge strategy. Supported values are ``"disallow"``,
-      ``"independent"``, ``"smallest_weight"``, ``"keep_original"``, and
-      ``"replace"``.
+   Return the registered parameter schema for a decoder as a list of
+   descriptors (``key``, ``kind``, ``required``, and, for nested sections,
+   ``subschema`` or ``discriminator``), or ``None`` when the decoder has not
+   registered one.
 
-.. py:class:: cudaq_qec.trt_decoder_config
+.. py:function:: cudaq_qec.registered_decoder_schemas()
 
-   Configuration for TensorRT decoder in real-time decoding system.
-
-   **Attributes:**
-
-   .. py:attribute:: onnx_load_path
-      :type: Optional[str]
-
-      Path to ONNX model file. Mutually exclusive with engine_load_path.
-
-   .. py:attribute:: engine_load_path
-      :type: Optional[str]
-
-      Path to pre-built TensorRT engine file. Mutually exclusive with 
-      onnx_load_path.
-
-   .. py:attribute:: engine_save_path
-      :type: Optional[str]
-
-      Path to save built TensorRT engine for reuse.
-
-   .. py:attribute:: precision
-      :type: Optional[str]
-
-      Inference precision mode: "fp16", "bf16", "int8", "fp8", "tf32", 
-      "noTF32", or "best" (default).
-
-   .. py:attribute:: memory_workspace
-      :type: Optional[int]
-
-      Workspace memory size in bytes (default: 1073741824 = 1GB).
+   Names of all decoders (and nested parameter sections) with registered
+   parameter schemas.
 
 Configuration Functions
 ^^^^^^^^^^^^^^^^^^^^^^^^

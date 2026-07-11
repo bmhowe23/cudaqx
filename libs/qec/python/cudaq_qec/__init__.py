@@ -114,11 +114,6 @@ pcm_to_sparse_vec = qecrt.pcm_to_sparse_vec
 
 multi_decoder_config = qecrt.config.multi_decoder_config
 decoder_config = qecrt.config.decoder_config
-nv_qldpc_decoder_config = qecrt.config.nv_qldpc_decoder_config
-multi_error_lut_config = qecrt.config.multi_error_lut_config
-trt_decoder_config = qecrt.config.trt_decoder_config
-pymatching_config = qecrt.config.pymatching_config
-chromobius_config = qecrt.config.chromobius_config
 configure_decoders_from_file = qecrt.config.configure_decoders_from_file
 configure_decoders_from_str = qecrt.config.configure_decoders_from_str
 finalize_decoders = qecrt.config.finalize_decoders

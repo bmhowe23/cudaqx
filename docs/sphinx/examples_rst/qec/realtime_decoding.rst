@@ -121,7 +121,7 @@ base decoder to accumulate logical corrections returned by ``get_corrections``.
 Vanilla PyMatching requires graphlike detector error models, where every
 ``H_sparse`` column has one or two detector entries.
 For belief propagation decoders, the user sets iteration limits and convergence criteria. 
-The configuration API provides type-safe structures for each decoder, ensuring that all required parameters are included.
+Decoder parameters are validated against the parameter schema each decoder registers, ensuring unknown keys are rejected and required parameters are present.
 
 The configuration is then saved to a YAML file for reuse. The YAML format is human-readable, making it easy to inspect, modify, and share configurations across different execution environments.
 
@@ -139,10 +139,10 @@ For example, a PyMatching real-time decoder can be configured programmatically:
    config.D_sparse = qec.generate_timelike_sparse_detector_matrix(
        num_syndromes_per_round, num_rounds, include_first_round=False)
 
-   pm_config = qec.pymatching_config()
-   pm_config.error_rate_vec = list(dem.error_rates)
-   pm_config.merge_strategy = "smallest_weight"
-   config.set_decoder_custom_args(pm_config)
+   config.decoder_custom_args = {
+       "error_rate_vec": list(dem.error_rates),
+       "merge_strategy": "smallest_weight",
+   }
 
    multi_config = qec.multi_decoder_config()
    multi_config.decoders = [config]
@@ -617,8 +617,8 @@ Decoder Selection
 ^^^^^^^^^^^^^^^^^
 The page `CUDA-Q QEC Decoders <https://nvidia.github.io/cudaqx/components/qec/introduction.html#pre-built-qec-decoders>`_ provides information about which decoders are compatible with real-time decoding.
 
-The TRT decoder (``trt_decoder``) can be configured for real-time decoding by specifying 
-``trt_decoder_config`` parameters. This is useful for neural network-based 
+The TRT decoder (``trt_decoder``) can be configured for real-time decoding by specifying
+its ``decoder_custom_args`` parameters. This is useful for neural network-based
 decoders trained for specific codes and noise models. Note that TRT models 
 must be trained with the appropriate input/output dimensions matching the 
 syndrome and error spaces. See :ref:`trt_decoder_api_python` for detailed configuration options.

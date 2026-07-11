@@ -15,9 +15,7 @@
 #include <nanobind/stl/optional.h>
 #include <nanobind/stl/string.h>
 #include <nanobind/stl/string_view.h>
-#include <nanobind/stl/variant.h>
 #include <nanobind/stl/vector.h>
-#include <unordered_set>
 
 namespace nb = nanobind;
 
@@ -29,249 +27,6 @@ void bindDecodingConfig(nb::module_ &mod) {
 
   auto mod_cfg =
       qecmod.def_submodule("config", "Realtime decoding configuration");
-
-  // Allow Python None to clear std::optional<T> fields.
-  const auto setter_accepts_none = nb::for_setter(nb::arg("value").none());
-
-  // srelay_bp_config
-  nb::class_<config::srelay_bp_config>(mod_cfg, "srelay_bp_config",
-                                       "Relay-BP decoder configuration.")
-      .def(nb::init<>())
-      .def(
-          "__init__",
-          [](config::srelay_bp_config &self,
-             const cudaqx::heterogeneous_map &map) {
-            new (&self)
-                srelay_bp_config(srelay_bp_config::from_heterogeneous_map(map));
-          },
-          nb::arg("map"))
-      .def_rw("pre_iter", &srelay_bp_config::pre_iter)
-      .def_rw("num_sets", &srelay_bp_config::num_sets)
-      .def_rw("stopping_criterion", &srelay_bp_config::stopping_criterion)
-      .def_rw("stop_nconv", &srelay_bp_config::stop_nconv)
-      .def("to_heterogeneous_map", &srelay_bp_config::to_heterogeneous_map,
-           nb::rv_policy::move)
-      .def_static("from_heterogeneous_map",
-                  &srelay_bp_config::from_heterogeneous_map, nb::arg("map"));
-
-  // nv_qldpc_decoder_config
-  nb::class_<config::nv_qldpc_decoder_config>(
-      mod_cfg, "nv_qldpc_decoder_config", "Optional decoder custom args.")
-      .def(nb::init<>())
-      .def(
-          "__init__",
-          [](config::nv_qldpc_decoder_config &self,
-             const cudaqx::heterogeneous_map &map) {
-            new (&self) nv_qldpc_decoder_config(
-                nv_qldpc_decoder_config::from_heterogeneous_map(map));
-          },
-          nb::arg("map"))
-      .def_rw("use_sparsity", &nv_qldpc_decoder_config::use_sparsity)
-      .def_rw("error_rate", &nv_qldpc_decoder_config::error_rate)
-      .def_rw("error_rate_vec", &nv_qldpc_decoder_config::error_rate_vec)
-      .def_rw("max_iterations", &nv_qldpc_decoder_config::max_iterations)
-      .def_rw("n_threads", &nv_qldpc_decoder_config::n_threads)
-      .def_rw("use_osd", &nv_qldpc_decoder_config::use_osd)
-      .def_rw("osd_method", &nv_qldpc_decoder_config::osd_method)
-      .def_rw("osd_order", &nv_qldpc_decoder_config::osd_order)
-      .def_rw("bp_batch_size", &nv_qldpc_decoder_config::bp_batch_size)
-      .def_rw("osd_batch_size", &nv_qldpc_decoder_config::osd_batch_size)
-      .def_rw("iter_per_check", &nv_qldpc_decoder_config::iter_per_check)
-      .def_rw("clip_value", &nv_qldpc_decoder_config::clip_value)
-      .def_rw("bp_method", &nv_qldpc_decoder_config::bp_method)
-      .def_rw("scale_factor", &nv_qldpc_decoder_config::scale_factor)
-      .def_rw("proc_float", &nv_qldpc_decoder_config::proc_float)
-      .def_rw("gamma0", &nv_qldpc_decoder_config::gamma0)
-      .def_rw("gamma_dist", &nv_qldpc_decoder_config::gamma_dist)
-      .def_rw("explicit_gammas", &nv_qldpc_decoder_config::explicit_gammas)
-      .def_rw("srelay_config", &nv_qldpc_decoder_config::srelay_config)
-      .def_rw("bp_seed", &nv_qldpc_decoder_config::bp_seed)
-      .def_rw("composition", &nv_qldpc_decoder_config::composition)
-      .def("to_heterogeneous_map",
-           &nv_qldpc_decoder_config::to_heterogeneous_map, nb::rv_policy::move)
-      .def_static("from_heterogeneous_map",
-                  &nv_qldpc_decoder_config::from_heterogeneous_map,
-                  nb::arg("map"));
-
-  // multi_error_lut_config
-  nb::class_<config::multi_error_lut_config>(mod_cfg, "multi_error_lut_config",
-                                             "Optional decoder custom args.")
-      .def(nb::init<>())
-      .def(
-          "__init__",
-          [](config::multi_error_lut_config &self,
-             const cudaqx::heterogeneous_map &map) {
-            new (&self) multi_error_lut_config(
-                multi_error_lut_config::from_heterogeneous_map(map));
-          },
-          nb::arg("map"))
-      .def_rw("lut_error_depth", &multi_error_lut_config::lut_error_depth)
-      .def("to_heterogeneous_map",
-           &multi_error_lut_config::to_heterogeneous_map, nb::rv_policy::move)
-      .def_static("from_heterogeneous_map",
-                  &multi_error_lut_config::from_heterogeneous_map,
-                  nb::arg("map"));
-
-  // trt_decoder_config
-  nb::class_<config::trt_decoder_config>(mod_cfg, "trt_decoder_config",
-                                         "TensorRT decoder configuration.")
-      .def(nb::init<>())
-      .def(
-          "__init__",
-          [](config::trt_decoder_config &self,
-             const cudaqx::heterogeneous_map &map) {
-            new (&self) trt_decoder_config(
-                trt_decoder_config::from_heterogeneous_map(map));
-          },
-          nb::arg("map"))
-      .def_rw("onnx_load_path", &trt_decoder_config::onnx_load_path,
-              setter_accepts_none)
-      .def_rw("engine_load_path", &trt_decoder_config::engine_load_path,
-              setter_accepts_none)
-      .def_rw("engine_save_path", &trt_decoder_config::engine_save_path,
-              setter_accepts_none)
-      .def_rw("precision", &trt_decoder_config::precision, setter_accepts_none)
-      .def_rw("memory_workspace", &trt_decoder_config::memory_workspace,
-              setter_accepts_none)
-      .def_rw("batch_size", &trt_decoder_config::batch_size,
-              setter_accepts_none)
-      .def_rw("use_cuda_graph", &trt_decoder_config::use_cuda_graph,
-              setter_accepts_none)
-      .def_rw("global_decoder", &trt_decoder_config::global_decoder,
-              setter_accepts_none)
-      .def_prop_rw(
-          "global_decoder_params",
-          [](const trt_decoder_config &self) -> nb::object {
-            if (!self.global_decoder_params.has_value())
-              return nb::none();
-            return nb::cast(self.global_decoder_params.value());
-          },
-          [](trt_decoder_config &self, nb::object value) {
-            if (value.is_none()) {
-              self.global_decoder_params = std::nullopt;
-            } else if (nb::hasattr(value, "to_heterogeneous_map")) {
-              self.global_decoder_params = nb::cast<cudaqx::heterogeneous_map>(
-                  value.attr("to_heterogeneous_map")());
-            } else {
-              self.global_decoder_params =
-                  nb::cast<cudaqx::heterogeneous_map>(value);
-            }
-          },
-          setter_accepts_none)
-      .def("to_heterogeneous_map", &trt_decoder_config::to_heterogeneous_map,
-           nb::rv_policy::move)
-      .def_static("from_heterogeneous_map",
-                  &trt_decoder_config::from_heterogeneous_map, nb::arg("map"));
-
-  // pymatching_config
-  nb::class_<config::pymatching_config>(mod_cfg, "pymatching_config",
-                                        "PyMatching decoder configuration.")
-      .def(nb::init<>())
-      .def(
-          "__init__",
-          [](config::pymatching_config &self,
-             const cudaqx::heterogeneous_map &map) {
-            new (&self) pymatching_config(
-                pymatching_config::from_heterogeneous_map(map));
-          },
-          nb::arg("map"))
-      .def_rw("error_rate_vec", &pymatching_config::error_rate_vec)
-      .def_rw("merge_strategy", &pymatching_config::merge_strategy)
-      .def("to_heterogeneous_map", &pymatching_config::to_heterogeneous_map,
-           nb::rv_policy::move)
-      .def_static("from_heterogeneous_map",
-                  &pymatching_config::from_heterogeneous_map, nb::arg("map"));
-
-  // chromobius_config
-  nb::class_<config::chromobius_config>(mod_cfg, "chromobius_config",
-                                        "Chromobius decoder configuration.")
-      .def(nb::init<>())
-      .def(
-          "__init__",
-          [](config::chromobius_config &self,
-             const cudaqx::heterogeneous_map &map) {
-            new (&self) chromobius_config(
-                chromobius_config::from_heterogeneous_map(map));
-          },
-          nb::arg("map"))
-      .def_rw("drop_mobius_errors_involving_remnant_errors",
-              &chromobius_config::drop_mobius_errors_involving_remnant_errors,
-              setter_accepts_none)
-      .def_rw("ignore_decomposition_failures",
-              &chromobius_config::ignore_decomposition_failures,
-              setter_accepts_none)
-      .def_rw("include_coords_in_mobius_dem",
-              &chromobius_config::include_coords_in_mobius_dem,
-              setter_accepts_none)
-      .def_rw("return_weight", &chromobius_config::return_weight,
-              setter_accepts_none)
-      .def_rw("write_mobius_match_to_stderr",
-              &chromobius_config::write_mobius_match_to_stderr,
-              setter_accepts_none)
-      .def("to_heterogeneous_map", &chromobius_config::to_heterogeneous_map,
-           nb::rv_policy::move)
-      .def_static("from_heterogeneous_map",
-                  &chromobius_config::from_heterogeneous_map, nb::arg("map"));
-
-  // single_error_lut_config
-  nb::class_<config::single_error_lut_config>(
-      mod_cfg, "single_error_lut_config",
-      "Single error LUT decoder configuration.")
-      .def(nb::init<>())
-      .def(
-          "__init__",
-          [](config::single_error_lut_config &self,
-             const cudaqx::heterogeneous_map &map) {
-            new (&self) single_error_lut_config(
-                single_error_lut_config::from_heterogeneous_map(map));
-          },
-          nb::arg("map"))
-      .def("to_heterogeneous_map",
-           &single_error_lut_config::to_heterogeneous_map, nb::rv_policy::move)
-      .def_static("from_heterogeneous_map",
-                  &single_error_lut_config::from_heterogeneous_map,
-                  nb::arg("map"));
-
-  // sliding_window_config
-  nb::class_<config::sliding_window_config>(
-      mod_cfg, "sliding_window_config", "Sliding window decoder configuration.")
-      .def(nb::init<>())
-      .def(
-          "__init__",
-          [](config::sliding_window_config &self,
-             const cudaqx::heterogeneous_map &map) {
-            new (&self) sliding_window_config(
-                sliding_window_config::from_heterogeneous_map(map));
-          },
-          nb::arg("map"))
-      .def_rw("window_size", &sliding_window_config::window_size)
-      .def_rw("step_size", &sliding_window_config::step_size)
-      .def_rw("num_syndromes_per_round",
-              &sliding_window_config::num_syndromes_per_round)
-      .def_rw("straddle_start_round",
-              &sliding_window_config::straddle_start_round)
-      .def_rw("straddle_end_round", &sliding_window_config::straddle_end_round)
-      .def_rw("error_rate_vec", &sliding_window_config::error_rate_vec)
-      .def_rw("inner_decoder_name", &sliding_window_config::inner_decoder_name)
-      .def_prop_rw(
-          "inner_decoder_params",
-          [](const sliding_window_config &self) -> nb::object {
-            return nb::cast(self.inner_decoder_params);
-          },
-          [](sliding_window_config &self, nb::object value) {
-            if (nb::hasattr(value, "to_heterogeneous_map")) {
-              self.inner_decoder_params = nb::cast<cudaqx::heterogeneous_map>(
-                  value.attr("to_heterogeneous_map")());
-            } else {
-              self.inner_decoder_params =
-                  nb::cast<cudaqx::heterogeneous_map>(value);
-            }
-          })
-      .def("to_heterogeneous_map", &sliding_window_config::to_heterogeneous_map,
-           nb::rv_policy::move)
-      .def_static("from_heterogeneous_map",
-                  &sliding_window_config::from_heterogeneous_map,
-                  nb::arg("map"));
 
   // decoder_config
   nb::class_<config::decoder_config>(mod_cfg, "decoder_config")
@@ -286,55 +41,24 @@ void bindDecodingConfig(nb::module_ &mod) {
       .def_prop_rw(
           "decoder_custom_args",
           [](const decoder_config &self) -> nb::object {
-            // Reconstruct a typed view for the built-in decoder types so
-            // existing Python code keeps attribute access; other (e.g.
-            // third-party) types surface the raw parameter map as a dict.
-            const auto &map = self.decoder_custom_args.map();
-            if (self.type == "nv-qldpc-decoder")
-              return nb::cast(
-                  nv_qldpc_decoder_config::from_heterogeneous_map(map));
-            if (self.type == "multi_error_lut")
-              return nb::cast(
-                  multi_error_lut_config::from_heterogeneous_map(map));
-            if (self.type == "single_error_lut")
-              return nb::cast(
-                  single_error_lut_config::from_heterogeneous_map(map));
-            if (self.type == "sliding_window")
-              return nb::cast(
-                  sliding_window_config::from_heterogeneous_map(map));
-            if (self.type == "trt_decoder")
-              return nb::cast(trt_decoder_config::from_heterogeneous_map(map));
-            if (self.type == "pymatching")
-              return nb::cast(pymatching_config::from_heterogeneous_map(map));
-            return nb::cast(map);
+            // The decoder's parameter dict. Keys are governed by the
+            // parameter schema the decoder registered (see
+            // decoder_param_schema()); the same representation serves
+            // built-in and third-party decoders alike.
+            return nb::cast(self.decoder_custom_args.map());
           },
           [](decoder_config &self, nb::object value) {
-            if (nb::hasattr(value, "to_heterogeneous_map")) {
-              self.decoder_custom_args = nb::cast<cudaqx::heterogeneous_map>(
-                  value.attr("to_heterogeneous_map")());
-              return;
-            }
-            // Accept a dict / heterogeneous_map directly (the third-party
-            // decoder path: keys are validated against the decoder's
-            // registered schema when the config is serialized or applied).
             self.decoder_custom_args =
                 nb::cast<cudaqx::heterogeneous_map>(value);
           })
       .def(
           "set_decoder_custom_args",
-          [](config::decoder_config &self, nb::object decoder_config) {
-            if (nb::hasattr(decoder_config, "to_heterogeneous_map")) {
-              nb::object hm_object =
-                  decoder_config.attr("to_heterogeneous_map")();
-              cudaqx::heterogeneous_map hm =
-                  nb::cast<cudaqx::heterogeneous_map>(hm_object);
-              self.set_decoder_custom_args_from_heterogeneous_map(hm);
-              return;
-            }
-            throw nb::type_error("set_decoder_custom_args expects an object "
-                                 "with to_heterogeneous_map().");
+          [](config::decoder_config &self, nb::object custom_args) {
+            self.decoder_custom_args =
+                nb::cast<cudaqx::heterogeneous_map>(custom_args);
           },
-          nb::arg("custom_args_obj"))
+          nb::arg("custom_args"),
+          "Set the decoder parameter dict for this decoder.")
       .def("to_yaml_str", &decoder_config::to_yaml_str,
            nb::arg("column_wrap") = 80)
       .def_static("from_yaml_str", &decoder_config::from_yaml_str,
