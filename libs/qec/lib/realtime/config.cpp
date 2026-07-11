@@ -12,6 +12,7 @@
 #include "llvm/Support/raw_ostream.h"
 #include "realtime_decoding.h"
 #include "cudaq/qec/decoder_config_payload.h"
+#include "cudaq/qec/decoder_config_schema.h"
 #include "cudaq/qec/logger.h"
 #include "cudaq/qec/realtime/decoding_config.h"
 #include <any>
@@ -469,6 +470,52 @@ sliding_window_config sliding_window_config::from_heterogeneous_map(
 #undef INSERT_ARG
 #undef GET_ARG
 
+bool decoder_custom_args_t::operator==(
+    const decoder_custom_args_t &other) const {
+  return custom_args_maps_equal(map_, other.map_);
+}
+
+// Post-parse pass over a schema-parsed custom-args map: materialize defaulted
+// discriminated sections, enforce required keys, and run per-schema validation
+// hooks. Only invoked when the section was present in the input document,
+// mirroring the previous behavior where an absent decoder_custom_args section
+// skipped its mapping (and therefore its required-key checks) entirely.
+static void finalize_parsed_args(const decoder_schema &schema,
+                                 cudaqx::heterogeneous_map &map,
+                                 const std::string &context) {
+  for (const auto &spec : schema.params) {
+    if (spec.kind == param_kind::discriminated) {
+      std::string discriminator_value;
+      if (map.contains(spec.discriminator))
+        discriminator_value = map.get<std::string>(spec.discriminator);
+      const auto *nested_schema = discriminator_value.empty()
+                                      ? nullptr
+                                      : find_decoder_schema(discriminator_value);
+      if (spec.materialize_empty && nested_schema && !map.contains(spec.key))
+        map.insert(spec.key, cudaqx::heterogeneous_map());
+      if (nested_schema && map.contains(spec.key)) {
+        auto nested = map.get<cudaqx::heterogeneous_map>(spec.key);
+        finalize_parsed_args(*nested_schema, nested, context + "." + spec.key);
+        map.insert(spec.key, nested);
+      }
+    } else if (spec.kind == param_kind::subschema) {
+      if (map.contains(spec.key)) {
+        if (const auto *nested_schema = find_decoder_schema(spec.subschema)) {
+          auto nested = map.get<cudaqx::heterogeneous_map>(spec.key);
+          finalize_parsed_args(*nested_schema, nested,
+                               context + "." + spec.key);
+          map.insert(spec.key, nested);
+        }
+      }
+    }
+    if (spec.required && !map.contains(spec.key))
+      throw std::runtime_error("Missing required key '" + spec.key + "' in " +
+                               context + ".");
+  }
+  if (schema.validate)
+    schema.validate(map);
+}
+
 } // namespace cudaq::qec::decoding::config
 
 LLVM_YAML_IS_SEQUENCE_VECTOR(std::vector<double>)
@@ -476,227 +523,174 @@ LLVM_YAML_IS_SEQUENCE_VECTOR(cudaq::qec::decoding::config::decoder_config)
 
 namespace llvm::yaml {
 
-template <>
-struct MappingTraits<cudaq::qec::decoding::config::srelay_bp_config> {
-  static void mapping(IO &io,
-                      cudaq::qec::decoding::config::srelay_bp_config &config) {
-    io.mapOptional("pre_iter", config.pre_iter);
-    io.mapOptional("num_sets", config.num_sets);
-    io.mapOptional("stopping_criterion", config.stopping_criterion);
-    io.mapOptional("stop_nconv", config.stop_nconv);
-  }
+// Binds a heterogeneous_map to the decoder_schema that describes it so the
+// generic mapping traits below can convert between the two. The schema drives
+// everything: which keys are legal, the canonical storage type of each value,
+// and how nested sections resolve their schemas.
+struct schema_binding {
+  cudaqx::heterogeneous_map *map = nullptr;
+  const cudaq::qec::decoding::config::decoder_schema *schema = nullptr;
 };
 
-template <>
-struct MappingTraits<cudaq::qec::decoding::config::nv_qldpc_decoder_config> {
-  static void
-  mapping(IO &io,
-          cudaq::qec::decoding::config::nv_qldpc_decoder_config &config) {
-    io.mapOptional("use_sparsity", config.use_sparsity);
-    io.mapOptional("error_rate", config.error_rate);
-    io.mapOptional("error_rate_vec", config.error_rate_vec);
-    io.mapOptional("max_iterations", config.max_iterations);
-    io.mapOptional("n_threads", config.n_threads);
-    io.mapOptional("use_osd", config.use_osd);
-    io.mapOptional("osd_method", config.osd_method);
-    io.mapOptional("osd_order", config.osd_order);
-    io.mapOptional("bp_batch_size", config.bp_batch_size);
-    io.mapOptional("osd_batch_size", config.osd_batch_size);
-    io.mapOptional("iter_per_check", config.iter_per_check);
-    io.mapOptional("clip_value", config.clip_value);
-    io.mapOptional("bp_method", config.bp_method);
-    io.mapOptional("scale_factor", config.scale_factor);
-    io.mapOptional("proc_float", config.proc_float);
-    io.mapOptional("gamma0", config.gamma0);
-    io.mapOptional("gamma_dist", config.gamma_dist);
-    io.mapOptional("explicit_gammas", config.explicit_gammas);
-    io.mapOptional("bp_seed", config.bp_seed);
-    io.mapOptional("srelay_config", config.srelay_config);
-    io.mapOptional("composition", config.composition);
-    io.mapOptional("repeatable", config.repeatable);
-  }
-};
+namespace {
+
+template <typename T>
+void input_schema_scalar(IO &io, const std::string &key,
+                         cudaqx::heterogeneous_map &map) {
+  T value{};
+  io.mapRequired(key.c_str(), value);
+  map.insert(key, value);
+}
+
+template <typename T>
+void output_schema_scalar(IO &io, const std::string &key,
+                          const cudaqx::heterogeneous_map &map) {
+  T value = map.get<T>(key);
+  io.mapRequired(key.c_str(), value);
+}
+
+} // namespace
 
 template <>
-struct MappingTraits<cudaq::qec::decoding::config::multi_error_lut_config> {
-  static void
-  mapping(IO &io,
-          cudaq::qec::decoding::config::multi_error_lut_config &config) {
-    io.mapOptional("lut_error_depth", config.lut_error_depth);
-  }
-};
+struct CustomMappingTraits<schema_binding> {
+  using param_kind = cudaq::qec::decoding::config::param_kind;
+  using param_spec = cudaq::qec::decoding::config::param_spec;
 
-template <>
-struct MappingTraits<cudaq::qec::decoding::config::single_error_lut_config> {
-  static void
-  mapping(IO &io,
-          cudaq::qec::decoding::config::single_error_lut_config &config) {}
-};
-
-template <>
-struct MappingTraits<cudaq::qec::decoding::config::global_decoder_config> {
-  static void
-  mapping(IO &io, cudaq::qec::decoding::config::global_decoder_config &config) {
-    using namespace cudaq::qec::decoding::config;
-
-    if (io.outputting()) {
-      if (std::holds_alternative<std::monostate>(config)) {
-        return;
+  static void inputOne(IO &io, StringRef key, schema_binding &binding) {
+    const std::string key_str = key.str();
+    const param_spec *spec = nullptr;
+    for (const auto &candidate : binding.schema->params) {
+      if (candidate.key == key_str) {
+        spec = &candidate;
+        break;
       }
-
-      if (std::holds_alternative<pymatching_config>(config)) {
-        auto &params = std::get<pymatching_config>(config);
-        io.mapOptional("merge_strategy", params.merge_strategy);
-        io.mapOptional("error_rate_vec", params.error_rate_vec);
-        return;
-      }
-
-      auto &params = std::get<chromobius_config>(config);
-      io.mapOptional("drop_mobius_errors_involving_remnant_errors",
-                     params.drop_mobius_errors_involving_remnant_errors);
-      io.mapOptional("ignore_decomposition_failures",
-                     params.ignore_decomposition_failures);
-      io.mapOptional("include_coords_in_mobius_dem",
-                     params.include_coords_in_mobius_dem);
-      io.mapOptional("return_weight", params.return_weight);
-      io.mapOptional("write_mobius_match_to_stderr",
-                     params.write_mobius_match_to_stderr);
-      return;
     }
+    if (!spec)
+      throw std::runtime_error("Unknown key '" + key_str + "' in '" +
+                               binding.schema->name + "' parameters.");
 
-    // Input cannot be decoded safely here because the variant type depends on
-    // the parent trt_decoder_config.global_decoder value. The TRT mapping
-    // below dispatches with that context.
-    throw std::runtime_error(
-        "global_decoder_config YAML input requires trt_decoder_config "
-        "global_decoder context.");
-  }
-};
-
-template <>
-struct MappingTraits<cudaq::qec::decoding::config::pymatching_config> {
-  static void mapping(IO &io,
-                      cudaq::qec::decoding::config::pymatching_config &config) {
-    io.mapOptional("error_rate_vec", config.error_rate_vec);
-    io.mapOptional("merge_strategy", config.merge_strategy);
-  }
-};
-
-template <>
-struct MappingTraits<cudaq::qec::decoding::config::chromobius_config> {
-  static void mapping(IO &io,
-                      cudaq::qec::decoding::config::chromobius_config &config) {
-    io.mapOptional("drop_mobius_errors_involving_remnant_errors",
-                   config.drop_mobius_errors_involving_remnant_errors);
-    io.mapOptional("ignore_decomposition_failures",
-                   config.ignore_decomposition_failures);
-    io.mapOptional("include_coords_in_mobius_dem",
-                   config.include_coords_in_mobius_dem);
-    io.mapOptional("return_weight", config.return_weight);
-    io.mapOptional("write_mobius_match_to_stderr",
-                   config.write_mobius_match_to_stderr);
-  }
-};
-
-template <>
-struct MappingTraits<cudaq::qec::decoding::config::trt_decoder_config> {
-  static void
-  mapping(IO &io, cudaq::qec::decoding::config::trt_decoder_config &config) {
-    io.mapOptional("onnx_load_path", config.onnx_load_path);
-    io.mapOptional("engine_load_path", config.engine_load_path);
-    io.mapOptional("engine_save_path", config.engine_save_path);
-    io.mapOptional("precision", config.precision);
-    io.mapOptional("memory_workspace", config.memory_workspace);
-    io.mapOptional("batch_size", config.batch_size);
-    io.mapOptional("use_cuda_graph", config.use_cuda_graph);
-    io.mapOptional("global_decoder", config.global_decoder);
-
-    if (io.outputting()) {
-      auto global_decoder_params = config.global_decoder_params;
-      if (std::holds_alternative<std::monostate>(global_decoder_params)) {
-        global_decoder_params =
-            cudaq::qec::decoding::config::default_global_decoder_params(
-                config.global_decoder);
-      }
-      if (std::holds_alternative<std::monostate>(global_decoder_params)) {
-        return;
-      }
-
-      cudaq::qec::decoding::config::validate_global_decoder_params(
-          global_decoder_params, config.global_decoder);
-      if (config.global_decoder.value() == "pymatching") {
-        io.mapOptional(
-            "global_decoder_params",
-            std::get<cudaq::qec::decoding::config::pymatching_config>(
-                global_decoder_params));
-      } else if (config.global_decoder.value() == "chromobius") {
-        io.mapOptional(
-            "global_decoder_params",
-            std::get<cudaq::qec::decoding::config::chromobius_config>(
-                global_decoder_params));
-      }
-      return;
+    switch (spec->kind) {
+    case param_kind::boolean:
+      input_schema_scalar<bool>(io, key_str, *binding.map);
+      break;
+    case param_kind::int32:
+      input_schema_scalar<int>(io, key_str, *binding.map);
+      break;
+    case param_kind::uint64:
+      input_schema_scalar<std::size_t>(io, key_str, *binding.map);
+      break;
+    case param_kind::f64:
+      input_schema_scalar<double>(io, key_str, *binding.map);
+      break;
+    case param_kind::string:
+      input_schema_scalar<std::string>(io, key_str, *binding.map);
+      break;
+    case param_kind::f64_vec:
+      input_schema_scalar<std::vector<double>>(io, key_str, *binding.map);
+      break;
+    case param_kind::f64_matrix:
+      input_schema_scalar<std::vector<std::vector<double>>>(io, key_str,
+                                                            *binding.map);
+      break;
+    case param_kind::subschema: {
+      const auto *nested_schema =
+          cudaq::qec::decoding::config::find_decoder_schema(spec->subschema);
+      if (!nested_schema)
+        throw std::runtime_error("No schema registered under '" +
+                                 spec->subschema + "' (needed to parse '" +
+                                 key_str + "').");
+      cudaqx::heterogeneous_map nested;
+      schema_binding nested_binding{&nested, nested_schema};
+      io.mapRequired(key_str.c_str(), nested_binding);
+      binding.map->insert(key_str, nested);
+      break;
     }
+    case param_kind::discriminated: {
+      // The nested schema is named by a sibling key. Read it through the IO
+      // (document order does not matter; mapping keys are random access).
+      std::string discriminator_value;
+      io.mapOptional(spec->discriminator.c_str(), discriminator_value);
+      if (discriminator_value.empty())
+        throw std::runtime_error("'" + key_str + "' is present but '" +
+                                 spec->discriminator + "' is not set.");
+      const auto *nested_schema =
+          cudaq::qec::decoding::config::find_decoder_schema(
+              discriminator_value);
+      if (!nested_schema)
+        throw std::runtime_error(
+            "'" + key_str + "' does not support " + spec->discriminator +
+            " '" + discriminator_value +
+            "': no parameter schema is registered under that name.");
+      cudaqx::heterogeneous_map nested;
+      schema_binding nested_binding{&nested, nested_schema};
+      io.mapRequired(key_str.c_str(), nested_binding);
+      binding.map->insert(key_str, nested);
+      break;
+    }
+    }
+  }
 
-    if (config.global_decoder.has_value() &&
-        config.global_decoder.value() == "pymatching") {
-      std::optional<cudaq::qec::decoding::config::pymatching_config> params;
-      io.mapOptional("global_decoder_params", params);
-      if (params.has_value())
-        config.global_decoder_params = std::move(params.value());
-      else
-        config.global_decoder_params =
-            cudaq::qec::decoding::config::default_global_decoder_params(
-                config.global_decoder);
-    } else if (config.global_decoder.has_value() &&
-               config.global_decoder.value() == "chromobius") {
-      std::optional<cudaq::qec::decoding::config::chromobius_config> params;
-      io.mapOptional("global_decoder_params", params);
-      if (params.has_value())
-        config.global_decoder_params = std::move(params.value());
-      else
-        config.global_decoder_params =
-            cudaq::qec::decoding::config::default_global_decoder_params(
-                config.global_decoder);
-    } else {
-      // Use a throwaway value only to detect whether the key was present. Do
-      // not assign it to config.global_decoder_params: without a supported
-      // global_decoder name, there is no safe variant type to parse into.
-      std::optional<cudaq::qec::decoding::config::pymatching_config> params;
-      io.mapOptional("global_decoder_params", params);
-      if (params.has_value()) {
-        if (config.global_decoder.has_value()) {
+  static void output(IO &io, schema_binding &binding) {
+    // Emit in schema declaration order so output is deterministic.
+    for (const auto &spec : binding.schema->params) {
+      if (!binding.map->contains(spec.key))
+        continue;
+      switch (spec.kind) {
+      case param_kind::boolean:
+        output_schema_scalar<bool>(io, spec.key, *binding.map);
+        break;
+      case param_kind::int32:
+        output_schema_scalar<int>(io, spec.key, *binding.map);
+        break;
+      case param_kind::uint64:
+        output_schema_scalar<std::size_t>(io, spec.key, *binding.map);
+        break;
+      case param_kind::f64:
+        output_schema_scalar<double>(io, spec.key, *binding.map);
+        break;
+      case param_kind::string:
+        output_schema_scalar<std::string>(io, spec.key, *binding.map);
+        break;
+      case param_kind::f64_vec:
+        output_schema_scalar<std::vector<double>>(io, spec.key, *binding.map);
+        break;
+      case param_kind::f64_matrix:
+        output_schema_scalar<std::vector<std::vector<double>>>(io, spec.key,
+                                                               *binding.map);
+        break;
+      case param_kind::subschema: {
+        const auto *nested_schema =
+            cudaq::qec::decoding::config::find_decoder_schema(spec.subschema);
+        if (!nested_schema)
+          throw std::runtime_error("No schema registered under '" +
+                                   spec.subschema + "' (needed to emit '" +
+                                   spec.key + "').");
+        auto nested = binding.map->get<cudaqx::heterogeneous_map>(spec.key);
+        schema_binding nested_binding{&nested, nested_schema};
+        io.mapRequired(spec.key.c_str(), nested_binding);
+        break;
+      }
+      case param_kind::discriminated: {
+        std::string discriminator_value;
+        if (binding.map->contains(spec.discriminator))
+          discriminator_value =
+              binding.map->get<std::string>(spec.discriminator);
+        const auto *nested_schema =
+            discriminator_value.empty()
+                ? nullptr
+                : cudaq::qec::decoding::config::find_decoder_schema(
+                      discriminator_value);
+        if (!nested_schema)
           throw std::runtime_error(
-              "global_decoder_params does not support global_decoder '" +
-              config.global_decoder.value() + "'.");
-        } else {
-          throw std::runtime_error(
-              "global_decoder_params present but global_decoder is not set.");
-        }
+              "'" + spec.key + "' is present but no parameter schema is "
+              "registered for " + spec.discriminator + " '" +
+              discriminator_value + "'.");
+        auto nested = binding.map->get<cudaqx::heterogeneous_map>(spec.key);
+        schema_binding nested_binding{&nested, nested_schema};
+        io.mapRequired(spec.key.c_str(), nested_binding);
+        break;
       }
-    }
-  }
-};
-
-template <>
-struct MappingTraits<cudaq::qec::decoding::config::sliding_window_config> {
-  static void
-  mapping(IO &io, cudaq::qec::decoding::config::sliding_window_config &config) {
-    io.mapOptional("window_size", config.window_size);
-    io.mapOptional("step_size", config.step_size);
-    io.mapOptional("num_syndromes_per_round", config.num_syndromes_per_round);
-    io.mapOptional("straddle_start_round", config.straddle_start_round);
-    io.mapOptional("straddle_end_round", config.straddle_end_round);
-    io.mapRequired("error_rate_vec", config.error_rate_vec);
-    io.mapRequired("inner_decoder_name", config.inner_decoder_name);
-
-    // Concrete inner decoder configurations
-    if (config.inner_decoder_name == "single_error_lut") {
-      io.mapOptional("inner_decoder_params", config.single_error_lut_params);
-    } else if (config.inner_decoder_name == "multi_error_lut") {
-      io.mapOptional("inner_decoder_params", config.multi_error_lut_params);
-    } else if (config.inner_decoder_name == "nv-qldpc-decoder") {
-      io.mapOptional("inner_decoder_params", config.nv_qldpc_decoder_params);
+      }
     }
   }
 };
@@ -774,33 +768,39 @@ struct MappingTraits<cudaq::qec::decoding::config::decoder_config> {
         }
       }
     }
-#define INIT_AND_MAP_DECODER_CUSTOM_ARGS(type)                                 \
-  do {                                                                         \
-    if (!std::holds_alternative<type>(config.decoder_custom_args)) {           \
-      config.decoder_custom_args = type();                                     \
-    }                                                                          \
-    io.mapOptional("decoder_custom_args",                                      \
-                   std::get<type>(config.decoder_custom_args));                \
-  } while (false)
 
-    if (config.type == "nv-qldpc-decoder") {
-      INIT_AND_MAP_DECODER_CUSTOM_ARGS(
-          cudaq::qec::decoding::config::nv_qldpc_decoder_config);
-    } else if (config.type == "multi_error_lut") {
-      INIT_AND_MAP_DECODER_CUSTOM_ARGS(
-          cudaq::qec::decoding::config::multi_error_lut_config);
-    } else if (config.type == "single_error_lut") {
-      INIT_AND_MAP_DECODER_CUSTOM_ARGS(
-          cudaq::qec::decoding::config::single_error_lut_config);
-    } else if (config.type == "trt_decoder") {
-      INIT_AND_MAP_DECODER_CUSTOM_ARGS(
-          cudaq::qec::decoding::config::trt_decoder_config);
-    } else if (config.type == "sliding_window") {
-      INIT_AND_MAP_DECODER_CUSTOM_ARGS(
-          cudaq::qec::decoding::config::sliding_window_config);
-    } else if (config.type == "pymatching") {
-      INIT_AND_MAP_DECODER_CUSTOM_ARGS(
-          cudaq::qec::decoding::config::pymatching_config);
+    // Convert decoder_custom_args through the schema registered for this
+    // decoder type. When no schema is registered, the key is intentionally
+    // left unconsumed on input so the YAML parser's strict unknown-key check
+    // rejects the section -- a decoder must register a schema (from its own
+    // plugin library) to accept custom args.
+    const auto *schema =
+        cudaq::qec::decoding::config::find_decoder_schema(config.type);
+    if (io.outputting()) {
+      if (!config.decoder_custom_args.empty()) {
+        if (!schema)
+          throw std::runtime_error(
+              "decoder_custom_args set for decoder type '" + config.type +
+              "' but no parameter schema is registered under that name.");
+        auto args_map = config.decoder_custom_args.map();
+        schema_binding binding{&args_map, schema};
+        io.mapRequired("decoder_custom_args", binding);
+      }
+    } else if (schema) {
+      bool args_present = false;
+      for (const auto key : io.keys()) {
+        if (key == "decoder_custom_args") {
+          args_present = true;
+          break;
+        }
+      }
+      cudaqx::heterogeneous_map args_map;
+      schema_binding binding{&args_map, schema};
+      io.mapOptional("decoder_custom_args", binding);
+      if (args_present)
+        cudaq::qec::decoding::config::finalize_parsed_args(
+            *schema, args_map, "decoder_custom_args (" + config.type + ")");
+      config.decoder_custom_args = args_map;
     }
   }
 };

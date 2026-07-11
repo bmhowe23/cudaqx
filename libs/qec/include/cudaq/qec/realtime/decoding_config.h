@@ -13,6 +13,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <type_traits>
 #include <variant>
 #include <vector>
 
@@ -176,6 +177,54 @@ struct sliding_window_config {
 /// gpu_roce: GpuRoceTransceiver / DOCA (production, real ConnectX)
 enum class DecoderTransport { cpu_roce, gpu_roce };
 
+/// @brief Decoder-specific constructor arguments, stored as a
+/// `cudaqx::heterogeneous_map` -- the form every decoder's constructor
+/// consumes. YAML conversion is driven by the decoder's registered
+/// `decoder_schema` (see cudaq/qec/decoder_config_schema.h), so out-of-tree
+/// decoders participate without any framework changes.
+///
+/// The typed convenience structs above (`nv_qldpc_decoder_config`, ...) can
+/// still be assigned directly; they are converted through their
+/// `to_heterogeneous_map()`. Use `as<T>()` to recover a typed view.
+class decoder_custom_args_t {
+public:
+  decoder_custom_args_t() = default;
+  decoder_custom_args_t(const cudaqx::heterogeneous_map &m) : map_(m) {}
+  template <typename T,
+            typename = std::void_t<
+                decltype(std::declval<const T &>().to_heterogeneous_map())>>
+  decoder_custom_args_t(const T &cfg) : map_(cfg.to_heterogeneous_map()) {}
+
+  decoder_custom_args_t &operator=(const cudaqx::heterogeneous_map &m) {
+    map_ = m;
+    return *this;
+  }
+  template <typename T,
+            typename = std::void_t<
+                decltype(std::declval<const T &>().to_heterogeneous_map())>>
+  decoder_custom_args_t &operator=(const T &cfg) {
+    map_ = cfg.to_heterogeneous_map();
+    return *this;
+  }
+
+  /// Recover a typed view (e.g. `as<nv_qldpc_decoder_config>()`).
+  template <typename T>
+  T as() const {
+    return T::from_heterogeneous_map(map_);
+  }
+
+  cudaqx::heterogeneous_map &map() { return map_; }
+  const cudaqx::heterogeneous_map &map() const { return map_; }
+  bool empty() const { return map_.empty(); }
+
+  /// Deep equality over the canonical custom-args value kinds.
+  __attribute__((visibility("default"))) bool
+  operator==(const decoder_custom_args_t &other) const;
+
+private:
+  cudaqx::heterogeneous_map map_;
+};
+
 /// @brief Configuration structure for decoder options.
 struct decoder_config {
   int64_t id = 0;
@@ -189,59 +238,19 @@ struct decoder_config {
   std::vector<std::int64_t> H_sparse;
   std::vector<std::int64_t> O_sparse;
   std::vector<std::int64_t> D_sparse;
-  std::variant<single_error_lut_config, multi_error_lut_config,
-               nv_qldpc_decoder_config, sliding_window_config,
-               trt_decoder_config, pymatching_config>
-      decoder_custom_args;
+  decoder_custom_args_t decoder_custom_args;
 
   bool operator==(const decoder_config &) const = default;
 
   __attribute__((visibility("default"))) cudaqx::heterogeneous_map
   decoder_custom_args_to_heterogeneous_map() const {
-    if (std::holds_alternative<single_error_lut_config>(decoder_custom_args)) {
-      return std::get<single_error_lut_config>(decoder_custom_args)
-          .to_heterogeneous_map();
-    } else if (std::holds_alternative<multi_error_lut_config>(
-                   decoder_custom_args)) {
-      return std::get<multi_error_lut_config>(decoder_custom_args)
-          .to_heterogeneous_map();
-    } else if (std::holds_alternative<nv_qldpc_decoder_config>(
-                   decoder_custom_args)) {
-      return std::get<nv_qldpc_decoder_config>(decoder_custom_args)
-          .to_heterogeneous_map();
-    } else if (std::holds_alternative<sliding_window_config>(
-                   decoder_custom_args)) {
-      return std::get<sliding_window_config>(decoder_custom_args)
-          .to_heterogeneous_map();
-    } else if (std::holds_alternative<trt_decoder_config>(
-                   decoder_custom_args)) {
-      return std::get<trt_decoder_config>(decoder_custom_args)
-          .to_heterogeneous_map();
-    } else if (std::holds_alternative<pymatching_config>(decoder_custom_args)) {
-      return std::get<pymatching_config>(decoder_custom_args)
-          .to_heterogeneous_map();
-    }
-    return cudaqx::heterogeneous_map();
+    return decoder_custom_args.map();
   }
 
   __attribute__((visibility("default"))) void
   set_decoder_custom_args_from_heterogeneous_map(
       const cudaqx::heterogeneous_map &map) {
-    if (type == "single_error_lut") {
-      decoder_custom_args =
-          single_error_lut_config::from_heterogeneous_map(map);
-    } else if (type == "multi_error_lut") {
-      decoder_custom_args = multi_error_lut_config::from_heterogeneous_map(map);
-    } else if (type == "nv-qldpc-decoder") {
-      decoder_custom_args =
-          nv_qldpc_decoder_config::from_heterogeneous_map(map);
-    } else if (type == "sliding_window") {
-      decoder_custom_args = sliding_window_config::from_heterogeneous_map(map);
-    } else if (type == "trt_decoder") {
-      decoder_custom_args = trt_decoder_config::from_heterogeneous_map(map);
-    } else if (type == "pymatching") {
-      decoder_custom_args = pymatching_config::from_heterogeneous_map(map);
-    }
+    decoder_custom_args = map;
   }
 
   __attribute__((visibility("default"))) std::string
