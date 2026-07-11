@@ -77,7 +77,7 @@ void SessionRegistry::load_from_config(const multi_decoder_config &config,
 
     // [For follow-up] dc.dispatch (cpu_roce / gpu_roce) is parsed from YAML
     // but not yet used to select a transceiver here. Transport binding requires
-    // CpuRoceTransceiverAdapter / DeviceGraphTransceiverAdapter (gated on
+    // per-session transceiver adapters (gated on
     // CUDAQ_REALTIME headers); the split-transport DecodingServer constructor
     // is already in place to accept the resulting dispatch map.
     session->start_worker();

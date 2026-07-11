@@ -705,15 +705,9 @@ template <>
 struct ScalarEnumerationTraits<cudaq::qec::decoding::config::DecoderDispatch> {
   static void
   enumeration(IO &io, cudaq::qec::decoding::config::DecoderDispatch &value) {
-    // Canonical spellings first (used on output), legacy transport-named
-    // aliases second (accepted on input only).
     io.enumCase(value, "host",
                 cudaq::qec::decoding::config::DecoderDispatch::host);
     io.enumCase(value, "device_graph",
-                cudaq::qec::decoding::config::DecoderDispatch::device_graph);
-    io.enumCase(value, "cpu_roce",
-                cudaq::qec::decoding::config::DecoderDispatch::host);
-    io.enumCase(value, "gpu_roce",
                 cudaq::qec::decoding::config::DecoderDispatch::device_graph);
   }
 };
@@ -726,12 +720,6 @@ struct MappingTraits<cudaq::qec::decoding::config::decoder_config> {
     io.mapRequired("type", config.type);
     io.mapOptional("dispatch", config.dispatch,
                    cudaq::qec::decoding::config::DecoderDispatch::host);
-    // Legacy alias: `transport: cpu_roce|gpu_roce` (input only, so a config
-    // round-trip emits the canonical `dispatch` key exactly once).  Two-arg
-    // mapOptional: an absent legacy key must leave the `dispatch` value
-    // alone (the three-arg form would reset it to the default).
-    if (!io.outputting())
-      io.mapOptional("transport", config.dispatch);
     io.mapRequired("block_size", config.block_size);
     io.mapRequired("syndrome_size", config.syndrome_size);
     io.mapRequired("H_sparse", config.H_sparse);

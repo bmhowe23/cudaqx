@@ -88,7 +88,7 @@ GEN_SHOTS=100
 #                        enqueue/get/reset run as DEVICE_CALLs on the GPU and
 #                        the captured RelayBP decode graph fires device-side)
 TRANSPORT=""
-# GPU for the gpu_roce scheduler + decode graph (HOLOLINK_GPU_ID).
+# GPU for the gpu_roce scheduler + decode graph (QEC_DEVICE_GRAPH_GPU_ID).
 GPU_ID=0
 
 # gpu_roce build artifacts from the proprietary cuda-qx tree: the cudevice
@@ -191,7 +191,7 @@ Run options:
   --num-shots N          Limit number of shots
   --page-size N          Ring buffer slot size in bytes (default: 384)
   --frame-size N         Server TX SGE bytes, cpu_roce only (default: 64;
-                         gpu_roce uses page-size as HOLOLINK_FRAME_SIZE)
+                         gpu_roce uses page-size as QEC_DEVICE_GRAPH_FRAME_SIZE)
   --gpu N                GPU device id for gpu_roce (default: 0)
   --spacing N            Inter-shot spacing in microseconds (default: 10)
   --control-port N       UDP control port for emulator (default: 8193)
@@ -844,19 +844,19 @@ generate_data_files() {
         return 1
     }
 
-    # The server selects its transceiver from the per-decoder `transport:` YAML
-    # key (default cpu_roce).  The generator doesn't emit non-default optional
+    # The server selects the dispatch shape from the per-decoder `dispatch:`
+    # YAML key (default host).  The generator does not emit non-default optional
     # fields, so for the gpu_roce profile inject the key into our generated
     # config, directly under the decoder's `type:` line.
     if [[ "$TRANSPORT" == "gpu_roce" ]]; then
-        _info "Injecting 'transport: gpu_roce' into $(basename "$CONFIG_FILE")"
+        _info "Injecting 'dispatch: device_graph' into $(basename "$CONFIG_FILE")"
         awk '{ print }
              /^[[:space:]]*type:/ && !done {
-                 print "    transport:       gpu_roce"; done = 1
+                 print "    dispatch:        device_graph"; done = 1
              }' "$CONFIG_FILE" > "${CONFIG_FILE}.tmp" \
             && mv "${CONFIG_FILE}.tmp" "$CONFIG_FILE"
-        if ! grep -q "transport:.*gpu_roce" "$CONFIG_FILE"; then
-            _err "Failed to inject transport: gpu_roce into $CONFIG_FILE"
+        if ! grep -q "dispatch:.*device_graph" "$CONFIG_FILE"; then
+            _err "Failed to inject dispatch: device_graph into $CONFIG_FILE"
             return 1
         fi
     fi
@@ -1009,27 +1009,28 @@ start_server() {
     if [[ "$TRANSPORT" == "gpu_roce" ]]; then
         # Device-graph scheduler path: enqueue/get/reset run as DEVICE_CALLs
         # on the GPU and the captured RelayBP decode graph fires device-side.
-        # The Hololink transceiver is configured via HOLOLINK_* env (the
-        # server's gpu_roce mode ignores the cpu_roce CLI flags), and eager
-        # module loading avoids lazy-load stalls inside the persistent
-        # scheduler (same as the old bridge launcher).
+        # The device-graph transceiver is configured via QEC_DEVICE_GRAPH_*
+        # env (its provider defaults to the built-in hololink bridge), and
+        # eager module loading avoids lazy-load stalls inside the persistent
+        # scheduler (same as the old bridge launcher).  The dispatch shape
+        # comes from the config's `dispatch: device_graph` key, injected at
+        # generation time.
         CUDA_MODULE_LOADING=EAGER \
         LD_LIBRARY_PATH="${server_ld_path}:${LD_LIBRARY_PATH:-}" \
-        HOLOLINK_DEVICE="$BRIDGE_DEVICE" \
-        HOLOLINK_PEER_IP="$peer_ip" \
-        HOLOLINK_REMOTE_QP="$((remote_qp))" \
-        HOLOLINK_FRAME_SIZE="$PAGE_SIZE" \
-        HOLOLINK_NUM_PAGES="$NUM_SLOTS" \
-        HOLOLINK_GPU_ID="$GPU_ID" \
+        QEC_DEVICE_GRAPH_DEVICE="$BRIDGE_DEVICE" \
+        QEC_DEVICE_GRAPH_PEER_IP="$peer_ip" \
+        QEC_DEVICE_GRAPH_REMOTE_QP="$((remote_qp))" \
+        QEC_DEVICE_GRAPH_FRAME_SIZE="$PAGE_SIZE" \
+        QEC_DEVICE_GRAPH_NUM_PAGES="$NUM_SLOTS" \
+        QEC_DEVICE_GRAPH_GPU_ID="$GPU_ID" \
         "$SERVER_BIN" \
             --config="$CONFIG_FILE" \
-            --transport=gpu_roce \
             --timeout="$TIMEOUT" \
             > >(tee "$server_log") 2>&1 &
-        # The GpuRoceTransceiver prints the QP/RKey/Buffer handshake during
+        # The DeviceGraphTransceiver prints the QP/RKey/Buffer handshake during
         # server construction, BEFORE this READY sentinel -- so waiting for
         # READY guarantees the three lines are scrapeable.
-        ready_pattern="QEC_DECODING_SERVER_READY gpu_roce"
+        ready_pattern="QEC_DECODING_SERVER_READY device_graph"
     else
         LD_LIBRARY_PATH="${server_ld_path}:${LD_LIBRARY_PATH:-}" \
         "$SERVER_BIN" \

@@ -7,7 +7,6 @@
  ******************************************************************************/
 
 #include "DecodingServer.h"
-#include "CpuRoceTransceiver.h"
 
 #include "cudaq/qec/logger.h"
 #include "cudaq/qec/realtime/decoding_config.h"
@@ -50,10 +49,12 @@ DecodingServer::make_transport(DecoderDispatch dispatch) {
         "cudaq-qec-decoding-server-device-graph (whole-archive).");
 
   case DecoderDispatch::host:
-    // The standalone DecodingServer has no host-dispatch wire of its own yet
-    // (host dispatch normally runs through the CQR HOST_CALL plugin);
-    // CpuRoceTransceiver is the placeholder and its constructor throws.
-    return std::make_unique<CpuRoceTransceiver>();
+    // Host dispatch runs through the CQR HOST_CALL plugin (the decoding
+    // server's dispatcher-over-bridge-provider path); the standalone
+    // DecodingServer has no host transport of its own.
+    throw std::runtime_error(
+        "host dispatch is served by the CQR HOST_CALL plugin, not the "
+        "standalone DecodingServer; use dispatch: device_graph here");
   }
   throw std::runtime_error("make_transport: unknown DecoderDispatch value");
 }

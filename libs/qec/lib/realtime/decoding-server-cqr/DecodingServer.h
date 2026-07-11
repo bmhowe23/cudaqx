@@ -71,7 +71,7 @@ private:
   void register_handlers();
 
   /// Create a transceiver for \p transport_type.  Throws for RoCE transports
-  /// until CpuRoceTransceiverAdapter / DeviceGraphTransceiverAdapter are
+  /// until per-session transceiver adapters are
   /// available via CUDAQ_REALTIME.
   static std::unique_ptr<ITransceiver>
   make_transport(cudaq::qec::decoding::config::DecoderDispatch transport_type);

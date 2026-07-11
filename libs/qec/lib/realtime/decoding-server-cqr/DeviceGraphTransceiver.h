@@ -105,7 +105,7 @@ public:
 
   /// RDMA target info printed after launch_scheduler() for the orchestration
   /// script (QP number, rkey, buffer address).  Parsed from the provider's
-  /// endpoint-info query; 0 when the provider predates bridge interface v2.
+  /// endpoint-info query (bridge interface v2, required).
   uint32_t qp_number() const { return qp_number_; }
   uint32_t rkey() const { return rkey_; }
   uint64_t buffer_addr() const { return buffer_addr_; }

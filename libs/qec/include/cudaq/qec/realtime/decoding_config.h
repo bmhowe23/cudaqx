@@ -180,9 +180,7 @@ struct sliding_window_config {
 ///               device-graph scheduler (DeviceGraphTransceiver); requires a
 ///               decoder with a captured decode graph and a provider whose
 ///               rings are GPU-visible (e.g. Hololink/DOCA).
-/// YAML key: `dispatch: host|device_graph`.  The legacy per-decoder
-/// `transport: cpu_roce|gpu_roce` key is still accepted on input as an alias
-/// (cpu_roce -> host, gpu_roce -> device_graph).
+/// YAML key: `dispatch: host|device_graph`.
 enum class DecoderDispatch { host, device_graph };
 
 /// @brief Configuration structure for decoder options.

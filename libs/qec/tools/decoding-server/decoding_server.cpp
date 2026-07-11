@@ -54,8 +54,8 @@
 /// dispatcher below; a device_graph decoder routes the whole server through
 /// the CQR DecodingServer, whose DeviceGraphTransceiver runs the
 /// self-relaunching GPU scheduler over the same kind of runtime-loaded
-/// provider.  `--transport=gpu_roce` remains a legacy alias for
-/// device_graph-over-hololink.
+/// provider (built-in hololink by default; an explicit --transport selects
+/// another).
 
 #include "cudaq/qec/realtime/decoding_config.h"
 
@@ -201,8 +201,15 @@ int main(int argc, char **argv) {
   }
   std::stringstream config_text;
   config_text << config_file.rdbuf();
-  auto decoder_config =
-      config::multi_decoder_config::from_yaml_str(config_text.str());
+  config::multi_decoder_config decoder_config;
+  try {
+    decoder_config =
+        config::multi_decoder_config::from_yaml_str(config_text.str());
+  } catch (const std::exception &e) {
+    std::cerr << "ERROR: failed to parse " << cfg.config_path << ": "
+              << e.what() << std::endl;
+    return 1;
+  }
   if (decoder_config.decoders.empty()) {
     std::cerr << "ERROR: no decoders parsed from " << cfg.config_path
               << std::endl;
@@ -216,27 +223,12 @@ int main(int argc, char **argv) {
             << "; transport: " << cfg.transport << std::endl;
 
   // The dispatch SHAPE comes from the decoder config (dispatch:
-  // host|device_graph, or the legacy per-decoder transport: key); the wire
-  // comes from --transport.  --transport=gpu_roce is kept as a legacy alias
-  // for "device_graph dispatch over the built-in hololink provider".
+  // host|device_graph); --transport only ever names the wire.
   const bool wants_device_graph = std::any_of(
       decoder_config.decoders.begin(), decoder_config.decoders.end(),
       [](const auto &d) {
         return d.dispatch == config::DecoderDispatch::device_graph;
       });
-  const bool legacy_gpu_roce = (cfg.transport == "gpu_roce");
-  if (legacy_gpu_roce && !wants_device_graph) {
-    // Fail loudly rather than silently running the host path: this exact
-    // mismatch (CLI said gpu_roce, YAML defaulted to host) used to select a
-    // stub transceiver and die with an unrelated error.
-    std::cerr << "ERROR: --transport=gpu_roce (legacy alias for device_graph "
-                 "dispatch) but no decoder in "
-              << cfg.config_path
-              << " declares `dispatch: device_graph` (or the legacy "
-                 "`transport: gpu_roce`)"
-              << std::endl;
-    return 1;
-  }
 
   // [2a] device_graph dispatch takes a different shape (device-side
   // scheduler): bypass the CQR DeviceCallService / HOST_CALL dispatcher and
@@ -256,16 +248,17 @@ int main(int argc, char **argv) {
     // this binary (no proprietary cudevice archive) or when provider
     // bring-up fails.
     //
-    // A non-legacy --transport value selects the provider for the
-    // DeviceGraphTransceiver the same way it does for the host path.
-    if (!legacy_gpu_roce && cfg.transport != "udp")
+    // An explicit --transport value selects the provider for the
+    // DeviceGraphTransceiver the same way it does for the host path; the
+    // default ("udp") means the transceiver's built-in hololink provider.
+    if (cfg.transport != "udp")
       ::setenv("CUDAQ_REALTIME_BRIDGE_LIB",
                resolve_provider_lib(cfg.transport).c_str(), /*overwrite=*/1);
     try {
       cudaq::qec::decoding_server::DecodingServer server(cfg.config_path);
       // QP/rkey/buf already printed to stdout by launch_scheduler() so the
       // orchestration script can grep them before the READY line.
-      std::cout << "QEC_DECODING_SERVER_READY gpu_roce" << std::endl;
+      std::cout << "QEC_DECODING_SERVER_READY device_graph" << std::endl;
       std::cout.flush();
       std::thread server_thread([&server] { server.run(); });
       const auto start_time_gr = std::chrono::steady_clock::now();

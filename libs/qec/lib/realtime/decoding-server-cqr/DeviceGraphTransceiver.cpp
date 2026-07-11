@@ -115,16 +115,11 @@ void parse_endpoint_token(const std::string &info, const char *key, T &out) {
 // DeviceGraphConfig::from_env
 // ---------------------------------------------------------------------------
 
-// Each knob reads QEC_DEVICE_GRAPH_<NAME> first and falls back to the legacy
-// HOLOLINK_<NAME> spelling (the values are forwarded to whatever transport
-// provider is loaded, which need not be Hololink; existing orchestration
-// scripts still set the legacy names).
+// Each knob reads QEC_DEVICE_GRAPH_<NAME>; the values are forwarded to
+// whatever transport provider is loaded.
 static const char *env_raw(const char *name) {
-  const std::string primary = std::string("QEC_DEVICE_GRAPH_") + name;
-  if (const char *v = std::getenv(primary.c_str()))
-    return v;
-  const std::string legacy = std::string("HOLOLINK_") + name;
-  return std::getenv(legacy.c_str());
+  const std::string full = std::string("QEC_DEVICE_GRAPH_") + name;
+  return std::getenv(full.c_str());
 }
 static std::string env_str(const char *name, const char *def = "") {
   const char *v = env_raw(name);
@@ -163,14 +158,11 @@ DeviceGraphConfig DeviceGraphConfig::from_env() {
 DeviceGraphTransceiver::DeviceGraphTransceiver(const DeviceGraphConfig &config)
     : gpu_id_(config.gpu_id) {
   if (config.device_name.empty())
-    throw std::runtime_error("DeviceGraphTransceiver: QEC_DEVICE_GRAPH_DEVICE "
-                             "(or legacy HOLOLINK_DEVICE) not set");
+    throw std::runtime_error("DeviceGraphTransceiver: QEC_DEVICE_GRAPH_DEVICE not set");
   if (config.peer_ip.empty())
-    throw std::runtime_error("DeviceGraphTransceiver: QEC_DEVICE_GRAPH_PEER_IP "
-                             "(or legacy HOLOLINK_PEER_IP) not set");
+    throw std::runtime_error("DeviceGraphTransceiver: QEC_DEVICE_GRAPH_PEER_IP not set");
   if (config.remote_qp == 0)
-    throw std::runtime_error("DeviceGraphTransceiver: QEC_DEVICE_GRAPH_REMOTE_QP "
-                             "(or legacy HOLOLINK_REMOTE_QP) not set");
+    throw std::runtime_error("DeviceGraphTransceiver: QEC_DEVICE_GRAPH_REMOTE_QP not set");
 
   // Derive page_size from frame_size if not overridden, then round up to the
   // 128-byte Hololink granularity.  Mirrors the derivation in
@@ -239,29 +231,34 @@ DeviceGraphTransceiver::DeviceGraphTransceiver(const DeviceGraphConfig &config)
         "DeviceGraphTransceiver: null DOCA ring pointer(s) from provider");
   }
 
-  // Ring geometry from the provider when it supports the v2 query; fall back
-  // to the locally-derived values (identical arithmetic) for a v1 provider.
+  // Ring geometry and RDMA target identity come from the provider's
+  // interface-v2 queries; the scheduler and the orchestration handshake both
+  // depend on them, so a provider without v2 support is an error.
   uint32_t num_slots = 0, slot_size = 0;
-  if (cudaq_bridge_get_ring_geometry(bridge_, &num_slots, &slot_size) ==
+  if (cudaq_bridge_get_ring_geometry(bridge_, &num_slots, &slot_size) !=
       CUDAQ_OK) {
-    num_pages_ = num_slots;
-    page_size_ = slot_size;
-  } else {
-    num_pages_ = config.num_pages;
-    page_size_ = page_size;
+    cudaq_bridge_destroy(bridge_);
+    bridge_ = nullptr;
+    throw std::runtime_error(
+        "DeviceGraphTransceiver: provider does not report ring geometry "
+        "(bridge interface v2 required)");
   }
+  num_pages_ = num_slots;
+  page_size_ = slot_size;
 
-  // RDMA target identity for the orchestration handshake (v2 query; a v1
-  // provider prints its own '=== Bridge Ready ===' banner in connect() and
-  // these stay 0).
   char info[512] = {0};
-  if (cudaq_bridge_get_endpoint_info(bridge_, info, sizeof(info)) ==
+  if (cudaq_bridge_get_endpoint_info(bridge_, info, sizeof(info)) !=
       CUDAQ_OK) {
-    const std::string s(info);
-    parse_endpoint_token(s, "qp", qp_number_);
-    parse_endpoint_token(s, "rkey", rkey_);
-    parse_endpoint_token(s, "buffer_addr", buffer_addr_);
+    cudaq_bridge_destroy(bridge_);
+    bridge_ = nullptr;
+    throw std::runtime_error(
+        "DeviceGraphTransceiver: provider does not report endpoint info "
+        "(bridge interface v2 required)");
   }
+  const std::string endpoint_info(info);
+  parse_endpoint_token(endpoint_info, "qp", qp_number_);
+  parse_endpoint_token(endpoint_info, "rkey", rkey_);
+  parse_endpoint_token(endpoint_info, "buffer_addr", buffer_addr_);
 
   // connect(): the provider publishes its QP/RKey/Buffer handshake for the
   // orchestration script (no wire traffic; the playback tool alone programs
@@ -437,9 +434,7 @@ void DeviceGraphTransceiver::launch_scheduler(void *raw_graph_resources) {
 
   // Print RDMA target info to stdout so the orchestration script can grep it.
   // Matches the format in hololink_qldpc_graph_decoder_bridge.cpp lines
-  // 441-444.  Values come from the provider's v2 endpoint-info query; with a
-  // v1 provider they are 0 here and the provider's own '=== Bridge Ready ==='
-  // banner (printed by connect()) is the authoritative copy.
+  // 441-444.  Values come from the provider's endpoint-info query.
   std::cout << "QP Number: 0x" << std::hex << qp_number_ << std::dec << "\n"
             << "RKey: " << rkey_ << "\n"
             << "Buffer Addr: 0x" << std::hex << buffer_addr_ << std::dec

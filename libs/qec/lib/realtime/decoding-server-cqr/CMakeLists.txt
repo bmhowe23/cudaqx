@@ -73,9 +73,6 @@ else()
     "(CUDAQ_REALTIME_INCLUDE_DIR not set)")
 endif()
 
-message(STATUS
-  "cudaq-qec-decoding-server: CPU RoCE DISABLED (skeleton only; ibverbs implementation pending)")
-
 # ---------------------------------------------------------------------------
 # Core decoding server (always built): transport abstraction, session registry,
 # per-decoder worker threads, RPC dispatcher.  No dependency on CUDAQ_REALTIME.
@@ -92,7 +89,6 @@ add_library(cudaq-qec-decoding-server STATIC
   SessionRegistry.cpp
   RpcDispatcher.cpp
   DecodingServer.cpp
-  CpuRoceTransceiver.cpp
 )
 
 target_compile_features(cudaq-qec-decoding-server PUBLIC cxx_std_20)
