@@ -274,11 +274,7 @@ void save_dem_to_file(
     config.D_sparse = build_cudaqx_D_sparse(m2d);
 
     if (decoder_type == "nv-qldpc-decoder") {
-      config.decoder_custom_args =
-          cudaq::qec::decoding::config::nv_qldpc_decoder_config();
-      auto &nv_config =
-          std::get<cudaq::qec::decoding::config::nv_qldpc_decoder_config>(
-              config.decoder_custom_args);
+      cudaq::qec::decoding::config::nv_qldpc_decoder_config nv_config;
 
       // Basic settings
       nv_config.use_sparsity = true;
@@ -304,6 +300,7 @@ void save_dem_to_file(
         nv_config.osd_order = 60;
         nv_config.osd_method = 3;
       }
+      config.decoder_custom_args = nv_config;
     } else if (decoder_type == "pymatching") {
       cudaq::qec::decoding::config::pymatching_config pm_config;
       pm_config.merge_strategy = "smallest_weight";

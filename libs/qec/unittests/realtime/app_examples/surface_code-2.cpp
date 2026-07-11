@@ -77,8 +77,8 @@ void load_dem_from_file(const std::string &dem_filename,
   }
   auto decoder_config = config.decoders[0];
   auto multi_error_lut_config =
-      std::get<cudaq::qec::decoding::config::multi_error_lut_config>(
-          decoder_config.decoder_custom_args);
+      decoder_config.decoder_custom_args
+          .as<cudaq::qec::decoding::config::multi_error_lut_config>();
   dem.detector_error_matrix = cudaq::qec::pcm_from_sparse_vec(
       decoder_config.H_sparse, decoder_config.syndrome_size,
       decoder_config.block_size);

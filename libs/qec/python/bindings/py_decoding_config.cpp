@@ -9,6 +9,7 @@
 #include "py_decoding_config.h"
 
 #include "type_casters.h"
+#include "cudaq/qec/decoder_config_schema.h"
 #include "cudaq/qec/realtime/decoding_config.h"
 #include <nanobind/nanobind.h>
 #include <nanobind/stl/optional.h>
@@ -284,7 +285,43 @@ void bindDecodingConfig(nb::module_ &mod) {
       .def_rw("H_sparse", &decoder_config::H_sparse)
       .def_rw("O_sparse", &decoder_config::O_sparse)
       .def_rw("D_sparse", &decoder_config::D_sparse)
-      .def_rw("decoder_custom_args", &decoder_config::decoder_custom_args)
+      .def_prop_rw(
+          "decoder_custom_args",
+          [](const decoder_config &self) -> nb::object {
+            // Reconstruct a typed view for the built-in decoder types so
+            // existing Python code keeps attribute access; other (e.g.
+            // third-party) types surface the raw parameter map as a dict.
+            const auto &map = self.decoder_custom_args.map();
+            if (self.type == "nv-qldpc-decoder")
+              return nb::cast(
+                  nv_qldpc_decoder_config::from_heterogeneous_map(map));
+            if (self.type == "multi_error_lut")
+              return nb::cast(
+                  multi_error_lut_config::from_heterogeneous_map(map));
+            if (self.type == "single_error_lut")
+              return nb::cast(
+                  single_error_lut_config::from_heterogeneous_map(map));
+            if (self.type == "sliding_window")
+              return nb::cast(
+                  sliding_window_config::from_heterogeneous_map(map));
+            if (self.type == "trt_decoder")
+              return nb::cast(trt_decoder_config::from_heterogeneous_map(map));
+            if (self.type == "pymatching")
+              return nb::cast(pymatching_config::from_heterogeneous_map(map));
+            return nb::cast(map);
+          },
+          [](decoder_config &self, nb::object value) {
+            if (nb::hasattr(value, "to_heterogeneous_map")) {
+              self.decoder_custom_args = nb::cast<cudaqx::heterogeneous_map>(
+                  value.attr("to_heterogeneous_map")());
+              return;
+            }
+            // Accept a dict / heterogeneous_map directly (the third-party
+            // decoder path: keys are validated against the decoder's
+            // registered schema when the config is serialized or applied).
+            self.decoder_custom_args =
+                nb::cast<cudaqx::heterogeneous_map>(value);
+          })
       .def(
           "set_decoder_custom_args",
           [](config::decoder_config &self, nb::object decoder_config) {
@@ -331,5 +368,56 @@ void bindDecodingConfig(nb::module_ &mod) {
               "Configure decoders from a YAML string; returns int status.");
   mod_cfg.def("finalize_decoders", &finalize_decoders,
               "Finalize decoder resources.");
+  mod_cfg.def(
+      "decoder_param_schema",
+      [](const std::string &name) -> nb::object {
+        const auto *schema = find_decoder_schema(name);
+        if (!schema)
+          return nb::none();
+        auto kind_name = [](param_kind kind) -> const char * {
+          switch (kind) {
+          case param_kind::boolean:
+            return "bool";
+          case param_kind::int32:
+            return "int32";
+          case param_kind::uint64:
+            return "uint64";
+          case param_kind::f64:
+            return "float64";
+          case param_kind::string:
+            return "string";
+          case param_kind::f64_vec:
+            return "float64_vec";
+          case param_kind::f64_matrix:
+            return "float64_matrix";
+          case param_kind::subschema:
+            return "subschema";
+          case param_kind::discriminated:
+            return "discriminated";
+          }
+          return "unknown";
+        };
+        nb::list params;
+        for (const auto &spec : schema->params) {
+          nb::dict entry;
+          entry["key"] = spec.key;
+          entry["kind"] = kind_name(spec.kind);
+          entry["required"] = spec.required;
+          if (!spec.subschema.empty())
+            entry["subschema"] = spec.subschema;
+          if (!spec.discriminator.empty())
+            entry["discriminator"] = spec.discriminator;
+          params.append(entry);
+        }
+        return params;
+      },
+      nb::arg("decoder_name"),
+      "Return the registered custom-args parameter schema for a decoder "
+      "(list of parameter descriptors), or None if the decoder has not "
+      "registered one.");
+  mod_cfg.def(
+      "registered_decoder_schemas", &registered_decoder_schema_names,
+      "Names of all decoders (and nested sections) with registered "
+      "custom-args parameter schemas.");
 }
 } // namespace cudaq::qec::decoding::config

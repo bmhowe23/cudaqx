@@ -103,11 +103,11 @@ void load_dem_from_file(const std::string &dem_filename,
     const auto &decoder_config_x = config.decoders[2 * i + 1];
 
     auto multi_error_lut_config_z =
-        std::get<cudaq::qec::decoding::config::multi_error_lut_config>(
-            decoder_config_z.decoder_custom_args);
+        decoder_config_z.decoder_custom_args
+            .as<cudaq::qec::decoding::config::multi_error_lut_config>();
     auto multi_error_lut_config_x =
-        std::get<cudaq::qec::decoding::config::multi_error_lut_config>(
-            decoder_config_x.decoder_custom_args);
+        decoder_config_x.decoder_custom_args
+            .as<cudaq::qec::decoding::config::multi_error_lut_config>();
 
     // Z stab decoder
     dem_z[i].detector_error_matrix = cudaq::qec::pcm_from_sparse_vec(

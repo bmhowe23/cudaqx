@@ -125,11 +125,7 @@ void save_dem_to_file(const cudaq::qec::detector_error_model &dem,
         numSyndromesPerRound, numRounds, /*include_first_round=*/false);
 
     if (decoder_type == "nv-qldpc-decoder") {
-      config.decoder_custom_args =
-          cudaq::qec::decoding::config::nv_qldpc_decoder_config();
-      auto &nv_config =
-          std::get<cudaq::qec::decoding::config::nv_qldpc_decoder_config>(
-              config.decoder_custom_args);
+      cudaq::qec::decoding::config::nv_qldpc_decoder_config nv_config;
 
       // Basic settings
       nv_config.use_sparsity = true;
@@ -155,6 +151,7 @@ void save_dem_to_file(const cudaq::qec::detector_error_model &dem,
         nv_config.osd_order = 60;
         nv_config.osd_method = 3;
       }
+      config.decoder_custom_args = nv_config;
     } else if (decoder_type == "multi_error_lut") {
       // Original multi_error_lut configuration
       cudaq::qec::decoding::config::multi_error_lut_config lut_config;
@@ -210,8 +207,8 @@ void load_dem_from_file(const std::string &dem_filename,
 
   if (decoder_config.type == "sliding_window") {
     auto sw_config =
-        std::get<cudaq::qec::decoding::config::sliding_window_config>(
-            decoder_config.decoder_custom_args);
+        decoder_config.decoder_custom_args
+            .as<cudaq::qec::decoding::config::sliding_window_config>();
     // Extract from top-level error_rate_vec (required for sliding_window)
     if (!sw_config.error_rate_vec.empty()) {
       dem.error_rates = sw_config.error_rate_vec;

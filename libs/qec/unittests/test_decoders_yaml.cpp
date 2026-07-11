@@ -9,6 +9,7 @@
 #include "SessionRegistry.h"
 #include "../lib/realtime/realtime_decoding.h"
 #include "cudaq/qec/decoder.h"
+#include "cudaq/qec/decoder_config_schema.h"
 #include "cudaq/qec/pcm_utils.h"
 #include "cudaq/qec/realtime/decoding_config.h"
 #include <cmath>
@@ -162,11 +163,7 @@ create_test_decoder_config_nv_qldpc(int id) {
       create_test_empty_decoder_config(id);
   config.type = "nv-qldpc-decoder";
 
-  config.decoder_custom_args =
-      cudaq::qec::decoding::config::nv_qldpc_decoder_config();
-  auto &nv_config =
-      std::get<cudaq::qec::decoding::config::nv_qldpc_decoder_config>(
-          config.decoder_custom_args);
+  cudaq::qec::decoding::config::nv_qldpc_decoder_config nv_config;
   nv_config.use_sparsity = true;
   nv_config.max_iterations = 50;
   nv_config.use_osd = true;
@@ -195,6 +192,7 @@ create_test_decoder_config_nv_qldpc(int id) {
       10, std::vector<cudaq::qec::float_t>(config.block_size, 0.1));
   nv_config.bp_seed = 42;
   nv_config.composition = 1;
+  config.decoder_custom_args = nv_config;
 
   return config;
 }
@@ -252,12 +250,9 @@ TEST(DecoderYAMLTest, MultiLUTDecoder) {
   cudaq::qec::decoding::config::decoder_config config =
       create_test_empty_decoder_config(0);
   config.type = "multi_error_lut";
-  config.decoder_custom_args =
-      cudaq::qec::decoding::config::multi_error_lut_config();
-  auto &lut_config =
-      std::get<cudaq::qec::decoding::config::multi_error_lut_config>(
-          config.decoder_custom_args);
+  cudaq::qec::decoding::config::multi_error_lut_config lut_config;
   lut_config.lut_error_depth = 2;
+  config.decoder_custom_args = lut_config;
   multi_config.decoders.push_back(config);
 
   test_decoder_yaml_roundtrip(multi_config);
@@ -288,10 +283,7 @@ create_test_decoder_config_trt(int id) {
   O.at({1, 3}) = 1;
   config.O_sparse = cudaq::qec::pcm_to_sparse_vec(O);
 
-  config.decoder_custom_args =
-      cudaq::qec::decoding::config::trt_decoder_config();
-  auto &trt_config = std::get<cudaq::qec::decoding::config::trt_decoder_config>(
-      config.decoder_custom_args);
+  cudaq::qec::decoding::config::trt_decoder_config trt_config;
   trt_config.onnx_load_path = "/tmp/predecoder.onnx";
   trt_config.engine_save_path = "/tmp/predecoder.engine";
   trt_config.precision = "best";
@@ -304,6 +296,7 @@ create_test_decoder_config_trt(int id) {
   pymatching_params.error_rate_vec =
       std::vector<double>(config.block_size, 0.1);
   trt_config.global_decoder_params = pymatching_params;
+  config.decoder_custom_args = trt_config;
 
   return config;
 }
@@ -313,9 +306,10 @@ TEST(DecoderYAMLTest, TrtDecoderConfigRoundTrip) {
   multi_config.decoders.push_back(create_test_decoder_config_trt(0));
 
   test_decoder_yaml_roundtrip(multi_config);
-  const auto &trt_config =
-      std::get<cudaq::qec::decoding::config::trt_decoder_config>(
-          multi_config.decoders[0].decoder_custom_args);
+  const auto trt_config =
+      multi_config.decoders[0]
+          .decoder_custom_args
+          .as<cudaq::qec::decoding::config::trt_decoder_config>();
   EXPECT_TRUE(
       std::holds_alternative<cudaq::qec::decoding::config::pymatching_config>(
           trt_config.global_decoder_params));
@@ -361,10 +355,12 @@ TEST(DecoderYAMLTest, TrtDecoderRealtimeParamsIncludeObservableMatrix) {
 
 TEST(DecoderYAMLTest, TrtDecoderMonostateGlobalDecoderParams) {
   auto config = create_test_decoder_config_trt(0);
-  auto &trt_config = std::get<cudaq::qec::decoding::config::trt_decoder_config>(
-      config.decoder_custom_args);
+  auto trt_config =
+      config.decoder_custom_args
+          .as<cudaq::qec::decoding::config::trt_decoder_config>();
   trt_config.global_decoder = "pymatching";
   trt_config.global_decoder_params = std::monostate{};
+  config.decoder_custom_args = trt_config;
 
   auto params = config.decoder_custom_args_to_heterogeneous_map();
   EXPECT_TRUE(params.contains("global_decoder_params"));
@@ -378,9 +374,10 @@ TEST(DecoderYAMLTest, TrtDecoderMonostateGlobalDecoderParams) {
   auto round_tripped =
       cudaq::qec::decoding::config::multi_decoder_config::from_yaml_str(yaml);
   EXPECT_EQ(round_tripped.to_yaml_str(200), yaml);
-  const auto &round_tripped_trt_config =
-      std::get<cudaq::qec::decoding::config::trt_decoder_config>(
-          round_tripped.decoders[0].decoder_custom_args);
+  const auto round_tripped_trt_config =
+      round_tripped.decoders[0]
+          .decoder_custom_args
+          .as<cudaq::qec::decoding::config::trt_decoder_config>();
   EXPECT_TRUE(
       std::holds_alternative<cudaq::qec::decoding::config::pymatching_config>(
           round_tripped_trt_config.global_decoder_params));
@@ -425,28 +422,31 @@ decoders:
   auto parsed_without_params =
       cudaq::qec::decoding::config::multi_decoder_config::from_yaml_str(
           yaml_without_params);
-  const auto &parsed_trt_config =
-      std::get<cudaq::qec::decoding::config::trt_decoder_config>(
-          parsed_without_params.decoders[0].decoder_custom_args);
+  const auto parsed_trt_config =
+      parsed_without_params.decoders[0]
+          .decoder_custom_args
+          .as<cudaq::qec::decoding::config::trt_decoder_config>();
   EXPECT_TRUE(
       std::holds_alternative<cudaq::qec::decoding::config::chromobius_config>(
           parsed_trt_config.global_decoder_params));
 
   auto config = create_test_decoder_config_trt(0);
-  auto &yaml_trt_config =
-      std::get<cudaq::qec::decoding::config::trt_decoder_config>(
-          config.decoder_custom_args);
+  auto yaml_trt_config =
+      config.decoder_custom_args
+          .as<cudaq::qec::decoding::config::trt_decoder_config>();
   yaml_trt_config.global_decoder = "chromobius";
   yaml_trt_config.global_decoder_params = std::monostate{};
+  config.decoder_custom_args = yaml_trt_config;
   cudaq::qec::decoding::config::multi_decoder_config multi_config;
   multi_config.decoders.push_back(config);
   const auto yaml = multi_config.to_yaml_str(200);
   EXPECT_NE(yaml.find("global_decoder_params"), std::string::npos);
   auto round_tripped =
       cudaq::qec::decoding::config::multi_decoder_config::from_yaml_str(yaml);
-  const auto &round_tripped_trt_config =
-      std::get<cudaq::qec::decoding::config::trt_decoder_config>(
-          round_tripped.decoders[0].decoder_custom_args);
+  const auto round_tripped_trt_config =
+      round_tripped.decoders[0]
+          .decoder_custom_args
+          .as<cudaq::qec::decoding::config::trt_decoder_config>();
   EXPECT_TRUE(
       std::holds_alternative<cudaq::qec::decoding::config::chromobius_config>(
           round_tripped_trt_config.global_decoder_params));
@@ -534,11 +534,7 @@ TEST(DecoderYAMLTest, SlidingWindowDecoder) {
   config.syndrome_size = n_rows;
 
   // Sliding window config
-  config.decoder_custom_args =
-      cudaq::qec::decoding::config::sliding_window_config();
-  auto &sw_config =
-      std::get<cudaq::qec::decoding::config::sliding_window_config>(
-          config.decoder_custom_args);
+  cudaq::qec::decoding::config::sliding_window_config sw_config;
   config.H_sparse = cudaq::qec::pcm_to_sparse_vec(pcm);
   config.O_sparse =
       cudaq::qec::pcm_to_sparse_vec(cudaqx::tensor<uint8_t>({2, n_cols}));
@@ -557,6 +553,7 @@ TEST(DecoderYAMLTest, SlidingWindowDecoder) {
   sw_config.multi_error_lut_params =
       cudaq::qec::decoding::config::multi_error_lut_config();
   sw_config.multi_error_lut_params->lut_error_depth = 2;
+  config.decoder_custom_args = sw_config;
 
   multi_config.decoders.push_back(config);
 
@@ -812,6 +809,110 @@ TEST(DecoderConfigTest, ConfigureFromMissingFileReturnsError) {
                             "cudaq_qec_missing_decoders.yaml";
   std::filesystem::remove(missing_path);
   EXPECT_EQ(configure_decoders_from_file(missing_path.c_str()), 1);
+}
+
+TEST(DecoderSchemaTest, ThirdPartySchemaRegistrationEnablesCustomArgs) {
+  using namespace cudaq::qec::decoding::config;
+
+  // A third-party decoder plugin registers a parameter schema (normally from
+  // a static initializer in its own shared library); the YAML layer then
+  // accepts and round-trips its decoder_custom_args with no framework
+  // changes.
+  register_decoder_schema({"third_party_demo_decoder",
+                           {
+                               {"strength", param_kind::f64},
+                               {"passes", param_kind::int32},
+                               {"mode", param_kind::string, /*required=*/true},
+                               {"weights", param_kind::f64_vec},
+                           }});
+
+  const std::string yaml = R"(
+decoders:
+  - id: 0
+    type: third_party_demo_decoder
+    block_size: 2
+    syndrome_size: 1
+    H_sparse: [0, -1]
+    O_sparse: [0, -1]
+    D_sparse: [0, -1]
+    decoder_custom_args:
+      strength: 1.5
+      passes: 3
+      mode: fast
+      weights: [0.25, 0.75]
+)";
+  auto config = multi_decoder_config::from_yaml_str(yaml);
+  const auto &args = config.decoders[0].decoder_custom_args.map();
+  EXPECT_EQ(args.get<double>("strength"), 1.5);
+  EXPECT_EQ(args.get<int>("passes"), 3);
+  EXPECT_EQ(args.get<std::string>("mode"), "fast");
+  EXPECT_EQ(args.get<std::vector<double>>("weights"),
+            (std::vector<double>{0.25, 0.75}));
+
+  const auto emitted = config.to_yaml_str(200);
+  auto round_tripped = multi_decoder_config::from_yaml_str(emitted);
+  EXPECT_EQ(round_tripped, config);
+  EXPECT_EQ(round_tripped.to_yaml_str(200), emitted);
+
+  // Unknown keys are rejected against the schema.
+  const std::string misspelled = R"(
+decoders:
+  - id: 0
+    type: third_party_demo_decoder
+    block_size: 2
+    syndrome_size: 1
+    H_sparse: [0, -1]
+    O_sparse: [0, -1]
+    D_sparse: [0, -1]
+    decoder_custom_args:
+      strenght: 1.5
+      mode: fast
+)";
+  EXPECT_THROW(multi_decoder_config::from_yaml_str(misspelled),
+               std::runtime_error);
+
+  // Missing required keys are rejected when the section is present.
+  const std::string missing_required = R"(
+decoders:
+  - id: 0
+    type: third_party_demo_decoder
+    block_size: 2
+    syndrome_size: 1
+    H_sparse: [0, -1]
+    O_sparse: [0, -1]
+    D_sparse: [0, -1]
+    decoder_custom_args:
+      strength: 1.5
+)";
+  EXPECT_THROW(multi_decoder_config::from_yaml_str(missing_required),
+               std::runtime_error);
+}
+
+TEST(DecoderSchemaTest, CustomArgsForUnregisteredTypeThrow) {
+  const std::string yaml = R"(
+decoders:
+  - id: 0
+    type: decoder_without_registered_schema
+    block_size: 1
+    syndrome_size: 1
+    H_sparse: [0, -1]
+    O_sparse: [0, -1]
+    D_sparse: [0, -1]
+    decoder_custom_args:
+      anything: 1
+)";
+  EXPECT_THROW(
+      cudaq::qec::decoding::config::multi_decoder_config::from_yaml_str(yaml),
+      std::runtime_error);
+}
+
+TEST(DecoderSchemaTest, ExamplePluginRegistersSchema) {
+  // The in-tree example decoder plugin registers a (parameter-less) schema
+  // from its own shared library; its presence here proves the end-to-end
+  // plugin registration path works.
+  EXPECT_NE(cudaq::qec::decoding::config::find_decoder_schema(
+                "single_error_lut_example"),
+            nullptr);
 }
 
 TEST(DecoderConfigTest, SimulationHostPointerWrappersForwardToHostRuntime) {
