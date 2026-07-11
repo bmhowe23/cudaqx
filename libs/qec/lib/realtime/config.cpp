@@ -161,8 +161,8 @@ struct CustomMappingTraits<schema_binding> {
               discriminator_value);
       if (!nested_schema)
         throw std::runtime_error(
-            "'" + key_str + "' does not support " + spec->discriminator +
-            " '" + discriminator_value +
+            "'" + key_str + "' does not support " + spec->discriminator + " '" +
+            discriminator_value +
             "': no parameter schema is registered under that name.");
       cudaqx::heterogeneous_map nested;
       schema_binding nested_binding{&nested, nested_schema};
@@ -239,10 +239,11 @@ struct CustomMappingTraits<schema_binding> {
                 : cudaq::qec::decoding::config::find_decoder_schema(
                       discriminator_value);
         if (!nested_schema)
-          throw std::runtime_error(
-              "'" + spec.key + "' is present but no parameter schema is "
-              "registered for " + spec.discriminator + " '" +
-              discriminator_value + "'.");
+          throw std::runtime_error("'" + spec.key +
+                                   "' is present but no parameter schema is "
+                                   "registered for " +
+                                   spec.discriminator + " '" +
+                                   discriminator_value + "'.");
         auto nested = binding.map->get<cudaqx::heterogeneous_map>(spec.key);
         schema_binding nested_binding{&nested, nested_schema};
         io.mapRequired(spec.key.c_str(), nested_binding);
@@ -476,10 +477,9 @@ llvm::json::Object json_schema_for_param(const param_spec &spec) {
   case k::f64_matrix:
     return llvm::json::Object{
         {"type", "array"},
-        {"items",
-             llvm::json::Object{
-                 {"type", "array"},
-                 {"items", llvm::json::Object{{"type", "number"}}}}}};
+        {"items", llvm::json::Object{
+                      {"type", "array"},
+                      {"items", llvm::json::Object{{"type", "number"}}}}}};
   case k::subschema:
     return llvm::json::Object{{"$ref", params_ref(spec.subschema)}};
   case k::discriminated:
@@ -531,12 +531,11 @@ decoder_params_json_schema(const decoder_schema &schema,
                                       llvm::json::Object{{"const", name}}}}},
                  {"required",
                   llvm::json::Array{spec.discriminator, spec.key}}}},
-            {"then",
-             llvm::json::Object{
-                 {"properties",
-                  llvm::json::Object{
-                      {spec.key,
-                       llvm::json::Object{{"$ref", params_ref(name)}}}}}}}});
+            {"then", llvm::json::Object{
+                         {"properties",
+                          llvm::json::Object{
+                              {spec.key, llvm::json::Object{
+                                             {"$ref", params_ref(name)}}}}}}}});
     }
   }
   llvm::json::Object out{{"type", "object"},
@@ -581,18 +580,16 @@ std::string decoder_config_json_schema() {
   llvm::json::Array dispatch;
   for (const auto &name : names)
     dispatch.push_back(llvm::json::Object{
-        {"if",
-         llvm::json::Object{
-             {"properties",
-              llvm::json::Object{{"type",
-                                  llvm::json::Object{{"const", name}}}}},
-             {"required", llvm::json::Array{"type"}}}},
-        {"then",
-         llvm::json::Object{
-             {"properties",
-              llvm::json::Object{
-                  {"decoder_custom_args",
-                   llvm::json::Object{{"$ref", params_ref(name)}}}}}}}});
+        {"if", llvm::json::Object{{"properties",
+                                   llvm::json::Object{
+                                       {"type",
+                                        llvm::json::Object{{"const", name}}}}},
+                                  {"required", llvm::json::Array{"type"}}}},
+        {"then", llvm::json::Object{
+                     {"properties", llvm::json::Object{
+                                        {"decoder_custom_args",
+                                         llvm::json::Object{
+                                             {"$ref", params_ref(name)}}}}}}}});
   dispatch.push_back(llvm::json::Object{
       {"if",
        llvm::json::Object{
@@ -600,8 +597,8 @@ std::string decoder_config_json_schema() {
             llvm::json::Object{
                 {"type",
                  llvm::json::Object{
-                     {"not", llvm::json::Object{
-                                 {"enum", registered_name_array(names)}}}}}}},
+                     {"not", llvm::json::Object{{"enum", registered_name_array(
+                                                             names)}}}}}}},
            {"required", llvm::json::Array{"type"}}}},
       {"then",
        llvm::json::Object{
@@ -611,10 +608,9 @@ std::string decoder_config_json_schema() {
 
   llvm::json::Object defs{
       {"sparse_matrix",
-       llvm::json::Object{
-           {"type", "array"},
-           {"items",
-            llvm::json::Object{{"type", "integer"}, {"minimum", -1}}}}},
+       llvm::json::Object{{"type", "array"},
+                          {"items", llvm::json::Object{{"type", "integer"},
+                                                       {"minimum", -1}}}}},
       {"decoder_config",
        llvm::json::Object{
            {"type", "object"},

@@ -112,8 +112,7 @@ public:
 /// library is loaded. Schema `validate` hooks are arbitrary C++ and are not
 /// representable; a document that passes the JSON Schema may still be
 /// rejected by those hooks when parsed.
-__attribute__((visibility("default"))) std::string
-decoder_config_json_schema();
+__attribute__((visibility("default"))) std::string decoder_config_json_schema();
 
 /// @brief Configure the decoders (`multi_decoder_config` variant). This
 /// function configures both local decoders, and if running on remote target

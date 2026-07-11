@@ -71,8 +71,7 @@ void validate_custom_args(const decoder_schema &schema,
       }
     }
     if (!spec)
-      throw std::runtime_error("Unknown key '" + key + "' in " + context +
-                               ".");
+      throw std::runtime_error("Unknown key '" + key + "' in " + context + ".");
     if (spec->kind == param_kind::subschema) {
       const auto *nested_schema = find_decoder_schema(spec->subschema);
       if (!nested_schema)
@@ -293,14 +292,13 @@ struct hosted_schema_registrar {
   hosted_schema_registrar() {
     using k = param_kind;
 
-    register_decoder_schema(
-        {"srelay_bp",
-         {
-             {"pre_iter", k::uint64},
-             {"num_sets", k::uint64},
-             {"stopping_criterion", k::string},
-             {"stop_nconv", k::uint64},
-         }});
+    register_decoder_schema({"srelay_bp",
+                             {
+                                 {"pre_iter", k::uint64},
+                                 {"num_sets", k::uint64},
+                                 {"stopping_criterion", k::string},
+                                 {"stop_nconv", k::uint64},
+                             }});
 
     register_decoder_schema(
         {"nv-qldpc-decoder",

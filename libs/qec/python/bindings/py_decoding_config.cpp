@@ -40,8 +40,8 @@ T cast_param(const nb::object &value, const std::string &key,
 // admit Python ints, ...). The generic heterogeneous_map caster stores every
 // Python int as std::size_t, which rejects negatives at assignment and makes
 // f64 params unreadable at YAML emission / decoder construction.
-cudaqx::heterogeneous_map schema_typed_map_from_dict(const decoder_schema &schema,
-                                                     nb::dict dict) {
+cudaqx::heterogeneous_map
+schema_typed_map_from_dict(const decoder_schema &schema, nb::dict dict) {
   cudaqx::heterogeneous_map map;
   nb::dict residual;
   for (auto item : dict) {
@@ -89,8 +89,8 @@ cudaqx::heterogeneous_map schema_typed_map_from_dict(const decoder_schema &schem
     case param_kind::subschema: {
       const auto *nested = find_decoder_schema(spec->subschema);
       if (nested && nb::isinstance<nb::dict>(value))
-        map.insert(key, schema_typed_map_from_dict(
-                            *nested, nb::cast<nb::dict>(value)));
+        map.insert(key, schema_typed_map_from_dict(*nested,
+                                                   nb::cast<nb::dict>(value)));
       else
         map.insert(key, cast_param<cudaqx::heterogeneous_map>(
                             value, key, schema.name, "dict"));
@@ -104,8 +104,8 @@ cudaqx::heterogeneous_map schema_typed_map_from_dict(const decoder_schema &schem
           nested = find_decoder_schema(nb::cast<std::string>(discriminator));
       }
       if (nested && nb::isinstance<nb::dict>(value))
-        map.insert(key, schema_typed_map_from_dict(
-                            *nested, nb::cast<nb::dict>(value)));
+        map.insert(key, schema_typed_map_from_dict(*nested,
+                                                   nb::cast<nb::dict>(value)));
       else
         map.insert(key, cast_param<cudaqx::heterogeneous_map>(
                             value, key, schema.name, "dict"));
@@ -121,8 +121,8 @@ cudaqx::heterogeneous_map schema_typed_map_from_dict(const decoder_schema &schem
   return map;
 }
 
-cudaqx::heterogeneous_map custom_args_map_from_python(
-    const std::string &decoder_type, nb::object value) {
+cudaqx::heterogeneous_map
+custom_args_map_from_python(const std::string &decoder_type, nb::object value) {
   if (nb::isinstance<nb::dict>(value))
     if (const auto *schema = find_decoder_schema(decoder_type))
       return schema_typed_map_from_dict(*schema, nb::cast<nb::dict>(value));
@@ -260,10 +260,9 @@ void bindDecodingConfig(nb::module_ &mod) {
       "Return the registered custom-args parameter schema for a decoder "
       "(list of parameter descriptors), or None if the decoder has not "
       "registered one.");
-  mod_cfg.def(
-      "registered_decoder_schemas", &registered_decoder_schema_names,
-      "Names of all decoders (and nested sections) with registered "
-      "custom-args parameter schemas.");
+  mod_cfg.def("registered_decoder_schemas", &registered_decoder_schema_names,
+              "Names of all decoders (and nested sections) with registered "
+              "custom-args parameter schemas.");
   mod_cfg.def(
       "decoder_config_json_schema", &decoder_config_json_schema,
       "Return a JSON Schema (draft 2020-12) document, as a string, that "

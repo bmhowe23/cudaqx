@@ -263,10 +263,11 @@ struct lut_schema_registrar {
   lut_schema_registrar() {
     using k = decoding::config::param_kind;
     decoding::config::register_decoder_schema({"single_error_lut", {}});
-    decoding::config::register_decoder_schema({"multi_error_lut",
-                                               {
-                                                   {"lut_error_depth", k::int32},
-                                               }});
+    decoding::config::register_decoder_schema(
+        {"multi_error_lut",
+         {
+             {"lut_error_depth", k::int32},
+         }});
   }
 };
 lut_schema_registrar register_lut_schemas;

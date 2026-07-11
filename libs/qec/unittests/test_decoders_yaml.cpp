@@ -169,8 +169,7 @@ create_test_decoder_config_nv_qldpc(int id) {
   nv_args.insert("use_osd", true);
   nv_args.insert("osd_order", 60);
   nv_args.insert("osd_method", 3);
-  nv_args.insert("error_rate_vec",
-                 std::vector<double>(config.block_size, 0.1));
+  nv_args.insert("error_rate_vec", std::vector<double>(config.block_size, 0.1));
   nv_args.insert("n_threads", 128);
   nv_args.insert("bp_batch_size", 1);
   nv_args.insert("osd_batch_size", 16);
@@ -386,9 +385,9 @@ TEST(DecoderYAMLTest, TrtDecoderEmptyGlobalDecoderParams) {
   const auto &round_tripped_args =
       round_tripped.decoders[0].decoder_custom_args.map();
   ASSERT_TRUE(round_tripped_args.contains("global_decoder_params"));
-  EXPECT_TRUE(round_tripped_args
-                  .get<cudaqx::heterogeneous_map>("global_decoder_params")
-                  .empty());
+  EXPECT_TRUE(
+      round_tripped_args.get<cudaqx::heterogeneous_map>("global_decoder_params")
+          .empty());
 
   params = cudaq::qec::decoding::host::prepare_decoder_params(config);
   EXPECT_TRUE(params.contains("global_decoder_params"));
@@ -533,8 +532,7 @@ TEST(DecoderYAMLTest, SlidingWindowDecoder) {
   sw_args.insert("num_syndromes_per_round", n_syndromes_per_round);
   sw_args.insert("straddle_start_round", false);
   sw_args.insert("straddle_end_round", true);
-  sw_args.insert("error_rate_vec",
-                 std::vector<double>(config.block_size, 0.1));
+  sw_args.insert("error_rate_vec", std::vector<double>(config.block_size, 0.1));
 
   // Inner decoder config
   sw_args.insert("inner_decoder_name", "multi_error_lut");
@@ -724,17 +722,17 @@ TEST(DecoderSchemaTest, ThirdPartySchemaRegistrationEnablesCustomArgs) {
                            {
                                {"gain", param_kind::f64},
                            }});
-  register_decoder_schema({"third_party_demo_decoder",
-                           {
-                               {"strength", param_kind::f64},
-                               {"passes", param_kind::int32},
-                               {"mode", param_kind::string, /*required=*/true},
-                               {"weights", param_kind::f64_vec},
-                               {"engine", param_kind::string},
-                               {"engine_params", param_kind::discriminated,
-                                false, "", "engine",
-                                /*materialize_empty=*/true},
-                           }});
+  register_decoder_schema(
+      {"third_party_demo_decoder",
+       {
+           {"strength", param_kind::f64},
+           {"passes", param_kind::int32},
+           {"mode", param_kind::string, /*required=*/true},
+           {"weights", param_kind::f64_vec},
+           {"engine", param_kind::string},
+           {"engine_params", param_kind::discriminated, false, "", "engine",
+            /*materialize_empty=*/true},
+       }});
 
   const std::string yaml = R"(
 decoders:
@@ -883,17 +881,17 @@ TEST(DecoderSchemaTest, ValidateCustomArgsChecksProgrammaticMaps) {
                            {
                                {"gain", param_kind::f64},
                            }});
-  register_decoder_schema({"third_party_demo_decoder",
-                           {
-                               {"strength", param_kind::f64},
-                               {"passes", param_kind::int32},
-                               {"mode", param_kind::string, /*required=*/true},
-                               {"weights", param_kind::f64_vec},
-                               {"engine", param_kind::string},
-                               {"engine_params", param_kind::discriminated,
-                                false, "", "engine",
-                                /*materialize_empty=*/true},
-                           }});
+  register_decoder_schema(
+      {"third_party_demo_decoder",
+       {
+           {"strength", param_kind::f64},
+           {"passes", param_kind::int32},
+           {"mode", param_kind::string, /*required=*/true},
+           {"weights", param_kind::f64_vec},
+           {"engine", param_kind::string},
+           {"engine_params", param_kind::discriminated, false, "", "engine",
+            /*materialize_empty=*/true},
+       }});
 
   decoder_config config;
   config.type = "third_party_demo_decoder";
@@ -956,14 +954,14 @@ TEST(DecoderSchemaTest, ProgrammaticConfigsMaterializeSchemaDefaults) {
                            {
                                {"gain", param_kind::f64},
                            }});
-  register_decoder_schema({"third_party_demo_decoder",
-                           {
-                               {"mode", param_kind::string, /*required=*/true},
-                               {"engine", param_kind::string},
-                               {"engine_params", param_kind::discriminated,
-                                false, "", "engine",
-                                /*materialize_empty=*/true},
-                           }});
+  register_decoder_schema(
+      {"third_party_demo_decoder",
+       {
+           {"mode", param_kind::string, /*required=*/true},
+           {"engine", param_kind::string},
+           {"engine_params", param_kind::discriminated, false, "", "engine",
+            /*materialize_empty=*/true},
+       }});
 
   decoder_config config;
   config.type = "third_party_demo_decoder";
