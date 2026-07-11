@@ -178,6 +178,38 @@ def test_validate_custom_args_checks_dict_built_configs():
         mdc.validate_custom_args()
 
 
+def test_custom_args_dict_values_convert_to_schema_types():
+    # The setter converts dict values to the canonical types the registered
+    # schema declares: Python ints are accepted for f64 params and negative
+    # ints for int32 params (the generic conversion stores every int as
+    # size_t, which would reject both).
+    dc = qec.decoder_config()
+    dc.id = 0
+    dc.type = "nv-qldpc-decoder"
+    dc.block_size = 1
+    dc.syndrome_size = 1
+    dc.H_sparse = [0, -1]
+    dc.O_sparse = [0, -1]
+    dc.D_sparse = [0, -1]
+
+    dc.decoder_custom_args = {"clip_value": 2}  # int for an f64 param
+    assert "clip_value" in dc.to_yaml_str()
+
+    dc.decoder_custom_args = {"bp_seed": -1}  # negative int32
+    assert dc.decoder_custom_args == {"bp_seed": -1}
+    round_tripped = qec.multi_decoder_config.from_yaml_str(qec_yaml_for(dc))
+    assert round_tripped.decoders[0].decoder_custom_args == {"bp_seed": -1}
+
+    # Mismatched types raise a clear error naming the parameter.
+    with pytest.raises(RuntimeError, match="bp_seed"):
+        dc.decoder_custom_args = {"bp_seed": "oops"}
+
+
+def test_decoder_config_from_yaml_str_rejects_malformed_yaml():
+    with pytest.raises(RuntimeError, match="Invalid decoder configuration"):
+        qec.decoder_config.from_yaml_str("id: [oops")
+
+
 def test_validate_custom_args_runs_schema_validate_hook():
     # sliding_window registers a validate hook for cross-field constraints
     # (step_size must be between 1 and window_size).

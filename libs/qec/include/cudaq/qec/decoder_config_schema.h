@@ -108,6 +108,24 @@ __attribute__((visibility("default"))) void
 validate_custom_args(const std::string &schema_name,
                      const cudaqx::heterogeneous_map &args);
 
+/// Overload taking a resolved schema and an error-message context (e.g.
+/// "decoder_custom_args (trt_decoder)"). This is the single canonical walk;
+/// the YAML parser applies it after parsing a section.
+__attribute__((visibility("default"))) void
+validate_custom_args(const decoder_schema &schema,
+                     const cudaqx::heterogeneous_map &args,
+                     const std::string &context);
+
+/// Apply schema-declared defaults to `args` (recursively): a discriminated
+/// section with `materialize_empty` set is inserted as an empty nested map
+/// when its discriminator names a registered schema and the section key is
+/// absent. Idempotent. The YAML parser applies this to parsed sections, and
+/// decoder_config::decoder_custom_args_to_heterogeneous_map() applies it to
+/// programmatically built configs so both paths hand decoders the same map.
+__attribute__((visibility("default"))) void
+materialize_default_args(const decoder_schema &schema,
+                         cudaqx::heterogeneous_map &args);
+
 /// Deep equality over the canonical value kinds stored in custom-args maps
 /// (scalars, double vectors/matrices, and nested maps). Values of other
 /// types compare unequal.

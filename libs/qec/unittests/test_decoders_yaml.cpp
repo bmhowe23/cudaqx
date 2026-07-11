@@ -945,6 +945,69 @@ TEST(DecoderSchemaTest, ValidateCustomArgsChecksProgrammaticMaps) {
   EXPECT_THROW(multi.validate_custom_args(), std::runtime_error);
 }
 
+TEST(DecoderSchemaTest, ProgrammaticConfigsMaterializeSchemaDefaults) {
+  using namespace cudaq::qec::decoding::config;
+
+  // Schema-declared defaults (materialize_empty discriminated sections, e.g.
+  // trt_decoder's global_decoder_params) must apply to programmatically
+  // built configs at the decoder-construction seam, not only on the YAML
+  // parse path.
+  register_decoder_schema({"third_party_demo_engine",
+                           {
+                               {"gain", param_kind::f64},
+                           }});
+  register_decoder_schema({"third_party_demo_decoder",
+                           {
+                               {"mode", param_kind::string, /*required=*/true},
+                               {"engine", param_kind::string},
+                               {"engine_params", param_kind::discriminated,
+                                false, "", "engine",
+                                /*materialize_empty=*/true},
+                           }});
+
+  decoder_config config;
+  config.type = "third_party_demo_decoder";
+  cudaqx::heterogeneous_map args;
+  args.insert("mode", std::string("fast"));
+  args.insert("engine", std::string("third_party_demo_engine"));
+  config.decoder_custom_args = args;
+
+  auto materialized = config.decoder_custom_args_to_heterogeneous_map();
+  ASSERT_TRUE(materialized.contains("engine_params"));
+  EXPECT_TRUE(
+      materialized.get<cudaqx::heterogeneous_map>("engine_params").empty());
+  // The stored args are untouched; only the constructor-facing view defaults.
+  EXPECT_FALSE(config.decoder_custom_args.map().contains("engine_params"));
+
+  // A decoder type without a registered schema passes its args through.
+  decoder_config unregistered;
+  unregistered.type = "decoder_without_registered_schema";
+  unregistered.decoder_custom_args = args;
+  EXPECT_TRUE(custom_args_maps_equal(
+      unregistered.decoder_custom_args_to_heterogeneous_map(), args));
+}
+
+TEST(DecoderSchemaTest, CustomArgsEqualityIsSignAware) {
+  using namespace cudaq::qec::decoding::config;
+
+  // size_t(2^64-1) must not compare equal to int(-1) via wraparound.
+  cudaqx::heterogeneous_map a;
+  a.insert("seed", std::numeric_limits<std::size_t>::max());
+  cudaqx::heterogeneous_map b;
+  b.insert("seed", int(-1));
+  EXPECT_FALSE(custom_args_maps_equal(a, b));
+
+  // Same-value cross-width comparisons still hold.
+  cudaqx::heterogeneous_map c;
+  c.insert("seed", std::size_t(7));
+  cudaqx::heterogeneous_map d;
+  d.insert("seed", int(7));
+  EXPECT_TRUE(custom_args_maps_equal(c, d));
+  cudaqx::heterogeneous_map e;
+  e.insert("seed", int(-1));
+  EXPECT_TRUE(custom_args_maps_equal(b, e));
+}
+
 TEST(DecoderSchemaTest, SlidingWindowValidateHookRejectsBadWindowing) {
   using namespace cudaq::qec::decoding::config;
 

@@ -16,10 +16,121 @@
 #include <nanobind/stl/string.h>
 #include <nanobind/stl/string_view.h>
 #include <nanobind/stl/vector.h>
+#include <stdexcept>
 
 namespace nb = nanobind;
 
 namespace cudaq::qec::decoding::config {
+
+namespace {
+
+template <typename T>
+T cast_param(const nb::object &value, const std::string &key,
+             const std::string &schema_name, const char *kind_name) {
+  try {
+    return nb::cast<T>(value);
+  } catch (...) {
+    throw std::runtime_error("Parameter '" + key + "' of '" + schema_name +
+                             "' expects a " + kind_name + " value.");
+  }
+}
+
+// Convert a Python dict to the canonical storage types the decoder's
+// registered schema declares (int32 params admit negative ints, f64 params
+// admit Python ints, ...). The generic heterogeneous_map caster stores every
+// Python int as std::size_t, which rejects negatives at assignment and makes
+// f64 params unreadable at YAML emission / decoder construction.
+cudaqx::heterogeneous_map schema_typed_map_from_dict(const decoder_schema &schema,
+                                                     nb::dict dict) {
+  cudaqx::heterogeneous_map map;
+  nb::dict residual;
+  for (auto item : dict) {
+    const std::string key = nb::cast<std::string>(item.first);
+    nb::object value = nb::borrow<nb::object>(item.second);
+    const param_spec *spec = nullptr;
+    for (const auto &candidate : schema.params) {
+      if (candidate.key == key) {
+        spec = &candidate;
+        break;
+      }
+    }
+    if (!spec) {
+      // Unknown keys keep the generic conversion so validate_custom_args and
+      // emission diagnostics can still name them.
+      residual[item.first] = item.second;
+      continue;
+    }
+    switch (spec->kind) {
+    case param_kind::boolean:
+      map.insert(key, cast_param<bool>(value, key, schema.name, "boolean"));
+      break;
+    case param_kind::int32:
+      map.insert(key, cast_param<int>(value, key, schema.name, "32-bit int"));
+      break;
+    case param_kind::uint64:
+      map.insert(key, cast_param<std::size_t>(value, key, schema.name,
+                                              "non-negative int"));
+      break;
+    case param_kind::f64:
+      map.insert(key, cast_param<double>(value, key, schema.name, "float"));
+      break;
+    case param_kind::string:
+      map.insert(key,
+                 cast_param<std::string>(value, key, schema.name, "string"));
+      break;
+    case param_kind::f64_vec:
+      map.insert(key, cast_param<std::vector<double>>(value, key, schema.name,
+                                                      "list-of-float"));
+      break;
+    case param_kind::f64_matrix:
+      map.insert(key, cast_param<std::vector<std::vector<double>>>(
+                          value, key, schema.name, "list-of-list-of-float"));
+      break;
+    case param_kind::subschema: {
+      const auto *nested = find_decoder_schema(spec->subschema);
+      if (nested && nb::isinstance<nb::dict>(value))
+        map.insert(key, schema_typed_map_from_dict(
+                            *nested, nb::cast<nb::dict>(value)));
+      else
+        map.insert(key, cast_param<cudaqx::heterogeneous_map>(
+                            value, key, schema.name, "dict"));
+      break;
+    }
+    case param_kind::discriminated: {
+      const decoder_schema *nested = nullptr;
+      if (dict.contains(spec->discriminator.c_str())) {
+        nb::object discriminator = dict[spec->discriminator.c_str()];
+        if (nb::isinstance<nb::str>(discriminator))
+          nested = find_decoder_schema(nb::cast<std::string>(discriminator));
+      }
+      if (nested && nb::isinstance<nb::dict>(value))
+        map.insert(key, schema_typed_map_from_dict(
+                            *nested, nb::cast<nb::dict>(value)));
+      else
+        map.insert(key, cast_param<cudaqx::heterogeneous_map>(
+                            value, key, schema.name, "dict"));
+      break;
+    }
+    }
+  }
+  if (nb::len(residual) > 0) {
+    auto generic = nb::cast<cudaqx::heterogeneous_map>(nb::object(residual));
+    for (const auto &kv : generic)
+      map.insert(kv.first, kv.second);
+  }
+  return map;
+}
+
+cudaqx::heterogeneous_map custom_args_map_from_python(
+    const std::string &decoder_type, nb::object value) {
+  if (nb::isinstance<nb::dict>(value))
+    if (const auto *schema = find_decoder_schema(decoder_type))
+      return schema_typed_map_from_dict(*schema, nb::cast<nb::dict>(value));
+  return nb::cast<cudaqx::heterogeneous_map>(value);
+}
+
+} // namespace
+
 void bindDecodingConfig(nb::module_ &mod) {
   auto qecmod = nb::hasattr(mod, "qecrt")
                     ? nb::cast<nb::module_>(mod.attr("qecrt"))
@@ -41,24 +152,26 @@ void bindDecodingConfig(nb::module_ &mod) {
       .def_prop_rw(
           "decoder_custom_args",
           [](const decoder_config &self) -> nb::object {
-            // The decoder's parameter dict. Keys are governed by the
-            // parameter schema the decoder registered (see
-            // decoder_param_schema()); the same representation serves
-            // built-in and third-party decoders alike.
             return nb::cast(self.decoder_custom_args.map());
           },
           [](decoder_config &self, nb::object value) {
             self.decoder_custom_args =
-                nb::cast<cudaqx::heterogeneous_map>(value);
-          })
+                custom_args_map_from_python(self.type, value);
+          },
+          "The decoder's parameter dict. Keys are governed by the parameter "
+          "schema the decoder registered (see decoder_param_schema()); set "
+          "`type` before assigning so values are converted to the schema's "
+          "declared types. Reading returns a copy: mutate a local dict and "
+          "assign it back rather than mutating the returned value in place.")
       .def(
           "set_decoder_custom_args",
           [](config::decoder_config &self, nb::object custom_args) {
             self.decoder_custom_args =
-                nb::cast<cudaqx::heterogeneous_map>(custom_args);
+                custom_args_map_from_python(self.type, custom_args);
           },
           nb::arg("custom_args"),
-          "Set the decoder parameter dict for this decoder.")
+          "Set the decoder parameter dict for this decoder (equivalent to "
+          "assigning decoder_custom_args; set `type` first).")
       .def("validate_custom_args", &decoder_config::validate_custom_args,
            "Validate decoder_custom_args against the parameter schema "
            "registered for this decoder type: unknown keys, missing required "

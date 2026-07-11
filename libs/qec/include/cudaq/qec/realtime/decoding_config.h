@@ -66,16 +66,13 @@ struct decoder_config {
 
   bool operator==(const decoder_config &) const = default;
 
+  /// Return the parameter map a decoder's constructor should receive: the
+  /// stored custom args with schema-declared defaults materialized (see
+  /// materialize_default_args in cudaq/qec/decoder_config_schema.h) when a
+  /// schema is registered for `type`, so programmatically built configs get
+  /// the same defaulting the YAML parse path applies.
   __attribute__((visibility("default"))) cudaqx::heterogeneous_map
-  decoder_custom_args_to_heterogeneous_map() const {
-    return decoder_custom_args.map();
-  }
-
-  __attribute__((visibility("default"))) void
-  set_decoder_custom_args_from_heterogeneous_map(
-      const cudaqx::heterogeneous_map &map) {
-    decoder_custom_args = map;
-  }
+  decoder_custom_args_to_heterogeneous_map() const;
 
   /// Validate `decoder_custom_args` against the parameter schema registered
   /// for `type`: unknown keys, missing required keys, and the schema's own

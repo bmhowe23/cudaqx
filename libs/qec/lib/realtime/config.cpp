@@ -7,7 +7,6 @@
  ******************************************************************************/
 
 #include "llvm/ADT/StringRef.h"
-#include "llvm/Support/Base64.h"
 #include "llvm/Support/JSON.h"
 #include "llvm/Support/YAMLTraits.h"
 #include "llvm/Support/raw_ostream.h"
@@ -16,13 +15,11 @@
 #include "cudaq/qec/decoder_config_schema.h"
 #include "cudaq/qec/logger.h"
 #include "cudaq/qec/realtime/decoding_config.h"
-#include <any>
 #include <filesystem>
 #include <fstream>
 #include <memory>
 #include <mutex>
 #include <stdexcept>
-#include <type_traits>
 
 namespace cudaq::qec::decoding::config {
 
@@ -35,50 +32,31 @@ void decoder_config::validate_custom_args() const {
   config::validate_custom_args(type, decoder_custom_args.map());
 }
 
+cudaqx::heterogeneous_map
+decoder_config::decoder_custom_args_to_heterogeneous_map() const {
+  auto args = decoder_custom_args.map();
+  if (const auto *schema = find_decoder_schema(type))
+    materialize_default_args(*schema, args);
+  return args;
+}
+
 void multi_decoder_config::validate_custom_args() const {
   for (const auto &decoder : decoders)
     decoder.validate_custom_args();
 }
 
 // Post-parse pass over a schema-parsed custom-args map: materialize defaulted
-// discriminated sections, enforce required keys, and run per-schema validation
-// hooks. Only invoked when the section was present in the input document,
-// mirroring the previous behavior where an absent decoder_custom_args section
-// skipped its mapping (and therefore its required-key checks) entirely.
+// discriminated sections, then run the canonical registry validation
+// (required keys, per-schema hooks; its unknown-key check is a no-op here
+// because the parser already rejected unknown keys). Only invoked when the
+// section was present in the input document, mirroring the previous behavior
+// where an absent decoder_custom_args section skipped its mapping (and
+// therefore its required-key checks) entirely.
 static void finalize_parsed_args(const decoder_schema &schema,
                                  cudaqx::heterogeneous_map &map,
                                  const std::string &context) {
-  for (const auto &spec : schema.params) {
-    if (spec.kind == param_kind::discriminated) {
-      std::string discriminator_value;
-      if (map.contains(spec.discriminator))
-        discriminator_value = map.get<std::string>(spec.discriminator);
-      const auto *nested_schema = discriminator_value.empty()
-                                      ? nullptr
-                                      : find_decoder_schema(discriminator_value);
-      if (spec.materialize_empty && nested_schema && !map.contains(spec.key))
-        map.insert(spec.key, cudaqx::heterogeneous_map());
-      if (nested_schema && map.contains(spec.key)) {
-        auto nested = map.get<cudaqx::heterogeneous_map>(spec.key);
-        finalize_parsed_args(*nested_schema, nested, context + "." + spec.key);
-        map.insert(spec.key, nested);
-      }
-    } else if (spec.kind == param_kind::subschema) {
-      if (map.contains(spec.key)) {
-        if (const auto *nested_schema = find_decoder_schema(spec.subschema)) {
-          auto nested = map.get<cudaqx::heterogeneous_map>(spec.key);
-          finalize_parsed_args(*nested_schema, nested,
-                               context + "." + spec.key);
-          map.insert(spec.key, nested);
-        }
-      }
-    }
-    if (spec.required && !map.contains(spec.key))
-      throw std::runtime_error("Missing required key '" + spec.key + "' in " +
-                               context + ".");
-  }
-  if (schema.validate)
-    schema.validate(map);
+  materialize_default_args(schema, map);
+  validate_custom_args(schema, map, context);
 }
 
 } // namespace cudaq::qec::decoding::config
@@ -196,6 +174,21 @@ struct CustomMappingTraits<schema_binding> {
   }
 
   static void output(IO &io, schema_binding &binding) {
+    // Only schema keys are emitted; surface anything else (a typo in a
+    // programmatically built map) instead of dropping it silently.
+    for (const auto &kv : *binding.map) {
+      bool known = false;
+      for (const auto &spec : binding.schema->params) {
+        if (spec.key == kv.first) {
+          known = true;
+          break;
+        }
+      }
+      if (!known)
+        CUDA_QEC_WARN("Key '{}' is not in the '{}' parameter schema; it is "
+                      "omitted from the emitted YAML.",
+                      kv.first, binding.schema->name);
+    }
     // Emit in schema declaration order so output is deterministic.
     for (const auto &spec : binding.schema->params) {
       if (!binding.map->contains(spec.key))
@@ -416,6 +409,9 @@ cudaq::qec::decoding::config::decoder_config::from_yaml_str(
   decoder_config config;
   llvm::yaml::Input yaml_in(yaml_str);
   yaml_in >> config;
+  if (const auto error = yaml_in.error())
+    throw std::runtime_error("Invalid decoder configuration YAML: " +
+                             error.message());
   return config;
 }
 

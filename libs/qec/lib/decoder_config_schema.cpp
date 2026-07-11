@@ -58,11 +58,9 @@ std::vector<std::string> registered_decoder_schema_names() {
 // Schema validation of programmatically built custom-args maps
 // ---------------------------------------------------------------------------
 
-namespace {
-
-void validate_args_against_schema(const decoder_schema &schema,
-                                  const cudaqx::heterogeneous_map &args,
-                                  const std::string &context) {
+void validate_custom_args(const decoder_schema &schema,
+                          const cudaqx::heterogeneous_map &args,
+                          const std::string &context) {
   for (const auto &kv : args) {
     const std::string &key = kv.first;
     const param_spec *spec = nullptr;
@@ -81,9 +79,9 @@ void validate_args_against_schema(const decoder_schema &schema,
         throw std::runtime_error("No schema registered under '" +
                                  spec->subschema + "' (needed to validate '" +
                                  key + "').");
-      validate_args_against_schema(
-          *nested_schema, args.get<cudaqx::heterogeneous_map>(key),
-          context + "." + key);
+      validate_custom_args(*nested_schema,
+                           args.get<cudaqx::heterogeneous_map>(key),
+                           context + "." + key);
     } else if (spec->kind == param_kind::discriminated) {
       std::string discriminator_value;
       if (args.contains(spec->discriminator))
@@ -98,9 +96,9 @@ void validate_args_against_schema(const decoder_schema &schema,
             "'" + key + "' does not support " + spec->discriminator + " '" +
             discriminator_value +
             "': no parameter schema is registered under that name.");
-      validate_args_against_schema(
-          *nested_schema, args.get<cudaqx::heterogeneous_map>(key),
-          context + "." + key);
+      validate_custom_args(*nested_schema,
+                           args.get<cudaqx::heterogeneous_map>(key),
+                           context + "." + key);
     }
   }
   for (const auto &spec : schema.params)
@@ -110,8 +108,6 @@ void validate_args_against_schema(const decoder_schema &schema,
   if (schema.validate)
     schema.validate(args);
 }
-
-} // namespace
 
 void validate_custom_args(const std::string &schema_name,
                           const cudaqx::heterogeneous_map &args) {
@@ -125,8 +121,31 @@ void validate_custom_args(const std::string &schema_name,
         "cannot be validated (or serialized to YAML). Register a schema from "
         "the decoder's plugin library with register_decoder_schema().");
   }
-  validate_args_against_schema(*schema, args,
-                               "'" + schema_name + "' parameters");
+  validate_custom_args(*schema, args, "'" + schema_name + "' parameters");
+}
+
+void materialize_default_args(const decoder_schema &schema,
+                              cudaqx::heterogeneous_map &args) {
+  for (const auto &spec : schema.params) {
+    const decoder_schema *nested_schema = nullptr;
+    if (spec.kind == param_kind::discriminated) {
+      std::string discriminator_value;
+      if (args.contains(spec.discriminator))
+        discriminator_value = args.get<std::string>(spec.discriminator);
+      nested_schema = discriminator_value.empty()
+                          ? nullptr
+                          : find_decoder_schema(discriminator_value);
+      if (spec.materialize_empty && nested_schema && !args.contains(spec.key))
+        args.insert(spec.key, cudaqx::heterogeneous_map());
+    } else if (spec.kind == param_kind::subschema) {
+      nested_schema = find_decoder_schema(spec.subschema);
+    }
+    if (nested_schema && args.contains(spec.key)) {
+      auto nested = args.get<cudaqx::heterogeneous_map>(spec.key);
+      materialize_default_args(*nested_schema, nested);
+      args.insert(spec.key, nested);
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -135,23 +154,48 @@ void validate_custom_args(const std::string &schema_name,
 
 namespace {
 
-std::optional<long long> as_integer(const std::any &v) {
+// Sign-aware integer representation so unsigned values above 2^63 never
+// alias negative signed values (a plain long long cast would wrap
+// size_t(2^64-1) to -1 and report it equal to int(-1)).
+struct integer_value {
+  bool negative = false;
+  unsigned long long magnitude = 0;
+  bool operator==(const integer_value &other) const {
+    return negative == other.negative && magnitude == other.magnitude;
+  }
+  double as_double() const {
+    double d = static_cast<double>(magnitude);
+    return negative ? -d : d;
+  }
+};
+
+std::optional<integer_value> as_integer(const std::any &v) {
+  auto from_signed = [](long long s) {
+    integer_value iv;
+    iv.negative = s < 0;
+    iv.magnitude = iv.negative ? ~static_cast<unsigned long long>(s) + 1ULL
+                               : static_cast<unsigned long long>(s);
+    return iv;
+  };
+  auto from_unsigned = [](unsigned long long u) {
+    return integer_value{false, u};
+  };
   if (auto *p = std::any_cast<int>(&v))
-    return static_cast<long long>(*p);
+    return from_signed(*p);
   if (auto *p = std::any_cast<long>(&v))
-    return static_cast<long long>(*p);
+    return from_signed(*p);
   if (auto *p = std::any_cast<long long>(&v))
-    return *p;
+    return from_signed(*p);
   if (auto *p = std::any_cast<short>(&v))
-    return static_cast<long long>(*p);
+    return from_signed(*p);
   if (auto *p = std::any_cast<unsigned int>(&v))
-    return static_cast<long long>(*p);
+    return from_unsigned(*p);
   if (auto *p = std::any_cast<unsigned long>(&v))
-    return static_cast<long long>(*p);
+    return from_unsigned(*p);
   if (auto *p = std::any_cast<unsigned long long>(&v))
-    return static_cast<long long>(*p);
+    return from_unsigned(*p);
   if (auto *p = std::any_cast<unsigned short>(&v))
-    return static_cast<long long>(*p);
+    return from_unsigned(*p);
   return std::nullopt;
 }
 
@@ -177,14 +221,14 @@ bool any_values_equal(const std::any &a, const std::any &b) {
     if (auto ib = as_integer(b))
       return *ia == *ib;
     if (auto fb = as_floating(b))
-      return static_cast<double>(*ia) == *fb;
+      return ia->as_double() == *fb;
     return false;
   }
   if (auto fa = as_floating(a)) {
     if (auto fb = as_floating(b))
       return *fa == *fb;
     if (auto ib = as_integer(b))
-      return *fa == static_cast<double>(*ib);
+      return *fa == ib->as_double();
     return false;
   }
   if (auto *pa = std::any_cast<std::string>(&a)) {
@@ -211,13 +255,7 @@ bool any_values_equal(const std::any &a, const std::any &b) {
 
 bool custom_args_maps_equal(const cudaqx::heterogeneous_map &a,
                             const cudaqx::heterogeneous_map &b) {
-  std::size_t size_a = 0;
-  for ([[maybe_unused]] const auto &kv : a)
-    ++size_a;
-  std::size_t size_b = 0;
-  for ([[maybe_unused]] const auto &kv : b)
-    ++size_b;
-  if (size_a != size_b)
+  if (a.size() != b.size())
     return false;
 
   for (const auto &[key_a, val_a] : a) {
