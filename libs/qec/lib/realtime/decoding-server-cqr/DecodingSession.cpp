@@ -172,7 +172,7 @@ void DecodingSession::on_enqueue(const WorkItem &item) {
           "Syndrome volume exceeds decoder measurement capacity");
 
     accepted_syndromes += completed->bits.size();
-    // Host-decoder path (CQR / Loopback transports).  On the gpu_roce path,
+    // Host-decoder path (CQR / Loopback transports).  On the device_graph path,
     // the CUDAQ device-graph scheduler (cudaq_create_dispatch_graph_regular)
     // handles RX→dispatch→decode→TX entirely on the GPU; this worker thread
     // is never reached for GPU RoCE sessions.

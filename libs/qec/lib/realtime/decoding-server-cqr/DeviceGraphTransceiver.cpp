@@ -6,9 +6,9 @@
  * the terms of the Apache License 2.0 which accompanies this distribution.    *
  ******************************************************************************/
 
-#ifdef CUDAQ_GPU_ROCE_AVAILABLE
+#ifdef CUDAQ_QEC_DEVICE_GRAPH_AVAILABLE
 
-#include "GpuRoceTransceiver.h"
+#include "DeviceGraphTransceiver.h"
 #include "RpcWireFormat.h"
 #include "cudaq/qec/logger.h"
 #include "cudaq/qec/realtime/graph_resources.h"
@@ -65,7 +65,7 @@ bool populate_device_call(cudaq_function_entry_t &entry, const char *symbol,
   auto fn = reinterpret_cast<populate_fn>(::dlsym(RTLD_DEFAULT, symbol));
   if (!fn) {
     CUDA_QEC_ERROR(
-        "GpuRoceTransceiver: dlsym({}) failed -- the server process must "
+        "DeviceGraphTransceiver: dlsym({}) failed -- the server process must "
         "absorb libcudaq-qec-realtime-cudevice-proprietary.a as WHOLE_ARCHIVE "
         "and link with --export-dynamic",
         symbol);
@@ -76,7 +76,7 @@ bool populate_device_call(cudaq_function_entry_t &entry, const char *symbol,
   entry.routing_key = 0;
   if (entry.dispatch_mode != CUDAQ_DISPATCH_DEVICE_CALL ||
       !entry.handler.device_fn_ptr) {
-    CUDA_QEC_ERROR("GpuRoceTransceiver: {} did not produce a valid "
+    CUDA_QEC_ERROR("DeviceGraphTransceiver: {} did not produce a valid "
                    "DEVICE_CALL entry",
                    symbol);
     return false;
@@ -89,7 +89,7 @@ bool populate_device_call(cudaq_function_entry_t &entry, const char *symbol,
     cudaError_t _err = (expr);                                                 \
     if (_err != cudaSuccess)                                                   \
       throw std::runtime_error(                                                \
-          std::string("GpuRoceTransceiver CUDA error: ") +                     \
+          std::string("DeviceGraphTransceiver CUDA error: ") +                     \
           cudaGetErrorString(_err) + " (" #expr ")");                          \
   } while (0)
 
@@ -112,51 +112,65 @@ void parse_endpoint_token(const std::string &info, const char *key, T &out) {
 } // namespace
 
 // ---------------------------------------------------------------------------
-// GpuRoceConfig::from_env
+// DeviceGraphConfig::from_env
 // ---------------------------------------------------------------------------
 
+// Each knob reads QEC_DEVICE_GRAPH_<NAME> first and falls back to the legacy
+// HOLOLINK_<NAME> spelling (the values are forwarded to whatever transport
+// provider is loaded, which need not be Hololink; existing orchestration
+// scripts still set the legacy names).
+static const char *env_raw(const char *name) {
+  const std::string primary = std::string("QEC_DEVICE_GRAPH_") + name;
+  if (const char *v = std::getenv(primary.c_str()))
+    return v;
+  const std::string legacy = std::string("HOLOLINK_") + name;
+  return std::getenv(legacy.c_str());
+}
 static std::string env_str(const char *name, const char *def = "") {
-  const char *v = std::getenv(name);
+  const char *v = env_raw(name);
   return v ? v : def;
 }
 static uint32_t env_u32(const char *name, uint32_t def) {
-  const char *v = std::getenv(name);
+  const char *v = env_raw(name);
   return v ? static_cast<uint32_t>(std::stoul(v)) : def;
 }
 static int env_int(const char *name, int def) {
-  const char *v = std::getenv(name);
+  const char *v = env_raw(name);
   return v ? std::stoi(v) : def;
 }
 static size_t env_size(const char *name, size_t def) {
-  const char *v = std::getenv(name);
+  const char *v = env_raw(name);
   return v ? static_cast<size_t>(std::stoull(v)) : def;
 }
 
-GpuRoceConfig GpuRoceConfig::from_env() {
-  GpuRoceConfig c;
-  c.device_name = env_str("HOLOLINK_DEVICE");
-  c.peer_ip = env_str("HOLOLINK_PEER_IP");
-  c.remote_qp = env_u32("HOLOLINK_REMOTE_QP", 0);
-  c.gpu_id = env_int("HOLOLINK_GPU_ID", 0);
-  c.frame_size = env_size("HOLOLINK_FRAME_SIZE", 384);
-  c.page_size = env_size("HOLOLINK_PAGE_SIZE", 0); // 0 → derived below
-  c.num_pages = env_size("HOLOLINK_NUM_PAGES", 64);
-  c.reserved_sms = env_int("HOLOLINK_RESERVED_SMS", 2);
+DeviceGraphConfig DeviceGraphConfig::from_env() {
+  DeviceGraphConfig c;
+  c.device_name = env_str("DEVICE");
+  c.peer_ip = env_str("PEER_IP");
+  c.remote_qp = env_u32("REMOTE_QP", 0);
+  c.gpu_id = env_int("GPU_ID", 0);
+  c.frame_size = env_size("FRAME_SIZE", 384);
+  c.page_size = env_size("PAGE_SIZE", 0); // 0 → derived below
+  c.num_pages = env_size("NUM_PAGES", 64);
+  c.reserved_sms = env_int("RESERVED_SMS", 2);
   return c;
 }
 
 // ---------------------------------------------------------------------------
-// GpuRoceTransceiver constructor
+// DeviceGraphTransceiver constructor
 // ---------------------------------------------------------------------------
 
-GpuRoceTransceiver::GpuRoceTransceiver(const GpuRoceConfig &config)
+DeviceGraphTransceiver::DeviceGraphTransceiver(const DeviceGraphConfig &config)
     : gpu_id_(config.gpu_id) {
   if (config.device_name.empty())
-    throw std::runtime_error("GpuRoceTransceiver: HOLOLINK_DEVICE not set");
+    throw std::runtime_error("DeviceGraphTransceiver: QEC_DEVICE_GRAPH_DEVICE "
+                             "(or legacy HOLOLINK_DEVICE) not set");
   if (config.peer_ip.empty())
-    throw std::runtime_error("GpuRoceTransceiver: HOLOLINK_PEER_IP not set");
+    throw std::runtime_error("DeviceGraphTransceiver: QEC_DEVICE_GRAPH_PEER_IP "
+                             "(or legacy HOLOLINK_PEER_IP) not set");
   if (config.remote_qp == 0)
-    throw std::runtime_error("GpuRoceTransceiver: HOLOLINK_REMOTE_QP not set");
+    throw std::runtime_error("DeviceGraphTransceiver: QEC_DEVICE_GRAPH_REMOTE_QP "
+                             "(or legacy HOLOLINK_REMOTE_QP) not set");
 
   // Derive page_size from frame_size if not overridden, then round up to the
   // 128-byte Hololink granularity.  Mirrors the derivation in
@@ -168,7 +182,7 @@ GpuRoceTransceiver::GpuRoceTransceiver(const GpuRoceConfig &config)
   // hand it the payload remainder of our frame budget.
   if (config.frame_size < sizeof(cudaq::realtime::RPCHeader))
     throw std::runtime_error(
-        "GpuRoceTransceiver: HOLOLINK_FRAME_SIZE smaller than the RPC header");
+        "DeviceGraphTransceiver: HOLOLINK_FRAME_SIZE smaller than the RPC header");
   const size_t payload_size =
       config.frame_size - sizeof(cudaq::realtime::RPCHeader);
 
@@ -200,7 +214,7 @@ GpuRoceTransceiver::GpuRoceTransceiver(const GpuRoceConfig &config)
                           argv.data()) != CUDAQ_OK ||
       !bridge_)
     throw std::runtime_error(
-        "GpuRoceTransceiver: bridge provider create failed for device=" +
+        "DeviceGraphTransceiver: bridge provider create failed for device=" +
         config.device_name + " peer=" + config.peer_ip +
         " (is libcudaq-realtime-bridge-hololink.so on the loader path, and "
         "does the IB netdev have an IPv4 address assigned for RoCE v2 GID?)");
@@ -212,7 +226,7 @@ GpuRoceTransceiver::GpuRoceTransceiver(const GpuRoceConfig &config)
     cudaq_bridge_destroy(bridge_);
     bridge_ = nullptr;
     throw std::runtime_error(
-        "GpuRoceTransceiver: provider has no ring-buffer context");
+        "DeviceGraphTransceiver: provider has no ring-buffer context");
   }
   rx_ring_data_ = ring.rx_data;
   rx_ring_flag_ = ring.rx_flags;
@@ -222,7 +236,7 @@ GpuRoceTransceiver::GpuRoceTransceiver(const GpuRoceConfig &config)
     cudaq_bridge_destroy(bridge_);
     bridge_ = nullptr;
     throw std::runtime_error(
-        "GpuRoceTransceiver: null DOCA ring pointer(s) from provider");
+        "DeviceGraphTransceiver: null DOCA ring pointer(s) from provider");
   }
 
   // Ring geometry from the provider when it supports the v2 query; fall back
@@ -255,10 +269,10 @@ GpuRoceTransceiver::GpuRoceTransceiver(const GpuRoceConfig &config)
   if (cudaq_bridge_connect(bridge_) != CUDAQ_OK) {
     cudaq_bridge_destroy(bridge_);
     bridge_ = nullptr;
-    throw std::runtime_error("GpuRoceTransceiver: provider connect() failed");
+    throw std::runtime_error("DeviceGraphTransceiver: provider connect() failed");
   }
 
-  CUDA_QEC_INFO("GpuRoceTransceiver: Hololink provider started  device={} "
+  CUDA_QEC_INFO("DeviceGraphTransceiver: Hololink provider started  device={} "
                 "peer={} gpu={} pages={} page_size={}  "
                 "QP=0x{:X} rkey={} buf=0x{:X}  "
                 "(call launch_scheduler() before run())",
@@ -270,12 +284,12 @@ GpuRoceTransceiver::GpuRoceTransceiver(const GpuRoceConfig &config)
 // launch_scheduler
 // ---------------------------------------------------------------------------
 
-void GpuRoceTransceiver::launch_scheduler(void *raw_graph_resources) {
+void DeviceGraphTransceiver::launch_scheduler(void *raw_graph_resources) {
   auto *graph_res =
       static_cast<cudaq::qec::realtime::graph_resources *>(raw_graph_resources);
   if (!graph_res || !graph_res->graph_exec)
     throw std::runtime_error(
-        "GpuRoceTransceiver::launch_scheduler: null graph_exec "
+        "DeviceGraphTransceiver::launch_scheduler: null graph_exec "
         "(decoder must support_graph_dispatch() and capture_decode_graph())");
 
   GPU_CUDA_CHECK(cudaSetDevice(gpu_id_));
@@ -283,7 +297,7 @@ void GpuRoceTransceiver::launch_scheduler(void *raw_graph_resources) {
   void *ft_dev = nullptr;
   if (!alloc_pinned_mapped(3 * sizeof(cudaq_function_entry_t), &ft_host_,
                            &ft_dev))
-    throw std::runtime_error("GpuRoceTransceiver::launch_scheduler: "
+    throw std::runtime_error("DeviceGraphTransceiver::launch_scheduler: "
                              "function-table pinned alloc failed");
 
   auto *entries = static_cast<cudaq_function_entry_t *>(ft_host_);
@@ -304,7 +318,7 @@ void GpuRoceTransceiver::launch_scheduler(void *raw_graph_resources) {
     cudaFreeHost(ft_host_);
     ft_host_ = nullptr;
     throw std::runtime_error(
-        "GpuRoceTransceiver::launch_scheduler: populate_device_call failed "
+        "DeviceGraphTransceiver::launch_scheduler: populate_device_call failed "
         "(see error log above)");
   }
 
@@ -333,10 +347,10 @@ void GpuRoceTransceiver::launch_scheduler(void *raw_graph_resources) {
     cudaFreeHost(ft_host_);
     ft_host_ = nullptr;
     CUDA_QEC_ERROR(
-        "GpuRoceTransceiver: cudaq dispatch API not found via dlsym -- "
+        "DeviceGraphTransceiver: cudaq dispatch API not found via dlsym -- "
         "the server must link cudaq-realtime-dispatch with --export-dynamic");
     throw std::runtime_error(
-        "GpuRoceTransceiver::launch_scheduler: cudaq dispatch API not found "
+        "DeviceGraphTransceiver::launch_scheduler: cudaq dispatch API not found "
         "(cudaq_create/launch/destroy_dispatch_graph_regular); "
         "link cudaq-realtime-dispatch into the server with --export-dynamic");
   }
@@ -346,7 +360,7 @@ void GpuRoceTransceiver::launch_scheduler(void *raw_graph_resources) {
   if (!alloc_pinned_mapped(sizeof(int), &sd_host, &sd_dev)) {
     cudaFreeHost(ft_host_);
     ft_host_ = nullptr;
-    throw std::runtime_error("GpuRoceTransceiver::launch_scheduler: "
+    throw std::runtime_error("DeviceGraphTransceiver::launch_scheduler: "
                              "shutdown-flag pinned alloc failed");
   }
   shutdown_host_ = static_cast<volatile int *>(sd_host);
@@ -360,7 +374,7 @@ void GpuRoceTransceiver::launch_scheduler(void *raw_graph_resources) {
     shutdown_host_ = nullptr;
     shutdown_dev_ = nullptr;
     throw std::runtime_error(
-        "GpuRoceTransceiver::launch_scheduler: d_stats_ alloc failed");
+        "DeviceGraphTransceiver::launch_scheduler: d_stats_ alloc failed");
   }
 
   GPU_CUDA_CHECK(cudaStreamCreate(&sched_stream_));
@@ -383,7 +397,7 @@ void GpuRoceTransceiver::launch_scheduler(void *raw_graph_resources) {
     shutdown_host_ = nullptr;
     shutdown_dev_ = nullptr;
     throw std::runtime_error(
-        std::string("GpuRoceTransceiver::launch_scheduler: "
+        std::string("DeviceGraphTransceiver::launch_scheduler: "
                     "cudaq_create_dispatch_graph_regular: ") +
         cudaGetErrorString(cerr));
   }
@@ -402,7 +416,7 @@ void GpuRoceTransceiver::launch_scheduler(void *raw_graph_resources) {
     shutdown_host_ = nullptr;
     shutdown_dev_ = nullptr;
     throw std::runtime_error(
-        std::string("GpuRoceTransceiver::launch_scheduler: "
+        std::string("DeviceGraphTransceiver::launch_scheduler: "
                     "cudaq_launch_dispatch_graph: ") +
         cudaGetErrorString(cerr));
   }
@@ -412,10 +426,10 @@ void GpuRoceTransceiver::launch_scheduler(void *raw_graph_resources) {
   if (cudaq_bridge_launch(bridge_) != CUDAQ_OK) {
     __atomic_store_n(shutdown_host_, 1, __ATOMIC_RELEASE);
     throw std::runtime_error(
-        "GpuRoceTransceiver::launch_scheduler: provider launch() failed");
+        "DeviceGraphTransceiver::launch_scheduler: provider launch() failed");
   }
 
-  CUDA_QEC_INFO("GpuRoceTransceiver: GPU scheduler launched  "
+  CUDA_QEC_INFO("DeviceGraphTransceiver: GPU scheduler launched  "
                 "QP=0x{:X} rkey={} buf=0x{:X}  "
                 "(3 DEVICE_CALL entries, graph_exec={:p})",
                 qp_number_, rkey_, buffer_addr_,
@@ -437,7 +451,7 @@ void GpuRoceTransceiver::launch_scheduler(void *raw_graph_resources) {
 // ITransceiver interface stubs (GPU scheduler handles the data path)
 // ---------------------------------------------------------------------------
 
-RxFrame GpuRoceTransceiver::recv() {
+RxFrame DeviceGraphTransceiver::recv() {
   // The GPU device-graph scheduler handles RX→dispatch→decode→TX autonomously.
   // This method only exists so DecodingServer::run()'s recv loop blocks until
   // shutdown() is called.
@@ -446,10 +460,10 @@ RxFrame GpuRoceTransceiver::recv() {
   return {}; // shutdown sentinel: empty buf causes the recv loop to exit
 }
 
-void GpuRoceTransceiver::send(const PeerId & /*peer*/, const uint8_t * /*data*/,
+void DeviceGraphTransceiver::send(const PeerId & /*peer*/, const uint8_t * /*data*/,
                               size_t /*len*/) {
   throw std::logic_error(
-      "GpuRoceTransceiver::send() must not be called: the CUDAQ device-graph "
+      "DeviceGraphTransceiver::send() must not be called: the CUDAQ device-graph "
       "scheduler writes TX responses directly to the Hololink ring buffer");
 }
 
@@ -457,7 +471,7 @@ void GpuRoceTransceiver::send(const PeerId & /*peer*/, const uint8_t * /*data*/,
 // shutdown / destructor
 // ---------------------------------------------------------------------------
 
-void GpuRoceTransceiver::shutdown() {
+void DeviceGraphTransceiver::shutdown() {
   if (stopped_.exchange(true, std::memory_order_acq_rel))
     return; // already stopped
 
@@ -470,7 +484,7 @@ void GpuRoceTransceiver::shutdown() {
     cudaq_bridge_disconnect(bridge_);
 }
 
-GpuRoceTransceiver::~GpuRoceTransceiver() {
+DeviceGraphTransceiver::~DeviceGraphTransceiver() {
   // Ensure clean shutdown even if the caller omitted shutdown().
   if (!stopped_.exchange(true, std::memory_order_acq_rel)) {
     if (shutdown_host_)
@@ -498,4 +512,4 @@ GpuRoceTransceiver::~GpuRoceTransceiver() {
 
 } // namespace cudaq::qec::decoding_server
 
-#endif // CUDAQ_GPU_ROCE_AVAILABLE
+#endif // CUDAQ_QEC_DEVICE_GRAPH_AVAILABLE

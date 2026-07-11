@@ -15,7 +15,7 @@ namespace cudaq::qec::decoding_server {
 CpuRoceTransceiver::CpuRoceTransceiver() {
   throw std::runtime_error(
       "CpuRoceTransceiver: ibverbs/SoftRoCE implementation pending. "
-      "Use LoopbackTransceiver for development or GpuRoceTransceiver for "
+      "Use LoopbackTransceiver for development or DeviceGraphTransceiver for "
       "production Hololink/DOCA deployments.");
 }
 

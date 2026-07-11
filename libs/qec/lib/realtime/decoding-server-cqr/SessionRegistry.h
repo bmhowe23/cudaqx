@@ -17,7 +17,7 @@
 
 namespace cudaq::qec::decoding_server {
 
-using cudaq::qec::decoding::config::DecoderTransport;
+using cudaq::qec::decoding::config::DecoderDispatch;
 
 /// Owns all DecodingSession instances, keyed by uint64_t decoder_id.
 ///
@@ -41,8 +41,8 @@ public:
   DecodingSession &get(uint64_t decoder_id);
   const DecodingSession &get(uint64_t decoder_id) const;
 
-  /// Transport type shared by all sessions; valid after load_from_config().
-  DecoderTransport required_transport() const { return transport_; }
+  /// Dispatch shape shared by all sessions; valid after load_from_config().
+  DecoderDispatch required_dispatch() const { return dispatch_; }
 
   const std::unordered_map<uint64_t, std::unique_ptr<DecodingSession>> &
   sessions() const {
@@ -60,7 +60,7 @@ public:
 
 private:
   std::unordered_map<uint64_t, std::unique_ptr<DecodingSession>> sessions_;
-  DecoderTransport transport_{DecoderTransport::cpu_roce};
+  DecoderDispatch dispatch_{DecoderDispatch::host};
 };
 
 } // namespace cudaq::qec::decoding_server

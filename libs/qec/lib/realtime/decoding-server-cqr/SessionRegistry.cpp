@@ -61,11 +61,11 @@ void SessionRegistry::load_from_config(const multi_decoder_config &config,
     // All decoders in one server instance must share the same transport type
     // because there is one receive loop per unique transceiver.
     if (sessions_.empty()) {
-      transport_ = dc.transport;
-    } else if (dc.transport != transport_) {
+      dispatch_ = dc.dispatch;
+    } else if (dc.dispatch != dispatch_) {
       throw std::runtime_error(
-          "Mixed transport types in " + source_name +
-          ": all decoder entries must declare the same transport");
+          "Mixed dispatch shapes in " + source_name +
+          ": all decoder entries must declare the same dispatch shape");
     }
 
     CUDA_QEC_INFO("SessionRegistry: creating decoder id={} type={}", dc.id,
@@ -75,9 +75,9 @@ void SessionRegistry::load_from_config(const multi_decoder_config &config,
     auto session = DecodingSession::create(std::move(decoder),
                                            make_default_mapping_table());
 
-    // [For follow-up] dc.transport (cpu_roce / gpu_roce) is parsed from YAML
+    // [For follow-up] dc.dispatch (cpu_roce / gpu_roce) is parsed from YAML
     // but not yet used to select a transceiver here. Transport binding requires
-    // CpuRoceTransceiverAdapter / GpuRoceTransceiverAdapter (gated on
+    // CpuRoceTransceiverAdapter / DeviceGraphTransceiverAdapter (gated on
     // CUDAQ_REALTIME headers); the split-transport DecodingServer constructor
     // is already in place to accept the resulting dispatch map.
     session->start_worker();

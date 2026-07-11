@@ -19,49 +19,51 @@
 #include <thread>
 #include <vector>
 
-// GPU RoCE support is an optional component (cudaq-qec-decoding-server-gpuroce)
+// GPU RoCE support is an optional component (cudaq-qec-decoding-server-device-graph)
 // so this core library carries no DOCA / Hololink / CUDA-driver dependencies:
 // those .so's require libcuda.so.1 at load time, which core consumers (unit
 // tests, the CQR plugin) must not impose on driverless machines.  Binaries
-// that want the gpu_roce transport link the component WHOLE_ARCHIVE, whose
-// GpuRoceFactory.cpp provides the strong definition of this factory; anywhere
+// that want device_graph dispatch link the component WHOLE_ARCHIVE, whose
+// DeviceGraphFactory.cpp provides the strong definition of this factory; anywhere
 // else the weak reference is null and make_transport throws.
 extern "C" __attribute__((weak)) cudaq::qec::decoding_server::ITransceiver *
-cudaqx_qec_make_gpu_roce_transceiver();
+cudaqx_qec_make_device_graph_transceiver();
 
 namespace cudaq::qec::decoding_server {
 
-using cudaq::qec::decoding::config::DecoderTransport;
+using cudaq::qec::decoding::config::DecoderDispatch;
 
 // ---------------------------------------------------------------------------
 // Constructors
 // ---------------------------------------------------------------------------
 
 std::unique_ptr<ITransceiver>
-DecodingServer::make_transport(DecoderTransport transport_type) {
-  switch (transport_type) {
-  case DecoderTransport::gpu_roce:
-    if (cudaqx_qec_make_gpu_roce_transceiver)
+DecodingServer::make_transport(DecoderDispatch dispatch) {
+  switch (dispatch) {
+  case DecoderDispatch::device_graph:
+    if (cudaqx_qec_make_device_graph_transceiver)
       return std::unique_ptr<ITransceiver>(
-          cudaqx_qec_make_gpu_roce_transceiver());
+          cudaqx_qec_make_device_graph_transceiver());
     throw std::runtime_error(
-        "gpu_roce transport requested but GPU RoCE support is not linked into "
-        "this binary. Build with HOLOSCAN_SENSOR_BRIDGE_BUILD_DIR and DOCA "
-        "libs, and link cudaq-qec-decoding-server-gpuroce (whole-archive).");
+        "device_graph dispatch requested but the device-graph component is "
+        "not linked into this binary. Link "
+        "cudaq-qec-decoding-server-device-graph (whole-archive).");
 
-  case DecoderTransport::cpu_roce:
-    // CpuRoceTransceiver constructor always throws (ibverbs pending).
+  case DecoderDispatch::host:
+    // The standalone DecodingServer has no host-dispatch wire of its own yet
+    // (host dispatch normally runs through the CQR HOST_CALL plugin);
+    // CpuRoceTransceiver is the placeholder and its constructor throws.
     return std::make_unique<CpuRoceTransceiver>();
   }
-  throw std::runtime_error("make_transport: unknown DecoderTransport value");
+  throw std::runtime_error("make_transport: unknown DecoderDispatch value");
 }
 
 DecodingServer::DecodingServer(const std::string &config_yaml) {
   // Parse the YAML once: SessionRegistry validates the decoder entries
-  // (including the uniform-transport rule — MVP limitation: heterogeneous
+  // (including the uniform-dispatch rule — MVP limitation: heterogeneous
   // deployments require per-session transceiver binding, deferred to a
-  // follow-up once CpuRoce/GpuRoceTransceiverAdapter are available) and
-  // required_transport() then drives transceiver creation.
+  // follow-up once CpuRoce/DeviceGraphTransceiverAdapter are available) and
+  // required_dispatch() then drives transceiver creation.
   std::ifstream f(config_yaml);
   if (!f.is_open())
     throw std::runtime_error("Cannot open config: " + config_yaml);
@@ -74,8 +76,8 @@ DecodingServer::DecodingServer(const std::string &config_yaml) {
   registry_.load_from_config(config, config_yaml);
   register_handlers();
 
-  const auto transport_type = registry_.required_transport();
-  auto t = make_transport(transport_type);
+  const auto dispatch = registry_.required_dispatch();
+  auto t = make_transport(dispatch);
   ITransceiver *raw = t.get();
   owned_transports_.push_back(std::move(t));
   function_transport_[kEnqueueSyndromesFunctionId] = raw;
@@ -85,23 +87,23 @@ DecodingServer::DecodingServer(const std::string &config_yaml) {
   // For the GPU RoCE path, wire the first (and only) session's decoder graph
   // to the Hololink ring buffer via the CUDAQ device-graph scheduler.
   // Multi-decoder GPU RoCE binding is deferred to a follow-up.
-  if (transport_type == DecoderTransport::gpu_roce) {
+  if (dispatch == DecoderDispatch::device_graph) {
     const auto &sessions = registry_.sessions();
     if (sessions.size() != 1)
       throw std::runtime_error(
-          "GPU RoCE transport currently supports exactly one decoder session; "
+          "device_graph dispatch currently supports exactly one decoder session; "
           "found " +
           std::to_string(sessions.size()) +
-          ". Multi-decoder GPU RoCE is deferred.");
+          ". Multi-decoder device_graph dispatch is deferred.");
     auto *session = sessions.begin()->second.get();
     if (!session->graph_resources)
       throw std::runtime_error(
-          "GPU RoCE requires a decoder that supports graph dispatch "
+          "device_graph dispatch requires a decoder that supports graph dispatch "
           "(supports_graph_dispatch() must return true and "
           "capture_decode_graph() must succeed)");
     if (!raw->launch_device_scheduler(session->graph_resources.get()))
       throw std::runtime_error(
-          "gpu_roce transceiver did not provide a device scheduler");
+          "device_graph transceiver did not provide a device scheduler");
   }
 }
 

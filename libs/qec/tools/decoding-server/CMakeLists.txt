@@ -59,15 +59,15 @@ if(CUDAQ_REALTIME_INCLUDE_DIR AND TARGET cudaq-qec-realtime-decoding-server-cqr)
       "${QEC_UDP_REALTIME_LIBRARY}" DIRECTORY)
     target_compile_definitions(decoding_server PRIVATE
       QEC_BRIDGE_PROVIDER_DIR="${_decoding_server_realtime_lib_dir}")
-    # The gpu_roce CLI branch ([2a] in decoding_server.cpp) references only
+    # The device_graph dispatch branch ([2a] in decoding_server.cpp) references only
     # the core DecodingServer API, so compile it whenever the bridge API is
     # available -- machines without the proprietary archive (CI in
     # particular) still build the branch; at runtime it fails with a clear
     # "GPU RoCE support is not linked into this binary" error from
     # make_transport.
-    if(CUDAQ_GPU_ROCE_AVAILABLE)
+    if(CUDAQ_QEC_DEVICE_GRAPH_AVAILABLE)
       target_compile_definitions(decoding_server PRIVATE
-        QEC_HAVE_GPU_ROCE_TRANSPORT)
+        QEC_HAVE_DEVICE_GRAPH_DISPATCH)
       target_include_directories(decoding_server PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/../../lib/realtime/decoding-server-cqr
       )
@@ -75,14 +75,14 @@ if(CUDAQ_REALTIME_INCLUDE_DIR AND TARGET cudaq-qec-realtime-decoding-server-cqr)
         cudaq-qec-decoding-server)
     endif()
     # Actually LINKING the GPU RoCE transport needs BOTH the
-    # cudaq-qec-decoding-server-gpuroce component AND the proprietary
+    # cudaq-qec-decoding-server-device-graph component AND the proprietary
     # cudevice archive, which supplies the three populate-shim symbols
     # (cudaqx_qec_realtime_dispatch_populate_*_device_entry)
-    # that GpuRoceTransceiver::launch_scheduler resolves via dlsym. Hololink
+    # that DeviceGraphTransceiver::launch_scheduler resolves via dlsym. Hololink
     # presence and the proprietary archive are provisioned independently, so
     # treat a missing archive as "gpu_roce transport not available" and fall
     # back to the provider transports rather than failing configuration.
-    if(CUDAQ_GPU_ROCE_AVAILABLE AND TARGET cudaq-qec-realtime-cudevice-proprietary)
+    if(CUDAQ_QEC_DEVICE_GRAPH_AVAILABLE AND TARGET cudaq-qec-realtime-cudevice-proprietary)
       # Re-find in case the CQR subdir cache entry didn't propagate here.
       if(NOT CUDAQ_REALTIME_DISPATCH_LIBRARY)
         find_library(CUDAQ_REALTIME_DISPATCH_LIBRARY cudaq-realtime-dispatch
@@ -91,10 +91,10 @@ if(CUDAQ_REALTIME_INCLUDE_DIR AND TARGET cudaq-qec-realtime-decoding-server-cqr)
       endif()
       if(NOT CUDAQ_REALTIME_DISPATCH_LIBRARY)
         message(FATAL_ERROR
-          "CUDAQ_GPU_ROCE_AVAILABLE is set but cudaq-realtime-dispatch was "
+          "CUDAQ_QEC_DEVICE_GRAPH_AVAILABLE is set but cudaq-realtime-dispatch was "
           "not found (searched CUDAQ_REALTIME_ROOT=${CUDAQ_REALTIME_ROOT} and "
           "CUDAQ_INSTALL_DIR=${CUDAQ_INSTALL_DIR}).  "
-          "GpuRoceTransceiver::launch_scheduler resolves "
+          "DeviceGraphTransceiver::launch_scheduler resolves "
           "cudaq_create/launch/destroy_dispatch_graph_regular via dlsym; "
           "without this library in the server image those lookups will fail "
           "at runtime.  Set CUDAQ_REALTIME_ROOT to the CUDA-Q realtime "
@@ -103,20 +103,20 @@ if(CUDAQ_REALTIME_INCLUDE_DIR AND TARGET cudaq-qec-realtime-decoding-server-cqr)
       target_link_libraries(decoding_server PRIVATE
         # WHOLE_ARCHIVE: DecodingServer reaches gpu_roce through a weak
         # factory symbol, and a weak reference does not pull archive members.
-        $<LINK_LIBRARY:WHOLE_ARCHIVE,cudaq-qec-decoding-server-gpuroce>
+        $<LINK_LIBRARY:WHOLE_ARCHIVE,cudaq-qec-decoding-server-device-graph>
         ${CUDAQ_REALTIME_DISPATCH_LIBRARY}
         $<LINK_LIBRARY:WHOLE_ARCHIVE,cudaq-qec-realtime-cudevice-proprietary>
       )
       target_link_options(decoding_server PRIVATE
         "LINKER:--export-dynamic"
       )
-      message(STATUS "decoding_server: gpu_roce transport enabled")
-    elseif(CUDAQ_GPU_ROCE_AVAILABLE)
+      message(STATUS "decoding_server: device_graph dispatch enabled")
+    elseif(CUDAQ_QEC_DEVICE_GRAPH_AVAILABLE)
       message(WARNING
-        "decoding_server: gpu_roce CLI compiled but transport NOT linked "
+        "decoding_server: device_graph dispatch compiled but NOT linked "
         "(cudaq-qec-realtime-cudevice-proprietary target not defined; set "
         "CUDAQ_QEC_REALTIME_CUDEVICE_PROPRIETARY_ARCHIVE to enable). "
-        "--transport=gpu_roce will fail at runtime with a not-linked error.")
+        "device_graph dispatch will fail at runtime with a not-linked error.")
     endif()
     # RelayBP/nv-qldpc captures a CUDA device graph during decoder
     # initialization even when the server transport is udp or cpu_roce. Export

@@ -171,19 +171,29 @@ struct sliding_window_config {
   from_heterogeneous_map(const cudaqx::heterogeneous_map &map);
 };
 
-/// Transport type for a decoder session.
-/// cpu_roce: CpuRoceTransceiver / SoftRoCE (dev, CI, no GPU required)
-/// gpu_roce: GpuRoceTransceiver / DOCA (production, real ConnectX)
-enum class DecoderTransport { cpu_roce, gpu_roce };
+/// Dispatch shape for a decoder session -- HOW its RPCs are executed, not
+/// which wire the bytes arrive on (the wire is a server-level transport
+/// provider, selected independently).
+/// host:         requests are dispatched on the CPU (HOST_CALL); works with
+///               any transport provider (dev, CI, no GPU required).
+/// device_graph: requests are dispatched on the GPU by the self-relaunching
+///               device-graph scheduler (DeviceGraphTransceiver); requires a
+///               decoder with a captured decode graph and a provider whose
+///               rings are GPU-visible (e.g. Hololink/DOCA).
+/// YAML key: `dispatch: host|device_graph`.  The legacy per-decoder
+/// `transport: cpu_roce|gpu_roce` key is still accepted on input as an alias
+/// (cpu_roce -> host, gpu_roce -> device_graph).
+enum class DecoderDispatch { host, device_graph };
 
 /// @brief Configuration structure for decoder options.
 struct decoder_config {
   int64_t id = 0;
   std::string type;
-  /// Transport used to receive syndromes and send corrections for this decoder.
-  /// Defaults to cpu_roce.  Set to gpu_roce for decoders where syndrome bits
-  /// are DMA'd directly to GPU VRAM (e.g. nv_qldpc_decoder with RelayBP).
-  DecoderTransport transport = DecoderTransport::cpu_roce;
+  /// Dispatch shape for this decoder's RPCs.  Defaults to host.  Set to
+  /// device_graph for decoders where syndrome bits are DMA'd directly to GPU
+  /// VRAM and decoded by a captured CUDA graph (e.g. nv_qldpc_decoder with
+  /// RelayBP).
+  DecoderDispatch dispatch = DecoderDispatch::host;
   uint64_t block_size = 0;
   uint64_t syndrome_size = 0;
   std::vector<std::int64_t> H_sparse;

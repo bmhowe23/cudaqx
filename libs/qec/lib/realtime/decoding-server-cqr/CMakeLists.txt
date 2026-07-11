@@ -14,7 +14,7 @@ else()
 endif()
 
 # ---------------------------------------------------------------------------
-# Optional: GPU RoCE transport via the CUDA-Q realtime bridge-provider
+# Optional: device_graph dispatch via the CUDA-Q realtime bridge-provider
 # interface.
 #
 # The Hololink transceiver sits behind a runtime-loaded provider
@@ -23,13 +23,13 @@ endif()
 # realtime headers, libcudaq-realtime.so (the bridge loader + C API), and the
 # CUDA toolkit -- NO Hololink / DOCA / HSB build-time dependencies here.  The
 # provider .so is resolved at runtime (dlopen), so a build without it still
-# produces a server whose gpu_roce mode fails loudly at startup.
+# produces a server whose device_graph mode fails loudly at startup.
 #
 # cudaq-realtime-dispatch (the device-graph scheduler shims resolved via
 # dlsym) is found here for the server target's link; see
 # tools/decoding-server/CMakeLists.txt.
 # ---------------------------------------------------------------------------
-set(CUDAQ_GPU_ROCE_AVAILABLE FALSE)
+set(CUDAQ_QEC_DEVICE_GRAPH_AVAILABLE FALSE)
 
 if(CUDAQ_REALTIME_INCLUDE_DIR)
   if(CUDAQ_REALTIME_LIBRARY)
@@ -51,25 +51,25 @@ if(CUDAQ_REALTIME_INCLUDE_DIR)
 
   if(CUDAQ_QEC_REALTIME_BRIDGE_API_LIBRARY AND CUDAQ_REALTIME_DISPATCH_LIBRARY
       AND CUDAToolkit_FOUND)
-    set(CUDAQ_GPU_ROCE_AVAILABLE TRUE CACHE INTERNAL
-      "GPU RoCE transport component cudaq-qec-decoding-server-gpuroce available")
+    set(CUDAQ_QEC_DEVICE_GRAPH_AVAILABLE TRUE CACHE INTERNAL
+      "device-graph dispatch component cudaq-qec-decoding-server-device-graph available")
     # Under CMP0126 (NEW) the CACHE set above does NOT update the normal
     # variable initialized FALSE at the top of this file, and the normal
     # variable shadows the cache in this scope -- so the component gate
     # below would never fire.  Set the normal variable explicitly.
-    set(CUDAQ_GPU_ROCE_AVAILABLE TRUE)
+    set(CUDAQ_QEC_DEVICE_GRAPH_AVAILABLE TRUE)
     message(STATUS
-      "cudaq-qec-decoding-server-gpuroce: GPU RoCE ENABLED "
+      "cudaq-qec-decoding-server-device-graph: device_graph dispatch ENABLED "
       "(bridge provider resolved at runtime; api=${CUDAQ_QEC_REALTIME_BRIDGE_API_LIBRARY})")
   else()
     message(STATUS
-      "cudaq-qec-decoding-server: GPU RoCE DISABLED "
+      "cudaq-qec-decoding-server: device_graph dispatch DISABLED "
       "(missing one or more of: libcudaq-realtime "
       "cudaq-realtime-dispatch CUDA toolkit)")
   endif()
 else()
   message(STATUS
-    "cudaq-qec-decoding-server: GPU RoCE DISABLED "
+    "cudaq-qec-decoding-server: device_graph dispatch DISABLED "
     "(CUDAQ_REALTIME_INCLUDE_DIR not set)")
 endif()
 
@@ -80,10 +80,10 @@ message(STATUS
 # Core decoding server (always built): transport abstraction, session registry,
 # per-decoder worker threads, RPC dispatcher.  No dependency on CUDAQ_REALTIME.
 #
-# Deliberately excludes GpuRoceTransceiver: consumers of this library (unit
+# Deliberately excludes DeviceGraphTransceiver: consumers of this library (unit
 # tests, the CQR plugin) must stay loadable on driverless machines, and the
 # GPU RoCE deps (DOCA, the hololink bridge) require libcuda.so.1 at load
-# time.  gpu_roce lives in the cudaq-qec-decoding-server-gpuroce component
+# time.  gpu_roce lives in the cudaq-qec-decoding-server-device-graph component
 # below, reached through a weak factory symbol (see DecodingServer.cpp).
 # ---------------------------------------------------------------------------
 add_library(cudaq-qec-decoding-server STATIC
@@ -126,8 +126,8 @@ install(TARGETS cudaq-qec-decoding-server
 )
 
 # ---------------------------------------------------------------------------
-# Optional GPU RoCE component: GpuRoceTransceiver plus the strong definition
-# (GpuRoceFactory.cpp) of the factory that DecodingServer.cpp references
+# Optional device-graph dispatch component: DeviceGraphTransceiver plus the strong definition
+# (DeviceGraphFactory.cpp) of the factory that DecodingServer.cpp references
 # weakly.  Kept out of the core library so core consumers stay loadable on
 # machines without the CUDA runtime.  The transport itself is a runtime-
 # loaded bridge provider (libcudaq-realtime-bridge-hololink.so or a
@@ -138,33 +138,33 @@ install(TARGETS cudaq-qec-decoding-server
 # Consumers must link this WHOLE_ARCHIVE: the only reference to the factory
 # is weak, which does not pull archive members on its own.
 # ---------------------------------------------------------------------------
-if(CUDAQ_GPU_ROCE_AVAILABLE)
-  add_library(cudaq-qec-decoding-server-gpuroce STATIC
-    GpuRoceTransceiver.cpp
-    GpuRoceFactory.cpp
+if(CUDAQ_QEC_DEVICE_GRAPH_AVAILABLE)
+  add_library(cudaq-qec-decoding-server-device-graph STATIC
+    DeviceGraphTransceiver.cpp
+    DeviceGraphFactory.cpp
   )
 
-  target_compile_definitions(cudaq-qec-decoding-server-gpuroce
-    PRIVATE CUDAQ_GPU_ROCE_AVAILABLE)
+  target_compile_definitions(cudaq-qec-decoding-server-device-graph
+    PRIVATE CUDAQ_QEC_DEVICE_GRAPH_AVAILABLE)
 
-  target_include_directories(cudaq-qec-decoding-server-gpuroce PRIVATE
+  target_include_directories(cudaq-qec-decoding-server-device-graph PRIVATE
     "${CUDAQ_REALTIME_INCLUDE_DIR}"
     ${CUDAToolkit_INCLUDE_DIRS}
   )
 
-  target_link_libraries(cudaq-qec-decoding-server-gpuroce
+  target_link_libraries(cudaq-qec-decoding-server-device-graph
     PUBLIC
       cudaq-qec-decoding-server
       "${CUDAQ_QEC_REALTIME_BRIDGE_API_LIBRARY}"
       CUDA::cudart
   )
 
-  set_target_properties(cudaq-qec-decoding-server-gpuroce PROPERTIES
+  set_target_properties(cudaq-qec-decoding-server-device-graph PROPERTIES
     ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib
     POSITION_INDEPENDENT_CODE ON
   )
 
-  install(TARGETS cudaq-qec-decoding-server-gpuroce
+  install(TARGETS cudaq-qec-decoding-server-device-graph
     COMPONENT qec-lib
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
   )
@@ -177,11 +177,11 @@ if(CUDAQ_GPU_ROCE_AVAILABLE)
   # CUDA-Q realtime bridge API.  The strong factory reference pulls the
   # component's members, and the component's PUBLIC deps complete the
   # resolution.
-  add_executable(cudaq-qec-decoding-server-gpuroce-linkcheck
-    GpuRoceLinkCheck.cpp
+  add_executable(cudaq-qec-decoding-server-device-graph-linkcheck
+    DeviceGraphLinkCheck.cpp
   )
-  target_link_libraries(cudaq-qec-decoding-server-gpuroce-linkcheck PRIVATE
-    cudaq-qec-decoding-server-gpuroce
+  target_link_libraries(cudaq-qec-decoding-server-device-graph-linkcheck PRIVATE
+    cudaq-qec-decoding-server-device-graph
   )
 endif()
 

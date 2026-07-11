@@ -8,7 +8,7 @@
 
 // Link canary for the GPU RoCE component -- not meant to be executed
 // (running it would require HOLOLINK_* env, a GPU driver, and RDMA-capable
-// hardware).  Building it forces the linker to resolve GpuRoceTransceiver's
+// hardware).  Building it forces the linker to resolve DeviceGraphTransceiver's
 // full dependency chain (hololink, DOCA, CUDA driver stubs), so HSB API
 // drift is caught at build time even on machines where nothing links the
 // component into a runnable binary (driverless CI: the decoding_server
@@ -20,9 +20,9 @@ struct ITransceiver;
 }
 
 extern "C" cudaq::qec::decoding_server::ITransceiver *
-cudaqx_qec_make_gpu_roce_transceiver();
+cudaqx_qec_make_device_graph_transceiver();
 
 int main() {
-  (void)cudaqx_qec_make_gpu_roce_transceiver();
+  (void)cudaqx_qec_make_device_graph_transceiver();
   return 0;
 }

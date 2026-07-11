@@ -8,7 +8,7 @@
 
 #pragma once
 
-#ifdef CUDAQ_GPU_ROCE_AVAILABLE
+#ifdef CUDAQ_QEC_DEVICE_GRAPH_AVAILABLE
 
 #include "ITransceiver.h"
 
@@ -30,20 +30,20 @@ struct cudaq_dispatch_graph_context;
 
 namespace cudaq::qec::decoding_server {
 
-/// Runtime configuration for GpuRoceTransceiver.  All fields are read from
+/// Runtime configuration for DeviceGraphTransceiver.  All fields are read from
 /// environment variables so that the server can be reconfigured without a
 /// rebuild.
-struct GpuRoceConfig {
-  std::string device_name; ///< HOLOLINK_DEVICE   (IB netdev, e.g. "mlx5_0")
-  uint32_t remote_qp{0};   ///< HOLOLINK_REMOTE_QP (FPGA/emulator QP number)
-  int gpu_id{0};           ///< HOLOLINK_GPU_ID
-  size_t frame_size{384};  ///< HOLOLINK_FRAME_SIZE (max RPC frame bytes)
-  size_t page_size{0};     ///< HOLOLINK_PAGE_SIZE (0 → derived from frame_size)
-  size_t num_pages{64};    ///< HOLOLINK_NUM_PAGES (ring depth)
-  std::string peer_ip;     ///< HOLOLINK_PEER_IP   (FPGA/emulator IPv4)
-  int reserved_sms{2};     ///< HOLOLINK_RESERVED_SMS (SMs for Hololink RX/TX)
+struct DeviceGraphConfig {
+  std::string device_name; ///< QEC_DEVICE_GRAPH_DEVICE (IB netdev, e.g. "mlx5_0")
+  uint32_t remote_qp{0};   ///< QEC_DEVICE_GRAPH_REMOTE_QP (FPGA/emulator QP)
+  int gpu_id{0};           ///< QEC_DEVICE_GRAPH_GPU_ID
+  size_t frame_size{384};  ///< QEC_DEVICE_GRAPH_FRAME_SIZE (max RPC frame bytes)
+  size_t page_size{0};     ///< QEC_DEVICE_GRAPH_PAGE_SIZE (0 → from frame_size)
+  size_t num_pages{64};    ///< QEC_DEVICE_GRAPH_NUM_PAGES (ring depth)
+  std::string peer_ip;     ///< QEC_DEVICE_GRAPH_PEER_IP (FPGA/emulator IPv4)
+  int reserved_sms{2};     ///< QEC_DEVICE_GRAPH_RESERVED_SMS (SMs for RX/TX)
 
-  static GpuRoceConfig from_env();
+  static DeviceGraphConfig from_env();
 };
 
 /// GPU RoCE transport and device-graph scheduler for the decoding server.
@@ -73,10 +73,10 @@ struct GpuRoceConfig {
 ///
 /// Currently limited to a single decoder session (enforced by DecodingServer).
 /// Multi-decoder GPU RoCE with per-session ring binding is deferred.
-class GpuRoceTransceiver final : public ITransceiver {
+class DeviceGraphTransceiver final : public ITransceiver {
 public:
-  explicit GpuRoceTransceiver(const GpuRoceConfig &config);
-  ~GpuRoceTransceiver() override;
+  explicit DeviceGraphTransceiver(const DeviceGraphConfig &config);
+  ~DeviceGraphTransceiver() override;
 
   /// Wire the DOCA ring buffers to the CUDAQ device-graph scheduler and launch
   /// the GPU dispatch loop.  Must be called exactly once after the transceiver
@@ -145,4 +145,4 @@ private:
 
 } // namespace cudaq::qec::decoding_server
 
-#endif // CUDAQ_GPU_ROCE_AVAILABLE
+#endif // CUDAQ_QEC_DEVICE_GRAPH_AVAILABLE
