@@ -75,11 +75,10 @@ void SessionRegistry::load_from_config(const multi_decoder_config &config,
     auto session = DecodingSession::create(std::move(decoder),
                                            make_default_mapping_table());
 
-    // [For follow-up] dc.dispatch (cpu_roce / gpu_roce) is parsed from YAML
-    // but not yet used to select a transceiver here. Transport binding requires
-    // per-session transceiver adapters (gated on
-    // CUDAQ_REALTIME headers); the split-transport DecodingServer constructor
-    // is already in place to accept the resulting dispatch map.
+    // dc.dispatch (host / device_graph) is not consulted here: the mixed
+    // decoding_server binds each session to its ring consumer via
+    // dispatch_for(), and the split-transport DecodingServer constructor
+    // consumes the resulting dispatch map.
     session->start_worker();
     sessions_.emplace(id, std::move(session));
   }

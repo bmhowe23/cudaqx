@@ -174,7 +174,19 @@ DeviceGraphRingConsumer::DeviceGraphRingConsumer(
     throw std::runtime_error("DeviceGraphRingConsumer: d_stats_ alloc failed");
   }
 
-  DGRC_CUDA_CHECK(cudaStreamCreate(&sched_stream_));
+  if (cudaError_t serr = cudaStreamCreate(&sched_stream_);
+      serr != cudaSuccess) {
+    cudaFreeHost(ft_host_);
+    ft_host_ = nullptr;
+    cudaFreeHost(sd_host);
+    shutdown_host_ = nullptr;
+    shutdown_dev_ = nullptr;
+    cudaFree(d_stats_);
+    d_stats_ = nullptr;
+    throw std::runtime_error(
+        std::string("DeviceGraphRingConsumer: stream create failed: ") +
+        cudaGetErrorString(serr));
+  }
 
   cudaError_t cerr = create_dispatch(
       ring.rx_flags, ring.tx_flags, ring.rx_data, ring.tx_data, slot_size,

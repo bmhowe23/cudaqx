@@ -8,12 +8,15 @@
 
 #pragma once
 
+// The C ABI block at the bottom is visible regardless of the component
+// macro (the decoding_server tool includes this header for its weak
+// references), so its includes live outside the #ifdef.
+#include <cstddef>
+#include <cstdint>
+
 #ifdef CUDAQ_QEC_DEVICE_GRAPH_AVAILABLE
 
 #include "cudaq/realtime/daemon/dispatcher/cudaq_realtime.h"
-
-#include <cstddef>
-#include <cstdint>
 
 #include <cuda_runtime.h>
 

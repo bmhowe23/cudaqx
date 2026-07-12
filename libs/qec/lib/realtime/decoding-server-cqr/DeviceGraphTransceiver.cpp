@@ -38,61 +38,6 @@ namespace cudaq::qec::decoding_server {
 
 namespace {
 
-// Allocate \p bytes of CUDA pinned+mapped host memory and return both the host
-// pointer and its device-mapped counterpart.  The memory is zero-initialised.
-bool alloc_pinned_mapped(size_t bytes, void **host_out, void **dev_out) {
-  void *h = nullptr;
-  if (cudaHostAlloc(&h, bytes, cudaHostAllocMapped) != cudaSuccess)
-    return false;
-  void *d = nullptr;
-  if (cudaHostGetDevicePointer(&d, h, 0) != cudaSuccess) {
-    cudaFreeHost(h);
-    return false;
-  }
-  std::memset(h, 0, bytes);
-  *host_out = h;
-  *dev_out = d;
-  return true;
-}
-
-// Resolve a proprietary DEVICE_CALL populate shim via dlsym and stamp the
-// function table entry.  The server process must absorb
-// libcudaq-qec-realtime-cudevice-proprietary.a (WHOLE_ARCHIVE) and link with
-// --export-dynamic so the symbols are visible.
-using populate_fn = void (*)(void *);
-bool populate_device_call(cudaq_function_entry_t &entry, const char *symbol,
-                          uint32_t function_id) {
-  auto fn = reinterpret_cast<populate_fn>(::dlsym(RTLD_DEFAULT, symbol));
-  if (!fn) {
-    CUDA_QEC_ERROR(
-        "DeviceGraphTransceiver: dlsym({}) failed -- the server process must "
-        "absorb libcudaq-qec-realtime-cudevice-proprietary.a as WHOLE_ARCHIVE "
-        "and link with --export-dynamic",
-        symbol);
-    return false;
-  }
-  fn(&entry);
-  entry.function_id = function_id;
-  entry.routing_key = 0;
-  if (entry.dispatch_mode != CUDAQ_DISPATCH_DEVICE_CALL ||
-      !entry.handler.device_fn_ptr) {
-    CUDA_QEC_ERROR("DeviceGraphTransceiver: {} did not produce a valid "
-                   "DEVICE_CALL entry",
-                   symbol);
-    return false;
-  }
-  return true;
-}
-
-#define GPU_CUDA_CHECK(expr)                                                   \
-  do {                                                                         \
-    cudaError_t _err = (expr);                                                 \
-    if (_err != cudaSuccess)                                                   \
-      throw std::runtime_error(                                                \
-          std::string("DeviceGraphTransceiver CUDA error: ") +                     \
-          cudaGetErrorString(_err) + " (" #expr ")");                          \
-  } while (0)
-
 // Parse one `key=` token out of the provider's endpoint-info line (base 0:
 // accepts the provider's 0x-hex qp/buffer_addr and decimal rkey alike).
 // Leaves \p out untouched when the key is absent.
@@ -147,7 +92,6 @@ DeviceGraphConfig DeviceGraphConfig::from_env() {
   c.frame_size = env_size("FRAME_SIZE", 384);
   c.page_size = env_size("PAGE_SIZE", 0); // 0 → derived below
   c.num_pages = env_size("NUM_PAGES", 64);
-  c.reserved_sms = env_int("RESERVED_SMS", 2);
   return c;
 }
 
@@ -174,7 +118,8 @@ DeviceGraphTransceiver::DeviceGraphTransceiver(const DeviceGraphConfig &config)
   // hand it the payload remainder of our frame budget.
   if (config.frame_size < sizeof(cudaq::realtime::RPCHeader))
     throw std::runtime_error(
-        "DeviceGraphTransceiver: HOLOLINK_FRAME_SIZE smaller than the RPC header");
+        "DeviceGraphTransceiver: QEC_DEVICE_GRAPH_FRAME_SIZE smaller than "
+        "the RPC header");
   const size_t payload_size =
       config.frame_size - sizeof(cudaq::realtime::RPCHeader);
 

@@ -59,6 +59,10 @@
 
 #include "cudaq/qec/realtime/decoding_config.h"
 
+// Ring-consumer C ABI prototypes (weak references below are checked against
+// these at compile time).
+#include "../../lib/realtime/decoding-server-cqr/DeviceGraphRingConsumer.h"
+
 #include "cudaq/realtime/device_call_service.h"
 
 #include "cudaq/realtime/daemon/bridge/bridge_interface.h"
@@ -91,6 +95,8 @@ extern "C" void *cudaqx_qec_decoding_server_graph_resources(std::uint64_t);
 // Device-graph ring-consumer C API (strong definitions live in the
 // cudaq-qec-decoding-server-device-graph component; referenced WEAKLY so a
 // build without the component still links and fails at runtime instead).
+// DeviceGraphRingConsumer.h supplies the canonical prototypes; these
+// redeclarations only add the weak attribute and must match it exactly.
 extern "C" __attribute__((weak)) void *
 cudaqx_qec_make_device_graph_ring_consumer(const void *ring,
                                            std::size_t num_slots,
@@ -146,11 +152,18 @@ bool parse_args(int argc, char **argv, ServerConfig &cfg) {
       return false;
     } else if (starts_with(a, "--config="))
       cfg.config_path = a.substr(9);
-    else if (starts_with(a, "--transport="))
+    else if (starts_with(a, "--transport=")) {
       cfg.transport = a.substr(12);
-    else if (starts_with(a, "--timeout="))
-      cfg.timeout_sec = std::stoi(a.substr(10));
-    else
+      cfg.transport_from_cli = true;
+    } else if (starts_with(a, "--timeout=")) {
+      try {
+        cfg.timeout_sec = std::stoi(a.substr(10));
+      } catch (const std::exception &) {
+        std::cerr << "ERROR: invalid --timeout value '" << a.substr(10) << "'"
+                  << std::endl;
+        return false;
+      }
+    } else
       cfg.provider_args.push_back(a);
   }
   if (cfg.config_path.empty()) {
@@ -190,9 +203,13 @@ std::uint16_t split_endpoint_info(const std::string &endpoint_info,
   std::istringstream in(endpoint_info);
   std::string token;
   while (in >> token) {
-    if (starts_with(token, "port="))
-      port = static_cast<std::uint16_t>(std::stoul(token.substr(5)));
-    else
+    if (starts_with(token, "port=")) {
+      try {
+        port = static_cast<std::uint16_t>(std::stoul(token.substr(5)));
+      } catch (const std::exception &) {
+        port = 0; // malformed provider endpoint token; keep the rest
+      }
+    } else
       rest += (rest.empty() ? "" : " ") + token;
   }
   return port;
@@ -275,12 +292,20 @@ int main(int argc, char **argv) {
     // this binary (no proprietary cudevice archive) or when provider
     // bring-up fails.
     //
-    // An explicit --transport value selects the provider for the
-    // DeviceGraphTransceiver the same way it does for the host path; the
-    // default ("udp") means the transceiver's built-in hololink provider.
-    if (cfg.transport != "udp")
+    // Provider precedence for the standalone transceiver mirrors the
+    // per-ring loop below: explicit --transport > the transport section's
+    // device_graph shape override > the section's provider > the
+    // transceiver's built-in default (hololink).
+    std::string dg_provider;
+    if (cfg.transport_from_cli)
+      dg_provider = cfg.transport;
+    else if (!decoder_config.transport.device_graph.provider.empty())
+      dg_provider = decoder_config.transport.device_graph.provider;
+    else if (!decoder_config.transport.provider.empty())
+      dg_provider = decoder_config.transport.provider;
+    if (!dg_provider.empty())
       ::setenv("CUDAQ_REALTIME_BRIDGE_LIB",
-               resolve_provider_lib(cfg.transport).c_str(), /*overwrite=*/1);
+               resolve_provider_lib(dg_provider).c_str(), /*overwrite=*/1);
     try {
       cudaq::qec::decoding_server::DecodingServer server(cfg.config_path);
       // QP/rkey/buf already printed to stdout by launch_scheduler() so the
@@ -474,12 +499,13 @@ int main(int argc, char **argv) {
     if (cudaq_bridge_get_endpoint_info(ring.bridge, endpoint_info,
                                        sizeof(endpoint_info)) != CUDAQ_OK)
       std::snprintf(endpoint_info, sizeof(endpoint_info), "transport=%s",
-                    cfg.transport.c_str());
+                    ring_provider_name.c_str());
     ring.port = split_endpoint_info(endpoint_info, ring.endpoint_rest);
   }
 
-  // One READY line for all rings.  The leading `port=` token is ring 0's
-  // (existing single-ring consumers sscanf it right after the prefix); each
+  // One READY line for all rings.  The leading `port=` token belongs to
+  // the FIRST decoder listed in the YAML (existing single-ring consumers
+  // sscanf it right after the prefix); each
   // ring additionally publishes `ring<decoder_id>=<port>` for per-device
   // endpoint wiring on the caller.
   {

@@ -44,7 +44,8 @@ struct DeviceGraphConfig {
   size_t page_size{0};     ///< QEC_DEVICE_GRAPH_PAGE_SIZE (0 → from frame_size)
   size_t num_pages{64};    ///< QEC_DEVICE_GRAPH_NUM_PAGES (ring depth)
   std::string peer_ip;     ///< QEC_DEVICE_GRAPH_PEER_IP (FPGA/emulator IPv4)
-  int reserved_sms{2};     ///< QEC_DEVICE_GRAPH_RESERVED_SMS (SMs for RX/TX)
+  // (QEC_DEVICE_GRAPH_RESERVED_SMS is consumed by DecodingSession, where the
+  // decode graph is captured.)
 
   static DeviceGraphConfig from_env();
 };

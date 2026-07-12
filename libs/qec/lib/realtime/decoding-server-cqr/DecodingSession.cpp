@@ -58,9 +58,9 @@ DecodingSession::create(std::unique_ptr<cudaq::qec::decoder> decoder,
     // kernels.  A cooperative grid sized for ALL SMs deadlocks at
     // grid.sync() the moment anything else is resident -- the launch
     // silently queues forever.  Overridable for rigs with more coresident
-    // kernels (e.g. Hololink RX/TX) via QEC_DECODE_GRAPH_RESERVED_SMS.
+    // kernels (e.g. Hololink RX/TX) via QEC_DEVICE_GRAPH_RESERVED_SMS.
     int reserved_sms = 1;
-    if (const char *env = std::getenv("QEC_DECODE_GRAPH_RESERVED_SMS"))
+    if (const char *env = std::getenv("QEC_DEVICE_GRAPH_RESERVED_SMS"))
       reserved_sms = std::atoi(env);
     void *gr = s->dec->capture_decode_graph(reserved_sms);
     s->graph_resources =

@@ -40,7 +40,7 @@ a. The decode graph was captured with `reserved_sms = 0`
    grid.sync() -- the launch silently queues forever, stalling the tail
    self-relaunch and wedging the scheduler.  FIXED: DecodingSession now
    captures with `reserved_sms = 1` (override:
-   `QEC_DECODE_GRAPH_RESERVED_SMS`, e.g. higher on rigs where Hololink
+   `QEC_DEVICE_GRAPH_RESERVED_SMS`, e.g. higher on rigs where Hololink
    RX/TX kernels are also resident).
 b. HOST-path nv-qldpc decode launches its own cooperative GPU kernels,
    also sized without reservation -- with a device-graph scheduler
