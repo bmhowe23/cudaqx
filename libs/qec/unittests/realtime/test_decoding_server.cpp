@@ -174,8 +174,14 @@ std::string server_dir() {
 // and collects its stdout (for the shutdown dispatch-count line).
 class ServerProcess {
 public:
+  // `transport_cli` = false launches the server WITHOUT --transport (and
+  // without the cpu_roce endpoint args), exercising configs whose wire is
+  // named by the YAML transport section instead of the command line.
+  // `capture_stderr` folds the server's stderr into `captured` (used by the
+  // conflict-rejection test to see the startup error).
   bool start(const std::string &config_file, std::string &error,
-             int ready_timeout_ms = 15000) {
+             int ready_timeout_ms = 15000, bool transport_cli = true,
+             bool capture_stderr = false) {
     int out_pipe[2] = {-1, -1};
     if (::pipe(out_pipe) != 0) {
       error = "pipe() failed";
@@ -188,23 +194,32 @@ public:
     }
     if (pid == 0) {
       ::dup2(out_pipe[1], STDOUT_FILENO);
+      if (capture_stderr)
+        ::dup2(out_pipe[1], STDERR_FILENO);
       ::close(out_pipe[0]);
       ::close(out_pipe[1]);
       const std::string server = server_path();
-      const std::string config_arg =
+      std::vector<std::string> args = {
+          server,
           "--config=" + (!config_file.empty() && config_file[0] == '/'
                              ? config_file
-                             : server_dir() + "/" + config_file);
-      const std::string transport_arg =
-          "--transport=" + env_or("QEC_DECODING_SERVER_TRANSPORT", "udp");
-      const std::string device_arg =
-          "--device=" + env_or("CUDAQ_CPU_ROCE_TEST_DAEMON_DEVICE", "mlx5_0");
-      const std::string local_ip_arg =
-          "--local-ip=" + env_or("CUDAQ_CPU_ROCE_TEST_DAEMON_IP", "10.0.0.2");
-      ::execl(server.c_str(), server.c_str(), config_arg.c_str(),
-              transport_arg.c_str(), device_arg.c_str(), local_ip_arg.c_str(),
-              "--port=0", "--timeout=60", static_cast<char *>(nullptr));
-      std::perror("execl decoding_server");
+                             : server_dir() + "/" + config_file)};
+      if (transport_cli) {
+        args.push_back("--transport=" +
+                       env_or("QEC_DECODING_SERVER_TRANSPORT", "udp"));
+        args.push_back("--device=" +
+                       env_or("CUDAQ_CPU_ROCE_TEST_DAEMON_DEVICE", "mlx5_0"));
+        args.push_back("--local-ip=" +
+                       env_or("CUDAQ_CPU_ROCE_TEST_DAEMON_IP", "10.0.0.2"));
+      }
+      args.push_back("--port=0");
+      args.push_back("--timeout=60");
+      std::vector<char *> argv;
+      for (auto &a : args)
+        argv.push_back(a.data());
+      argv.push_back(nullptr);
+      ::execv(server.c_str(), argv.data());
+      std::perror("execv decoding_server");
       _exit(127);
     }
     ::close(out_pipe[1]);
@@ -284,6 +299,19 @@ public:
     return count;
   }
 
+  // Reap the child and return its exit code (-1: no child / signal exit).
+  // Only meaningful when the server exited on its own (e.g. rejected its
+  // command line); the READY-path tests use stopAndGetDispatchCount.
+  int exitCode() {
+    if (pid <= 0)
+      return -1;
+    int status = 0;
+    if (::waitpid(pid, &status, 0) != pid)
+      return -1;
+    pid = -1;
+    return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+  }
+
   ~ServerProcess() {
     if (pid > 0) {
       ::kill(pid, SIGKILL);
@@ -313,7 +341,8 @@ private:
       if (ready <= 0)
         continue;
       char c = 0;
-      while (::read(outFd, &c, 1) == 1) {
+      ssize_t n = 0;
+      while ((n = ::read(outFd, &c, 1)) == 1) {
         captured.push_back(c);
         if (c == '\n') {
           if (line.rfind(prefix, 0) == 0) {
@@ -328,6 +357,8 @@ private:
         if (::poll(&inner, 1, 0) <= 0)
           break;
       }
+      if (n == 0)
+        return false; // EOF: the server exited without printing the prefix
     }
     return false;
   }
@@ -505,6 +536,92 @@ TEST(DecodingServerTwoProcess, TwoProcessHostDispatchDualDecoders) {
   EXPECT_GE(dispatched, 6) << "server output:\n" << server.captured;
   EXPECT_GE(server.max_concurrent_decoders, 1) << "server output:\n"
                                                << server.captured;
+}
+
+// The wire named by the YAML transport section, no --transport on the
+// command line: the deployment file is the single source of truth for the
+// provider (and its args), and the two-process decode still round-trips.
+TEST(DecodingServerTwoProcess, TwoProcessHostDispatchYamlTransportSection) {
+  if (env_or("QEC_DECODING_SERVER_TRANSPORT", "udp") != "udp")
+    GTEST_SKIP() << "YAML-section test pins provider udp";
+  const std::string config_path =
+      ::testing::TempDir() + "/decoding_server_yaml_transport_config.yaml";
+  {
+    std::ofstream config_file(config_path);
+    config_file << "transport:\n"
+                << "  provider: udp\n"
+                << "  args: [--num-slots=8]\n"
+                << "decoders:\n";
+    for (int id = 0; id < 2; ++id) {
+      config_file << "  - id: " << id << "\n"
+                  << "    type: pymatching\n"
+                  << "    block_size: 3\n"
+                  << "    syndrome_size: 3\n"
+                  << "    H_sparse: [0, -1, 1, -1, 2, -1]\n"
+                  << "    O_sparse: [0, -1, 1, -1, 2, -1]\n"
+                  << "    D_sparse: [0, -1, 1, -1, 2, -1]\n"
+                  << "    decoder_custom_args:\n"
+                  << "      merge_strategy: smallest_weight\n"
+                  << "      error_rate_vec: [0.1, 0.1, 0.1]\n";
+    }
+  }
+
+  ServerProcess server;
+  std::string error;
+  ASSERT_TRUE(server.start(config_path, error, 15000, /*transport_cli=*/false))
+      << error;
+
+  std::vector<std::string> args = {"test_decoding_server"};
+  for (auto &arg : channel_arguments(server.port))
+    args.push_back(std::move(arg));
+  std::vector<char *> argv;
+  for (auto &arg : args)
+    argv.push_back(arg.data());
+  argv.push_back(nullptr);
+  int argc = static_cast<int>(args.size());
+  cudaq::realtime::initialize(argc, argv.data());
+  RealtimeGuard realtime_guard{true};
+
+  const auto results = cudaq::run(kRunShots, dual_decoding_server_kernel);
+  ASSERT_EQ(results.size(), kRunShots);
+  EXPECT_EQ(results[0], 3);
+
+  const std::int64_t dispatched = server.stopAndGetDispatchCount();
+  EXPECT_GE(dispatched, 6) << "server output:\n" << server.captured;
+}
+
+// A YAML that names its provider cannot be contradicted from the command
+// line: --transport alongside a transport section is a startup error, not a
+// silent precedence decision.
+TEST(DecodingServerTwoProcess, TransportCliConflictsWithYamlSection) {
+  const std::string config_path =
+      ::testing::TempDir() + "/decoding_server_conflict_config.yaml";
+  {
+    std::ofstream config_file(config_path);
+    config_file << "transport:\n"
+                << "  provider: udp\n"
+                << "decoders:\n"
+                << "  - id: 0\n"
+                << "    type: pymatching\n"
+                << "    block_size: 3\n"
+                << "    syndrome_size: 3\n"
+                << "    H_sparse: [0, -1, 1, -1, 2, -1]\n"
+                << "    O_sparse: [0, -1, 1, -1, 2, -1]\n"
+                << "    D_sparse: [0, -1, 1, -1, 2, -1]\n"
+                << "    decoder_custom_args:\n"
+                << "      merge_strategy: smallest_weight\n"
+                << "      error_rate_vec: [0.1, 0.1, 0.1]\n";
+  }
+
+  ServerProcess server;
+  std::string error;
+  EXPECT_FALSE(server.start(config_path, error, 8000, /*transport_cli=*/true,
+                            /*capture_stderr=*/true))
+      << "server unexpectedly reached READY: " << server.captured;
+  EXPECT_NE(0, server.exitCode()) << server.captured;
+  EXPECT_NE(server.captured.find("conflicts with the transport section"),
+            std::string::npos)
+      << server.captured;
 }
 
 // ---------------------------------------------------------------------------

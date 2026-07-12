@@ -177,9 +177,11 @@ transport:                 # server-level deployment config
 decoders: ...              # pure decoding config; no transport keys
 ```
 
-Per-ring precedence: shape override > section provider/args >
-`--transport` CLI default; an explicit `--transport` overrides the
-section's provider for one-off experiments.
+Per-ring resolution: shape override > section provider/args >
+`--transport` CLI fallback.  The CLI flag is a default for configs that
+intentionally leave the wire unspecified (one YAML reused across wires,
+selected per launch); a YAML that names a provider plus an explicit
+`--transport` is a startup ERROR, never a silent override.
 
 **Server flow (one ring per decoder).**  CQR plugin session first
 (decoders built BEFORE readiness), then per decoder: bridge create ->
@@ -411,8 +413,8 @@ decoding_server --config=decoders.yaml \
   --transport=/opt/partner/libpartner_bridge.so --lane=3
 ```
 
-Or equivalently via the YAML transport section (CLI `--transport` would
-override it):
+Or equivalently via the YAML transport section (in which case drop the
+CLI `--transport` -- combining both is a startup error):
 
 ```yaml
 transport:
@@ -451,8 +453,9 @@ names HOW RPCs execute; `--transport` names the wire.  They are orthogonal:
 - `host`: HOST_CALL through the CQR plugin dispatcher; any provider.
 - `device_graph`: `DeviceGraphTransceiver` (decoding-server-cqr) -- the GPU
   device-graph dispatch ENGINE, transport-blind.  It consumes a bridge
-  provider itself (builtin hololink by default; `--transport`/
-  CUDAQ_REALTIME_BRIDGE_LIB overrides), REQUIRES v2 geometry+endpoint
+  provider itself (hololink by default; the YAML transport section,
+  `--transport` fallback, or CUDAQ_REALTIME_BRIDGE_LIB select another),
+  REQUIRES v2 geometry+endpoint
   queries, configures via `QEC_DEVICE_GRAPH_{DEVICE,PEER_IP,REMOTE_QP,
   FRAME_SIZE,PAGE_SIZE,NUM_PAGES,GPU_ID,RESERVED_SMS}` env, and wires
   `cudaq_create/launch/destroy_dispatch_graph_regular` (dlsym) + the

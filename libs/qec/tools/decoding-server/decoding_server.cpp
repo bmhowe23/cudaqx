@@ -54,8 +54,8 @@
 /// dispatcher below; a device_graph decoder routes the whole server through
 /// the CQR DecodingServer, whose DeviceGraphTransceiver runs the
 /// self-relaunching GPU scheduler over the same kind of runtime-loaded
-/// provider (the hololink library by default; an explicit --transport selects
-/// another).
+/// provider (the hololink library by default; the YAML transport section or
+/// the --transport fallback selects another).
 
 #include "cudaq/qec/realtime/decoding_config.h"
 
@@ -143,6 +143,9 @@ bool parse_args(int argc, char **argv, ServerConfig &cfg) {
                    "--num-slots=N --slot-size=N --device=NAME "
                    "--local-ip=ADDR --qp_config=rendezvous|hsb_fpga "
                    "--peer-ip=ADDR --remote-qp=N --frame-size=N]\n"
+                   "--transport applies only when the YAML transport "
+                   "section names no provider (a conflict is a startup "
+                   "error).\n"
                    "Providers and their args are defined by the installed "
                    "cudaq-realtime (libcudaq-realtime-bridge-<name>.so); "
                    "the names and args above are examples, not an "
@@ -257,6 +260,23 @@ int main(int argc, char **argv) {
             << decoder_config.decoders[0].type
             << "; transport: " << cfg.transport << std::endl;
 
+  // The wire's identity lives in the YAML transport section; --transport is
+  // only a fallback default for configs that intentionally leave the wire
+  // unspecified (one YAML reused across wires, selected per launch).  A
+  // config that names a provider cannot be contradicted from the command
+  // line -- that is a configuration error, not a precedence question.
+  const bool yaml_names_provider =
+      !decoder_config.transport.provider.empty() ||
+      !decoder_config.transport.device_graph.provider.empty();
+  if (cfg.transport_from_cli && yaml_names_provider) {
+    std::cerr << "ERROR: --transport=" << cfg.transport
+              << " conflicts with the transport section in " << cfg.config_path
+              << " (the YAML names the provider; drop the CLI flag or remove "
+                 "the provider from the YAML)"
+              << std::endl;
+    return 1;
+  }
+
   // The dispatch SHAPE comes from the decoder config (dispatch:
   // host|device_graph); --transport only ever names the wire.  An
   // all-device_graph config takes the standalone DecodingServer path below
@@ -292,17 +312,18 @@ int main(int argc, char **argv) {
     // this binary (no proprietary cudevice archive) or when provider
     // bring-up fails.
     //
-    // Provider precedence for the standalone transceiver mirrors the
-    // per-ring loop below: explicit --transport > the transport section's
-    // device_graph shape override > the section's provider > the
-    // transceiver's built-in default (hololink).
+    // Provider resolution for the standalone transceiver mirrors the
+    // per-ring loop below: the transport section's device_graph shape
+    // override > the section's provider > the --transport CLI fallback >
+    // the transceiver's built-in default (hololink).  A YAML that names a
+    // provider plus a CLI --transport is rejected before reaching here.
     std::string dg_provider;
-    if (cfg.transport_from_cli)
-      dg_provider = cfg.transport;
-    else if (!decoder_config.transport.device_graph.provider.empty())
+    if (!decoder_config.transport.device_graph.provider.empty())
       dg_provider = decoder_config.transport.device_graph.provider;
     else if (!decoder_config.transport.provider.empty())
       dg_provider = decoder_config.transport.provider;
+    else if (cfg.transport_from_cli)
+      dg_provider = cfg.transport;
     if (!dg_provider.empty())
       ::setenv("CUDAQ_REALTIME_BRIDGE_LIB",
                resolve_provider_lib(dg_provider).c_str(), /*overwrite=*/1);
@@ -391,12 +412,9 @@ int main(int argc, char **argv) {
   // identity is known (bound port / QP), so readiness for ALL rings is
   // published in one line before any connect() -- which, for rendezvous-
   // style transports, BLOCKS until the caller dials in.
-  // Process-default provider: an explicit --transport wins; otherwise the
-  // YAML transport section's provider; otherwise the built-in default.
-  const std::string default_provider =
-      (cfg.transport_from_cli || decoder_config.transport.provider.empty())
-          ? cfg.transport
-          : decoder_config.transport.provider;
+  const std::string default_provider = decoder_config.transport.provider.empty()
+                                           ? cfg.transport
+                                           : decoder_config.transport.provider;
 
   std::vector<char *> provider_argv;
   provider_argv.reserve(cfg.provider_args.size());
@@ -456,9 +474,10 @@ int main(int argc, char **argv) {
 
     // The wire is deployment config, resolved from the YAML's top-level
     // `transport:` section (never from decoder entries).  Per-ring
-    // precedence: the section's dispatch-shape override (device_graph
-    // rings) > the section's provider/args > the --transport CLI default;
-    // an explicit --transport on the CLI overrides the section's provider.
+    // resolution: the section's dispatch-shape override (device_graph
+    // rings) > the section's provider/args > the --transport CLI fallback
+    // (which only applies when the YAML names no provider -- a conflict is
+    // rejected at startup above).
     // Every provider name/path resolves the same way --transport does; the
     // bridge loader caches libraries per name, so different rings may load
     // different provider libraries in one process.

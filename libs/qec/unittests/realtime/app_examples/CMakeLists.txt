@@ -583,6 +583,21 @@ if(TARGET decoding_server
     add_dependencies(surface_code-4-yaml-cqr cudaq-qec-trt-decoder)
   endif()
 
+  # Two-process MIXED-DISPATCH test (host LUT ring + device_graph nv-qldpc
+  # ring in one server, wire named only by the YAML transport section).
+  # Registered only when the server actually links the device-graph
+  # component; the script additionally skips (77) without a CUDA GPU or the
+  # nv-qldpc plugin at runtime.
+  if(TARGET cudaq-qec-realtime-cudevice-proprietary)
+    add_test(
+      NAME app_examples.surface_code-4-yaml-mixed-dispatch
+      COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/surface_code-4-yaml-mixed-dispatch-test.sh
+              $<TARGET_FILE:surface_code-4-yaml-cqr>
+              $<TARGET_FILE:decoding_server>)
+    set_tests_properties(app_examples.surface_code-4-yaml-mixed-dispatch
+      PROPERTIES LABELS "qec;gpu_required" SKIP_RETURN_CODE 77 TIMEOUT 300)
+  endif()
+
   # Test-only plugin: its realtime decode calls rendezvous at a reusable barrier,
   # making three-worker overlap deterministic rather than scheduler-dependent.
   add_library(cudaq-qec-concurrency-test-decoder SHARED

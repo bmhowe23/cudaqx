@@ -283,10 +283,11 @@ struct transport_shape_override {
 ///       provider: udp          # "hololink" on an HSB rig
 ///       args: [--pinned-rings]
 ///
-/// Precedence per ring: shape override (device_graph rings) > this
-/// section's provider/args > the server's --transport CLI default.  An
-/// explicit --transport on the CLI overrides the section's provider for
-/// one-off experiments.
+/// Resolution per ring: shape override (device_graph rings) > this
+/// section's provider/args > the server's --transport CLI fallback.  The
+/// CLI flag only applies when this section names no provider; a config
+/// that names one plus an explicit --transport is rejected at startup
+/// (the deployment file is the source of truth for the wire).
 struct transport_config {
   std::string provider;
   std::vector<std::string> args;

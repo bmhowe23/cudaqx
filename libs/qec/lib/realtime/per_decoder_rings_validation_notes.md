@@ -56,7 +56,11 @@ ring): sc4 app, 10 shots at p_spam=0.08, decoder 0 multi_error_lut
 (host ring) + decoder 1 nv-qldpc RelayBP (device ring):
 `trigger debug rc=0 fires=12 tail_relaunches=12`, both rings
 dispatched=72, `decoder[1] corrections=2, logical_errors=0/10`, clean
-teardown.  The rig is no longer required to exercise this path.
+teardown.  The rig is no longer required to exercise this path; the flow
+is now a gated ctest, `app_examples.surface_code-4-yaml-mixed-dispatch`
+(registered when the server links the device-graph component; skips
+without a GPU or the nv-qldpc plugin), whose YAML names the wire via the
+transport section only -- no --transport on the command line.
 
 Diagnostics added along the way (kept):
 - `cudaq_dispatch_get_trigger_debug()` (cudaq-realtime-dispatch):
