@@ -282,155 +282,30 @@ DeviceGraphTransceiver::DeviceGraphTransceiver(const DeviceGraphConfig &config)
 // ---------------------------------------------------------------------------
 
 void DeviceGraphTransceiver::launch_scheduler(void *raw_graph_resources) {
-  auto *graph_res =
-      static_cast<cudaq::qec::realtime::graph_resources *>(raw_graph_resources);
-  if (!graph_res || !graph_res->graph_exec)
-    throw std::runtime_error(
-        "DeviceGraphTransceiver::launch_scheduler: null graph_exec "
-        "(decoder must support_graph_dispatch() and capture_decode_graph())");
-
-  GPU_CUDA_CHECK(cudaSetDevice(gpu_id_));
-
-  void *ft_dev = nullptr;
-  if (!alloc_pinned_mapped(3 * sizeof(cudaq_function_entry_t), &ft_host_,
-                           &ft_dev))
-    throw std::runtime_error("DeviceGraphTransceiver::launch_scheduler: "
-                             "function-table pinned alloc failed");
-
-  auto *entries = static_cast<cudaq_function_entry_t *>(ft_host_);
-  bool ok =
-      populate_device_call(entries[0],
-                           "cudaqx_qec_realtime_dispatch_populate_enqueue_"
-                           "syndromes_device_entry",
-                           kEnqueueSyndromesFunctionId) &&
-      populate_device_call(
-          entries[1],
-          "cudaqx_qec_realtime_dispatch_populate_get_corrections_device_entry",
-          kGetCorrectionsFunctionId) &&
-      populate_device_call(
-          entries[2],
-          "cudaqx_qec_realtime_dispatch_populate_reset_decoder_device_entry",
-          kResetDecoderFunctionId);
-  if (!ok) {
-    cudaFreeHost(ft_host_);
-    ft_host_ = nullptr;
-    throw std::runtime_error(
-        "DeviceGraphTransceiver::launch_scheduler: populate_device_call failed "
-        "(see error log above)");
-  }
-
-  // Resolve dispatch graph API via dlsym; cudaq-realtime-dispatch is linked
-  // into the server (not this static lib) to keep the CUDA module in one copy.
-  // Signatures must match create/launch/destroy_dispatch_graph_fn_t in
-  // qec_realtime_session.cpp/.h exactly — calling-convention mismatch is UB.
-  using create_fn_t = cudaError_t (*)(
-      volatile std::uint64_t *, volatile std::uint64_t *, std::uint8_t *,
-      std::uint8_t *, std::size_t, std::size_t, cudaq_function_entry_t *,
-      std::size_t, void *, volatile int *, std::uint64_t *, std::size_t,
-      std::uint32_t, std::uint32_t, cudaGraphExec_t, cudaStream_t,
-      cudaq_dispatch_graph_context **);
-  using launch_fn_t =
-      cudaError_t (*)(cudaq_dispatch_graph_context *, cudaStream_t);
-  using destroy_fn_t = cudaError_t (*)(cudaq_dispatch_graph_context *);
-
-  auto create_dispatch = reinterpret_cast<create_fn_t>(
-      ::dlsym(RTLD_DEFAULT, "cudaq_create_dispatch_graph_regular"));
-  auto launch_dispatch = reinterpret_cast<launch_fn_t>(
-      ::dlsym(RTLD_DEFAULT, "cudaq_launch_dispatch_graph"));
-  auto destroy_dispatch = reinterpret_cast<destroy_fn_t>(
-      ::dlsym(RTLD_DEFAULT, "cudaq_destroy_dispatch_graph"));
-
-  if (!create_dispatch || !launch_dispatch || !destroy_dispatch) {
-    cudaFreeHost(ft_host_);
-    ft_host_ = nullptr;
-    CUDA_QEC_ERROR(
-        "DeviceGraphTransceiver: cudaq dispatch API not found via dlsym -- "
-        "the server must link cudaq-realtime-dispatch with --export-dynamic");
-    throw std::runtime_error(
-        "DeviceGraphTransceiver::launch_scheduler: cudaq dispatch API not found "
-        "(cudaq_create/launch/destroy_dispatch_graph_regular); "
-        "link cudaq-realtime-dispatch into the server with --export-dynamic");
-  }
-  fn_destroy_dispatch_graph_ = destroy_dispatch;
-
-  void *sd_host = nullptr, *sd_dev = nullptr;
-  if (!alloc_pinned_mapped(sizeof(int), &sd_host, &sd_dev)) {
-    cudaFreeHost(ft_host_);
-    ft_host_ = nullptr;
-    throw std::runtime_error("DeviceGraphTransceiver::launch_scheduler: "
-                             "shutdown-flag pinned alloc failed");
-  }
-  shutdown_host_ = static_cast<volatile int *>(sd_host);
-  shutdown_dev_ = static_cast<volatile int *>(sd_dev);
-
-  if (cudaMalloc(&d_stats_, sizeof(uint64_t)) != cudaSuccess ||
-      cudaMemset(d_stats_, 0, sizeof(uint64_t)) != cudaSuccess) {
-    cudaFreeHost(ft_host_);
-    ft_host_ = nullptr;
-    cudaFreeHost(sd_host);
-    shutdown_host_ = nullptr;
-    shutdown_dev_ = nullptr;
-    throw std::runtime_error(
-        "DeviceGraphTransceiver::launch_scheduler: d_stats_ alloc failed");
-  }
-
-  GPU_CUDA_CHECK(cudaStreamCreate(&sched_stream_));
-
-  cudaError_t cerr = create_dispatch(
-      rx_ring_flag_, tx_ring_flag_, rx_ring_data_, tx_ring_data_, page_size_,
-      page_size_, static_cast<cudaq_function_entry_t *>(ft_dev),
-      /*func_count=*/3,
-      /*graph_io_ctx=*/nullptr, shutdown_dev_, d_stats_, num_pages_,
-      /*num_blocks=*/1, /*threads_per_block=*/64, graph_res->graph_exec,
-      sched_stream_, &sched_ctx_);
-  if (cerr != cudaSuccess) {
-    cudaStreamDestroy(sched_stream_);
-    sched_stream_ = nullptr;
-    cudaFree(d_stats_);
-    d_stats_ = nullptr;
-    cudaFreeHost(ft_host_);
-    ft_host_ = nullptr;
-    cudaFreeHost(sd_host);
-    shutdown_host_ = nullptr;
-    shutdown_dev_ = nullptr;
-    throw std::runtime_error(
-        std::string("DeviceGraphTransceiver::launch_scheduler: "
-                    "cudaq_create_dispatch_graph_regular: ") +
-        cudaGetErrorString(cerr));
-  }
-
-  cerr = launch_dispatch(sched_ctx_, sched_stream_);
-  if (cerr != cudaSuccess) {
-    fn_destroy_dispatch_graph_(sched_ctx_);
-    sched_ctx_ = nullptr;
-    cudaStreamDestroy(sched_stream_);
-    sched_stream_ = nullptr;
-    cudaFree(d_stats_);
-    d_stats_ = nullptr;
-    cudaFreeHost(ft_host_);
-    ft_host_ = nullptr;
-    cudaFreeHost(sd_host);
-    shutdown_host_ = nullptr;
-    shutdown_dev_ = nullptr;
-    throw std::runtime_error(
-        std::string("DeviceGraphTransceiver::launch_scheduler: "
-                    "cudaq_launch_dispatch_graph: ") +
-        cudaGetErrorString(cerr));
-  }
+  // All scheduler wiring (pinned function table + populate shims + dispatch
+  // graph create/launch) lives in DeviceGraphRingConsumer; this transceiver
+  // contributes only its provider's ring context and geometry.
+  cudaq_ringbuffer_t ring{};
+  ring.rx_flags = rx_ring_flag_;
+  ring.tx_flags = tx_ring_flag_;
+  ring.rx_data = rx_ring_data_;
+  ring.tx_data = tx_ring_data_;
+  ring.rx_stride_sz = page_size_;
+  ring.tx_stride_sz = page_size_;
+  consumer_ = std::make_unique<DeviceGraphRingConsumer>(
+      ring, num_pages_, page_size_, gpu_id_, raw_graph_resources);
 
   // Start the provider's I/O loop (Hololink RX/TX kernels + monitor thread,
   // owned by the provider) now that the scheduler is polling the rings.
   if (cudaq_bridge_launch(bridge_) != CUDAQ_OK) {
-    __atomic_store_n(shutdown_host_, 1, __ATOMIC_RELEASE);
+    consumer_->shutdown();
     throw std::runtime_error(
         "DeviceGraphTransceiver::launch_scheduler: provider launch() failed");
   }
 
   CUDA_QEC_INFO("DeviceGraphTransceiver: GPU scheduler launched  "
-                "QP=0x{:X} rkey={} buf=0x{:X}  "
-                "(3 DEVICE_CALL entries, graph_exec={:p})",
-                qp_number_, rkey_, buffer_addr_,
-                static_cast<void *>(graph_res->graph_exec));
+                "QP=0x{:X} rkey={} buf=0x{:X}",
+                qp_number_, rkey_, buffer_addr_);
 
   // Print RDMA target info to stdout so the orchestration script can grep it.
   // Matches the format in hololink_qldpc_graph_decoder_bridge.cpp lines
@@ -470,9 +345,9 @@ void DeviceGraphTransceiver::shutdown() {
   if (stopped_.exchange(true, std::memory_order_acq_rel))
     return; // already stopped
 
-  // Signal the GPU scheduler kernel to stop its self-relaunch loop.
-  if (shutdown_host_)
-    __atomic_store_n(shutdown_host_, 1, __ATOMIC_RELEASE);
+  // Signal the GPU scheduler's self-relaunch loop to stop.
+  if (consumer_)
+    consumer_->shutdown();
 
   // Stop the Hololink RX/TX kernels and join the provider's monitor thread.
   if (bridge_)
@@ -482,25 +357,14 @@ void DeviceGraphTransceiver::shutdown() {
 DeviceGraphTransceiver::~DeviceGraphTransceiver() {
   // Ensure clean shutdown even if the caller omitted shutdown().
   if (!stopped_.exchange(true, std::memory_order_acq_rel)) {
-    if (shutdown_host_)
-      __atomic_store_n(shutdown_host_, 1, __ATOMIC_RELEASE);
+    if (consumer_)
+      consumer_->shutdown();
     if (bridge_)
       cudaq_bridge_disconnect(bridge_);
   }
-
-  if (sched_stream_) {
-    cudaStreamSynchronize(sched_stream_); // drain the self-relaunch chain
-    if (sched_ctx_ && fn_destroy_dispatch_graph_)
-      fn_destroy_dispatch_graph_(sched_ctx_);
-    cudaStreamDestroy(sched_stream_);
-  }
-
-  if (ft_host_)
-    cudaFreeHost(ft_host_);
-  if (shutdown_host_)
-    cudaFreeHost(const_cast<int *>(shutdown_host_));
-  if (d_stats_)
-    cudaFree(d_stats_);
+  // Drain + destroy the scheduler BEFORE the provider (it polls the
+  // provider's ring memory).
+  consumer_.reset();
   if (bridge_)
     cudaq_bridge_destroy(bridge_);
 }

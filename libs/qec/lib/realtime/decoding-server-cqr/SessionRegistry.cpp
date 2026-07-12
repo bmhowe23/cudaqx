@@ -58,15 +58,15 @@ void SessionRegistry::load_from_config(const multi_decoder_config &config,
       throw std::runtime_error("Duplicate decoder id " + std::to_string(dc.id) +
                                " in " + source_name);
 
-    // All decoders in one server instance must share the same transport type
-    // because there is one receive loop per unique transceiver.
-    if (sessions_.empty()) {
+    // Record each decoder's dispatch shape.  Mixed shapes are allowed: the
+    // decoding_server process binds a consumer (host dispatcher or
+    // device-graph scheduler) per decoder; only the single-transceiver
+    // DecodingServer paths require uniformity (see required_dispatch()).
+    if (sessions_.empty())
       dispatch_ = dc.dispatch;
-    } else if (dc.dispatch != dispatch_) {
-      throw std::runtime_error(
-          "Mixed dispatch shapes in " + source_name +
-          ": all decoder entries must declare the same dispatch shape");
-    }
+    else if (dc.dispatch != dispatch_)
+      mixed_ = true;
+    dispatch_by_id_[id] = dc.dispatch;
 
     CUDA_QEC_INFO("SessionRegistry: creating decoder id={} type={}", dc.id,
                   dc.type);

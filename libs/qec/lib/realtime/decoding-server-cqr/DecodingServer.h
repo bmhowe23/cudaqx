@@ -54,6 +54,16 @@ public:
                  TransportMap function_transport,
                  const std::string &config_yaml);
 
+  /// Opaque graph resources of one decoder session
+  /// (decoder::capture_decode_graph()), or nullptr when the decoder does not
+  /// support graph dispatch / the id is unknown.  Used by the decoding_server
+  /// process to wire a device-graph ring consumer to a decoder this server
+  /// hosts.
+  void *graph_resources_for(uint64_t decoder_id) const;
+
+  /// This server's session registry (read-only after construction).
+  const SessionRegistry &registry() const { return registry_; }
+
   /// Stops the transports and joins all session workers before any member is
   /// destroyed: workers drain queued items that reply through raw
   /// ITransceiver pointers into owned_transports_, so they must finish while

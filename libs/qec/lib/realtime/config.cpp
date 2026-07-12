@@ -720,6 +720,7 @@ struct MappingTraits<cudaq::qec::decoding::config::decoder_config> {
     io.mapRequired("type", config.type);
     io.mapOptional("dispatch", config.dispatch,
                    cudaq::qec::decoding::config::DecoderDispatch::host);
+    io.mapOptional("transport", config.transport, std::string());
     io.mapRequired("block_size", config.block_size);
     io.mapRequired("syndrome_size", config.syndrome_size);
     io.mapRequired("H_sparse", config.H_sparse);

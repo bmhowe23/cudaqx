@@ -86,6 +86,22 @@
 #include <vector>
 
 extern "C" void cudaqx_qec_realtime_device_call_service_force_link();
+// Opaque graph resources of a decoder hosted by the CQR plugin's registry.
+extern "C" void *cudaqx_qec_decoding_server_graph_resources(std::uint64_t);
+// Device-graph ring-consumer C API (strong definitions live in the
+// cudaq-qec-decoding-server-device-graph component; referenced WEAKLY so a
+// build without the component still links and fails at runtime instead).
+extern "C" __attribute__((weak)) void *
+cudaqx_qec_make_device_graph_ring_consumer(const void *ring,
+                                           std::size_t num_slots,
+                                           std::size_t slot_size, int gpu_id,
+                                           void *graph_resources);
+extern "C" __attribute__((weak)) void
+cudaqx_qec_device_graph_ring_consumer_shutdown(void *consumer);
+extern "C" __attribute__((weak)) std::uint64_t
+cudaqx_qec_device_graph_ring_consumer_dispatched(void *consumer);
+extern "C" __attribute__((weak)) void
+cudaqx_qec_device_graph_ring_consumer_destroy(void *consumer);
 extern "C" std::uint64_t cudaqx_qec_device_call_dispatch_count();
 extern "C" std::uint64_t cudaqx_qec_decoding_server_max_concurrent();
 extern "C" void cudaqx_qec_decoding_server_shutdown();
@@ -219,8 +235,17 @@ int main(int argc, char **argv) {
             << "; transport: " << cfg.transport << std::endl;
 
   // The dispatch SHAPE comes from the decoder config (dispatch:
-  // host|device_graph); --transport only ever names the wire.
+  // host|device_graph); --transport only ever names the wire.  An
+  // all-device_graph config takes the standalone DecodingServer path below
+  // ([2a], the HSB flow); any other mix runs the composed per-decoder ring
+  // loop, where each decoder's ring gets the consumer its dispatch shape
+  // requires (host dispatcher thread, or device-graph scheduler).
   const bool wants_device_graph = std::any_of(
+      decoder_config.decoders.begin(), decoder_config.decoders.end(),
+      [](const auto &d) {
+        return d.dispatch == config::DecoderDispatch::device_graph;
+      });
+  const bool all_device_graph = std::all_of(
       decoder_config.decoders.begin(), decoder_config.decoders.end(),
       [](const auto &d) {
         return d.dispatch == config::DecoderDispatch::device_graph;
@@ -232,7 +257,7 @@ int main(int argc, char **argv) {
   // CQR plugin (which creates a DecodingServer internally for the HOST_CALL
   // path) to avoid double-init.
 #ifdef QEC_HAVE_DEVICE_GRAPH_DISPATCH
-  if (wants_device_graph) {
+  if (all_device_graph) {
     // DecodingServer(config_yaml) reads the YAML, creates the
     // DeviceGraphTransceiver (which loads a bridge provider: the built-in
     // hololink one, or CUDAQ_REALTIME_BRIDGE_LIB), loads decoder sessions,
@@ -277,7 +302,7 @@ int main(int argc, char **argv) {
     return 0;
   }
 #else
-  if (wants_device_graph) {
+  if (all_device_graph) {
     std::cerr << "ERROR: this server was built without device_graph dispatch "
                  "support (CUDA-Q realtime bridge API or "
                  "cudaq-realtime-dispatch not found at build time)"
@@ -345,6 +370,7 @@ int main(int argc, char **argv) {
 
   struct DecoderRing {
     std::int64_t decoder_id = 0;
+    bool device_graph = false;
     cudaq_realtime_bridge_handle_t bridge = nullptr;
     std::uint32_t num_slots = 0;
     std::uint32_t slot_size = 0;
@@ -352,7 +378,8 @@ int main(int argc, char **argv) {
     std::string endpoint_rest; // endpoint info minus the port token
     int shutdown_flag = 0;
     std::uint64_t dispatched = 0;
-    cudaq_dispatcher_t *dispatcher = nullptr;
+    cudaq_dispatcher_t *dispatcher = nullptr; // host consumer
+    void *dg_consumer = nullptr;              // device-graph consumer
   };
   // Sized once up front: set_control hands the dispatcher pointers into
   // these elements, so their addresses must not move.
@@ -365,6 +392,14 @@ int main(int argc, char **argv) {
         cudaq_dispatcher_stop(ring.dispatcher);
         cudaq_dispatcher_destroy(ring.dispatcher);
         ring.dispatcher = nullptr;
+      }
+      if (ring.dg_consumer) {
+        // Consumer before bridge: the scheduler polls the provider's rings.
+        cudaqx_qec_device_graph_ring_consumer_shutdown(ring.dg_consumer);
+        ring.dispatched =
+            cudaqx_qec_device_graph_ring_consumer_dispatched(ring.dg_consumer);
+        cudaqx_qec_device_graph_ring_consumer_destroy(ring.dg_consumer);
+        ring.dg_consumer = nullptr;
       }
       if (ring.bridge) {
         cudaq_bridge_disconnect(ring.bridge);
@@ -380,13 +415,53 @@ int main(int argc, char **argv) {
 
   for (std::size_t i = 0; i < rings.size(); ++i) {
     auto &ring = rings[i];
-    ring.decoder_id = decoder_config.decoders[i].id;
-    if (cudaq_bridge_create(&ring.bridge, CUDAQ_PROVIDER_EXTERNAL,
-                            static_cast<int>(provider_argv.size()),
-                            provider_argv.data()) != CUDAQ_OK) {
+    const auto &dc = decoder_config.decoders[i];
+    ring.decoder_id = dc.id;
+    ring.device_graph = (dc.dispatch == config::DecoderDispatch::device_graph);
+
+    // Per-decoder transport override: "name-or-path [provider args...]".
+    // "hololink" selects the builtin provider slot; any other name/path
+    // resolves like --transport does.  NOTE: the bridge loader has one
+    // EXTERNAL library slot per process, so all non-hololink decoders must
+    // agree on the provider LIBRARY (per-decoder args may differ).
+    std::string ring_provider_name = cfg.transport;
+    std::vector<std::string> ring_extra_args;
+    if (!dc.transport.empty()) {
+      std::istringstream in(dc.transport);
+      in >> ring_provider_name;
+      std::string token;
+      while (in >> token)
+        ring_extra_args.push_back(token);
+    }
+    const bool builtin_hololink = (ring_provider_name == "hololink");
+    if (!builtin_hololink) {
+      const std::string ring_lib = resolve_provider_lib(ring_provider_name);
+      if (ring_lib != provider_lib && ring_provider_name != cfg.transport) {
+        // A different EXTERNAL library than the process default: the loader
+        // supports one EXTERNAL lib per process today.
+        std::cerr << "ERROR: decoder " << ring.decoder_id
+                  << " requests external provider '" << ring_lib
+                  << "' but this process already uses '" << provider_lib
+                  << "' (one EXTERNAL provider library per process; use "
+                     "'hololink' for the builtin slot, or align the "
+                     "providers)"
+                  << std::endl;
+        teardown_rings();
+        return 1;
+      }
+    }
+    std::vector<char *> ring_argv = provider_argv;
+    for (auto &a : ring_extra_args)
+      ring_argv.push_back(a.data());
+
+    if (cudaq_bridge_create(&ring.bridge,
+                            builtin_hololink ? CUDAQ_PROVIDER_HOLOLINK
+                                             : CUDAQ_PROVIDER_EXTERNAL,
+                            static_cast<int>(ring_argv.size()),
+                            ring_argv.data()) != CUDAQ_OK) {
       std::cerr << "ERROR: failed to load/create transport provider '"
-                << provider_lib << "' (--transport=" << cfg.transport
-                << ") for decoder " << ring.decoder_id << std::endl;
+                << (builtin_hololink ? std::string("hololink") : provider_lib)
+                << "' for decoder " << ring.decoder_id << std::endl;
       teardown_rings();
       return 1;
     }
@@ -452,6 +527,52 @@ int main(int argc, char **argv) {
                 << ring.decoder_id << ")" << std::endl;
       teardown_rings();
       return 1;
+    }
+
+    if (ring.device_graph) {
+      // Attach the device-graph scheduler as this ring's consumer: RX ->
+      // dispatch -> decode -> TX runs on the GPU over the provider's
+      // (GPU-pollable) rings.  The decoder's captured decode graph comes
+      // from the CQR plugin's registry (built at [2], before READY).
+      if (!cudaqx_qec_make_device_graph_ring_consumer) {
+        std::cerr << "ERROR: decoder " << ring.decoder_id
+                  << " requests device_graph dispatch but the device-graph "
+                     "component is not linked into this binary (set "
+                     "CUDAQ_QEC_REALTIME_CUDEVICE_PROPRIETARY_ARCHIVE)"
+                  << std::endl;
+        teardown_rings();
+        return 1;
+      }
+      void *graph_resources = cudaqx_qec_decoding_server_graph_resources(
+          static_cast<std::uint64_t>(ring.decoder_id));
+      if (!graph_resources) {
+        std::cerr << "ERROR: decoder " << ring.decoder_id
+                  << " requests device_graph dispatch but did not capture a "
+                     "decode graph (decoder must support graph dispatch)"
+                  << std::endl;
+        teardown_rings();
+        return 1;
+      }
+      const int gpu_id = [] {
+        const char *value = std::getenv("QEC_DEVICE_GRAPH_GPU_ID");
+        return value ? std::atoi(value) : 0;
+      }();
+      ring.dg_consumer = cudaqx_qec_make_device_graph_ring_consumer(
+          &ringbuffer, ring.num_slots, ring.slot_size, gpu_id,
+          graph_resources);
+      if (!ring.dg_consumer) {
+        std::cerr << "ERROR: device-graph scheduler launch failed (decoder "
+                  << ring.decoder_id << "; see log above)" << std::endl;
+        teardown_rings();
+        return 1;
+      }
+      if (cudaq_bridge_launch(ring.bridge) != CUDAQ_OK) {
+        std::cerr << "ERROR: transport provider launch() failed (decoder "
+                  << ring.decoder_id << ")" << std::endl;
+        teardown_rings();
+        return 1;
+      }
+      continue;
     }
 
     cudaq_dispatcher_config_t dispatch_config{};

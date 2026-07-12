@@ -136,6 +136,7 @@ install(TARGETS cudaq-qec-decoding-server
 # ---------------------------------------------------------------------------
 if(CUDAQ_QEC_DEVICE_GRAPH_AVAILABLE)
   add_library(cudaq-qec-decoding-server-device-graph STATIC
+    DeviceGraphRingConsumer.cpp
     DeviceGraphTransceiver.cpp
     DeviceGraphFactory.cpp
   )

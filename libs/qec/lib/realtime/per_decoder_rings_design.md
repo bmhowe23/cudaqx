@@ -149,12 +149,64 @@ demuxed over one wire.  (Fixed en route: cudaq_bridge_create's
 cached-provider path did not register new handles, breaking every second
 bridge instance.)
 
-## 6. Follow-ups
+## 6. Mixed-dispatch server (IMPLEMENTED): device_graph + host rings in
+## one process
 
-- QEC plugin Gpu-mode session (recipe above) => CPU+GPU rings running
-  simultaneously end to end.
-- Per-decoder rings over cpu_roce two-process (udp validated; cpu_roce
-  needs per-ring rendezvous ports wired the same way).
+At run time the server is N independent 1-ring consumers constructed by one
+setup loop: for EVERY decoder it creates one bridge provider instance ->
+one ring (same CQR RPC wire format), then attaches the consumer the
+decoder's `dispatch:` shape requires --
+
+- `host`: a dispatcher-object thread (as before);
+- `device_graph`: a DeviceGraphRingConsumer -- the CUDAQ device-graph
+  scheduler (3 proprietary DEVICE_CALL entries + the decoder's captured
+  decode graph) attached to a ring it does not own.  Extracted from
+  DeviceGraphTransceiver, which now delegates to it; reached from the
+  server through a weak C ABI (cudaqx_qec_make_device_graph_ring_consumer)
+  so builds without the proprietary component still link.
+
+Supporting pieces: SessionRegistry accepts mixed dispatch shapes (the
+single-transceiver DecodingServer paths still require uniformity via
+required_dispatch()); the CQR plugin exports
+cudaqx_qec_decoding_server_graph_resources(decoder_id) so the server can
+wire the scheduler to a decoder living behind the plugin; decoder YAML
+gains an optional per-decoder `transport: "name-or-path [args...]"`
+override (e.g. `transport: "udp --pinned-rings"`, or `hololink` for the
+builtin provider slot); the udp provider gained --pinned-rings (CUDA
+pinned+mapped ring memory a GPU consumer can poll) backed by a new
+CUDA-free external-rings transceiver API.  An all-device_graph config
+still takes the standalone DecodingServer path (the HSB flow).
+
+Validated locally: mixed config brings up ring0 (host dispatcher) and
+ring1 (pinned udp), READY publishes both, and the device_graph decoder
+fails loudly at the graph-capture requirement when the decoder cannot
+capture (pymatching), with clean teardown.  Positive decode on the device
+ring needs a graph-capable decoder built against THIS tree's ABI
+(nv-qldpc/RelayBP; the archived plugin from another tree predates the
+decoder_config layout change) -- the remaining step, on the rig or after
+a plugin rebuild.
+
+Hard-won build/runtime gotchas recorded for reproducers:
+
+- nvq++-compiled TUs (cudaqx_add_device_code custom commands) do NOT track
+  header dependencies: after changing decoding_config.h, touch or clean
+  those sources or stale objects pass old-layout structs across the .so
+  boundary (symptom: segfault inside configure_decoders).
+- libcudaq-device-call-runtime.so must NOT re-export the transport-archive
+  symbols (cpu_udp_*): a provider .so carries its own copy and the dynamic
+  linker binds across, a silent ODR violation (fixed upstream-side with
+  --exclude-libs).
+
+## 7. Follow-ups
+
+- Positive mixed E2E: rebuild the nv-qldpc plugin against this tree, give
+  its decoder `dispatch: device_graph` + `transport: "udp --pinned-rings"`
+  (local) or `hololink` (rig), and extend TwoProcessPerDecoderRings to
+  assert the device ring's dispatched count.
+- Per-decoder rings over cpu_roce two-process (udp validated; the caller
+  scopes rendezvous-port.<id>= identically; needs the RDMA rig).
+- Bridge-loader EXTERNAL slot is one library per process; mixed external
+  providers need the loader keyed by path (upstream).
 - `createDispatchSession(mode, deviceId)` upstream API extension.
 - Fan-in (decoder 1 <- ring 1..k <- QP m): provider-internal QP
   aggregation behind one ring context; `vp_id` in the enqueue_syndromes

@@ -10,7 +10,10 @@
 
 #ifdef CUDAQ_QEC_DEVICE_GRAPH_AVAILABLE
 
+#include "DeviceGraphRingConsumer.h"
 #include "ITransceiver.h"
+
+#include <memory>
 
 #include <atomic>
 #include <cstddef>
@@ -128,17 +131,9 @@ private:
   uint32_t rkey_{0};
   uint64_t buffer_addr_{0};
 
-  // CUDAQ device-graph scheduler state (set by launch_scheduler).
-  cudaq_dispatch_graph_context *sched_ctx_{nullptr};
-  cudaStream_t sched_stream_{nullptr};
-  void *ft_host_{nullptr}; ///< pinned host ptr: function entry table
-  volatile int *shutdown_host_{
-      nullptr}; ///< pinned host ptr: GPU scheduler stop flag
-  volatile int *shutdown_dev_{nullptr}; ///< device-mapped ptr of shutdown_host_
-  uint64_t *d_stats_{nullptr};
-  // Cached from launch_scheduler() so the destructor can call it without dlsym.
-  cudaError_t (*fn_destroy_dispatch_graph_)(cudaq_dispatch_graph_context *){
-      nullptr};
+  // The device-graph scheduler over this transceiver's rings (set by
+  // launch_scheduler; owns all scheduler-side CUDA state).
+  std::unique_ptr<DeviceGraphRingConsumer> consumer_;
 
   std::atomic<bool> stopped_{false};
 };

@@ -192,6 +192,13 @@ struct decoder_config {
   /// VRAM and decoded by a captured CUDA graph (e.g. nv_qldpc_decoder with
   /// RelayBP).
   DecoderDispatch dispatch = DecoderDispatch::host;
+  /// Optional per-decoder transport-provider override for the decoding
+  /// server's one-ring-per-decoder topology: a provider name or /path.so,
+  /// optionally followed by provider arguments (whitespace-separated), e.g.
+  /// "udp --pinned-rings" or "hololink".  Empty = the server's --transport
+  /// default.  A device_graph decoder's provider must give GPU-pollable ring
+  /// memory.
+  std::string transport;
   uint64_t block_size = 0;
   uint64_t syndrome_size = 0;
   std::vector<std::int64_t> H_sparse;

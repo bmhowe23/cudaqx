@@ -138,6 +138,14 @@ DecodingServer::DecodingServer(std::vector<std::unique_ptr<ITransceiver>> owned,
   init(config_yaml);
 }
 
+void *DecodingServer::graph_resources_for(uint64_t decoder_id) const {
+  const auto &sessions = registry_.sessions();
+  const auto iter = sessions.find(decoder_id);
+  if (iter == sessions.end() || !iter->second->graph_resources)
+    return nullptr;
+  return iter->second->graph_resources.get();
+}
+
 DecodingServer::~DecodingServer() {
   stop();
   // Join session workers while owned_transports_ is still alive: queued
