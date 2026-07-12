@@ -221,12 +221,48 @@ Hard-won build/runtime gotchas recorded for reproducers:
   linker binds across, a silent ODR violation (fixed upstream-side with
   --exclude-libs).
 
-## 7. Follow-ups
+## 7. Positive device-ring validation: how far it got, and the platform
+## wall (2026-07-12)
 
-- Positive mixed E2E: rebuild the nv-qldpc plugin against this tree, give
-  its decoder `dispatch: device_graph` + `transport: "udp --pinned-rings"`
-  (local) or `hololink` (rig), and extend TwoProcessPerDecoderRings to
-  assert the device ring's dispatched count.
+The nv-qldpc plugin + proprietary cudevice archive were rebuilt against
+this tree's ABI (cuda-qx scratch branch bmh/private-device-ring: public
+branch merged into private/main; only binaries plucked back).  With a
+generated 2-decoder RelayBP config (decoder 1: dispatch device_graph;
+transport section device_graph args --pinned-rings), TWO-PROCESS results
+on a WSL2 laptop GPU:
+
+- CONTROL (both decoders host): full sc4 app over two per-decoder udp
+  rings decodes correctly.  Per-decoder rings + new-ABI nv-qldpc host
+  path: VALIDATED two-process.
+- MIXED: server brings up ring0 (host) + ring1 (GPU scheduler over
+  pinned-udp rings) cleanly.  Raw RPC probes against the device ring
+  PROVE the GPU dispatch graph serves DEVICE_CALLs end to end over the
+  wire: reset_decoder and a full-window enqueue_syndromes both
+  round-trip with status=0 (probe: hand-built RPCHeader datagrams,
+  magic 0x43555152, fnv1a function ids).
+- THE WALL: after the enqueue completes a window and the dispatch graph
+  fire-and-forget-triggers the DECODE graph, the scheduler never
+  dispatches again (subsequent RPCs time out; teardown drain hangs).
+  Minimal CUDA probe (nvcc -rdc, trigger kernel calling
+  cudaGraphLaunch(child, cudaStreamGraphFireAndForget) on an uploaded
+  device-launchable graph): instantiate/upload/sync all report success,
+  the launched graph NEVER RUNS.  Device-side fire-and-forget graph
+  launch silently no-ops on this WSL2 stack -- a platform limitation,
+  not a defect in this design.  (Plain device-launch instantiation and
+  GPU polling of CPU-written pinned memory both probe GOOD.)
+
+Consequence: the decode-graph firing step requires native-Linux GPU (the
+HSB rig, where this mechanism is production-proven).  Everything below
+that line is validated here.
+
+## 8. Follow-ups
+
+- Rig run of the mixed config (swap the device_graph override provider to
+  hololink); extend TwoProcessPerDecoderRings to assert the device ring's
+  dispatched count there.
+- Bounded shutdown for a wedged decode chain: the consumer's destructor
+  drains with cudaStreamSynchronize, which hangs if the triggered graph
+  never completes; consider a timed drain + loud abandon.
 - Per-decoder rings over cpu_roce two-process (udp validated; the caller
   scopes rendezvous-port.<id>= identically; needs the RDMA rig).
 - Bridge-loader EXTERNAL slot is one library per process; mixed external
