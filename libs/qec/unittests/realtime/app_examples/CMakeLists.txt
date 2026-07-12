@@ -1115,3 +1115,63 @@ _sc4_accept(replay-roundtrip "SUCCESS: All corrections match"
   --distance 3 --num_rounds 3 --num_shots 5)
 set_tests_properties(app_examples.surface_code-4-yaml-replay-roundtrip
   PROPERTIES FIXTURES_REQUIRED sc4_replay)
+
+# ---------------------------------------------------------------------------
+# Surface code 5: one ring buffer (and one dispatcher) per decoder, via the
+# cudaq::device_call device-id overload (device_id == decoder_id).  Runs over
+# the in-process host_dispatch device_call channel; the simulation-cqr client
+# lowers the decoding RPCs (-frealtime-lowering) and decoding-server-cqr
+# serves them.  See surface_code-5-per-decoder-rings.cpp.
+# ---------------------------------------------------------------------------
+if(TARGET cudaq-qec-realtime-decoding-simulation-cqr
+   AND TARGET cudaq-qec-realtime-decoding-server-cqr)
+  add_executable(surface_code-5-per-decoder-rings)
+  set_target_properties(surface_code-5-per-decoder-rings PROPERTIES
+    LINKER_LANGUAGE CXX)
+
+  target_include_directories(surface_code-5-per-decoder-rings PRIVATE
+    ${CUDAQ_REALTIME_INCLUDE_DIR}
+    ${CUDAToolkit_INCLUDE_DIRS}
+  )
+
+  cudaqx_add_device_code(surface_code-5-per-decoder-rings
+    SOURCES
+      surface_code-5-per-decoder-rings.cpp
+    COMPILER_FLAGS
+      --target stim
+      -frealtime-lowering
+  )
+
+  target_link_directories(surface_code-5-per-decoder-rings
+    PRIVATE ${CUDAQ_INSTALL_DIR}/lib)
+
+  # See test_pymatching_device_call_realtime for why --no-as-needed is needed
+  # (dlopen(NULL)-resolved quantum platform symbols).
+  target_link_options(surface_code-5-per-decoder-rings PRIVATE
+    $<$<CXX_COMPILER_ID:GNU>:-Wl,--no-as-needed>)
+
+  target_link_libraries(surface_code-5-per-decoder-rings PRIVATE
+    cudaq-qec-decoders
+    cudaq-qec-realtime-decoding
+    cudaq-qec-realtime-decoding-simulation-cqr
+    cudaq-qec-realtime-decoding-server-cqr
+    cudaq::cudaq cudaq::cudaq-common cudaq-mlir-runtime
+    CUDA::cudart
+    nvqir nvqir-stim
+  )
+
+  set_target_properties(surface_code-5-per-decoder-rings PROPERTIES
+    BUILD_RPATH
+      "${CMAKE_BINARY_DIR}/lib;${CMAKE_BINARY_DIR}/lib/decoder-plugins;${CUDAQ_INSTALL_DIR}/lib"
+  )
+
+  add_dependencies(surface_code-5-per-decoder-rings cudaq-qec-pymatching)
+endif()
+
+if(TARGET surface_code-5-per-decoder-rings)
+  add_test(NAME app_examples.surface_code-5-per-decoder-rings
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/surface_code-5-per-decoder-rings-test.sh
+            $<TARGET_FILE:surface_code-5-per-decoder-rings>)
+  set_tests_properties(app_examples.surface_code-5-per-decoder-rings
+    PROPERTIES LABELS "qec")
+endif()
