@@ -240,28 +240,34 @@ on a WSL2 laptop GPU:
   wire: reset_decoder and a full-window enqueue_syndromes both
   round-trip with status=0 (probe: hand-built RPCHeader datagrams,
   magic 0x43555152, fnv1a function ids).
-- THE WALL: after the enqueue completes a window and the dispatch graph
-  fire-and-forget-triggers the DECODE graph, the scheduler never
-  dispatches again (subsequent RPCs time out; teardown drain hangs).
-  Minimal CUDA probe (nvcc -rdc, trigger kernel calling
-  cudaGraphLaunch(child, cudaStreamGraphFireAndForget) on an uploaded
-  device-launchable graph) pinpointed it: launching ANY kernel that
-  references device-side cudaGraphLaunch fails with
-  cudaErrorNotSupported ("operation not supported") on this WSL2 stack
-  -- but the error is visible ONLY via cudaGetLastError() immediately
-  after that kernel launch; stream synchronization afterwards reports
-  success, so every higher layer sees a silent wedge.  Device graph
-  launch is unsupported on the Windows driver stack (WSL2 included); a
-  plain kernel in the same -rdc binary runs fine, and CUDA_MODULE_LOADING
-  =EAGER makes no difference.  Platform limitation, not a defect in this
-  design.  (Device-launchable instantiation itself and GPU polling of
-  CPU-written pinned memory both probe GOOD.)  Cheap gating check for
-  any machine: launch a trivial kernel that calls device-side
-  cudaGraphLaunch and test cudaGetLastError()==cudaErrorNotSupported.
+- THE WEDGE (diagnosis CORRECTED after rig data): after a window-
+  completing enqueue triggers the decode graph, the scheduler never
+  dispatches again.  An earlier probe blamed the platform (WSL2); that
+  probe was INVALID -- fire-and-forget device graph launch is only legal
+  from a kernel running INSIDE a device-launched graph, and the probe
+  triggered from a plain kernel, which correctly returns
+  cudaErrorNotSupported on every platform (including the rig).  The
+  corrected probe (trigger kernel inside a device-launched parent graph,
+  child uploaded) PASSES on this WSL2 box, both with native sm_120 SASS
+  and with forced-JIT compute_90 PTX.  Artifact arch coverage (GPU is
+  sm_120; plugin/archives carry <= sm_100 SASS + PTX) is therefore NOT
+  the cause either.  The wedge lives in the real pipeline's specifics;
+  next suspects, in order: (a) the decode graph's instantiation flags /
+  upload -- device-side fire-and-forget requires the TRIGGERED graph to
+  be instantiated with cudaGraphInstantiateFlagDeviceLaunch and uploaded;
+  verify what nv-qldpc's capture_decode_graph and
+  cudaq_create_dispatch_graph_regular actually do with the triggered
+  exec; (b) the dispatch graph's tail self-relaunch pattern; (c) the
+  RelayBP decode graph's own execution on this GPU.  The dispatch
+  kernel's device-side cudaGraphLaunch return code is dropped today --
+  surfacing it (device-side printf or an error slot in pinned memory)
+  is the next diagnostic step.  Probe sources preserved in this doc's
+  history; the valid probe is the parent/child two-graph form.
 
-Consequence: the decode-graph firing step requires native-Linux GPU (the
-HSB rig, where this mechanism is production-proven).  Everything below
-that line is validated here.
+Consequence: the device-graph launch MECHANISM is validated on this box;
+the decode-graph firing failure is a real pipeline bug/incompatibility
+reproducible locally -- which is good news: it can be debugged here
+rather than only on the rig.  Everything below that line is validated.
 
 ## 8. Follow-ups
 
