@@ -39,9 +39,9 @@ public:
   /// Launches the scheduler.  \p ring must carry DEVICE-visible pointers in
   /// its rx/tx fields; \p raw_graph_resources is the opaque pointer from
   /// decoder::capture_decode_graph().  Throws on failure.
-  DeviceGraphRingConsumer(const cudaq_ringbuffer_t &ring,
-                          std::size_t num_slots, std::size_t slot_size,
-                          int gpu_id, void *raw_graph_resources);
+  DeviceGraphRingConsumer(const cudaq_ringbuffer_t &ring, std::size_t num_slots,
+                          std::size_t slot_size, int gpu_id,
+                          void *raw_graph_resources);
   ~DeviceGraphRingConsumer();
 
   DeviceGraphRingConsumer(const DeviceGraphRingConsumer &) = delete;

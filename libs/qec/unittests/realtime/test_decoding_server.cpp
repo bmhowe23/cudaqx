@@ -43,9 +43,9 @@
 
 #include <array>
 #include <cstdint>
-#include <map>
 #include <cstdio>
 #include <cstring>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -200,10 +200,9 @@ public:
       ::close(out_pipe[1]);
       const std::string server = server_path();
       std::vector<std::string> args = {
-          server,
-          "--config=" + (!config_file.empty() && config_file[0] == '/'
-                             ? config_file
-                             : server_dir() + "/" + config_file)};
+          server, "--config=" + (!config_file.empty() && config_file[0] == '/'
+                                     ? config_file
+                                     : server_dir() + "/" + config_file)};
       if (transport_cli) {
         args.push_back("--transport=" +
                        env_or("QEC_DECODING_SERVER_TRANSPORT", "udp"));
@@ -668,8 +667,7 @@ TEST(DecodingServerTwoProcess, TwoProcessPerDecoderRings) {
   // Device-scoped endpoints: decoder 0's session dials ring0, decoder 1's
   // session dials ring1 (device_id == decoder_id in the QEC wrappers).
   std::vector<std::string> args = {
-      "test_decoding_server", "--cudaq-device-call=udp",
-      "udp-host=127.0.0.1",
+      "test_decoding_server", "--cudaq-device-call=udp", "udp-host=127.0.0.1",
       "udp-port=" + std::to_string(server.ring_ports[0]),
       "udp-port.1=" + std::to_string(server.ring_ports[1])};
   std::vector<char *> argv;
@@ -689,10 +687,10 @@ TEST(DecodingServerTwoProcess, TwoProcessPerDecoderRings) {
   // demuxed over one wire.
   const std::int64_t dispatched = server.stopAndGetDispatchCount(2);
   EXPECT_GE(dispatched, 6) << "server output:\n" << server.captured;
-  ASSERT_EQ(server.ring_dispatched.size(), 2u)
-      << "server output:\n" << server.captured;
-  EXPECT_GE(server.ring_dispatched[0], 3)
-      << "ring 0 idle; server output:\n" << server.captured;
-  EXPECT_GE(server.ring_dispatched[1], 3)
-      << "ring 1 idle; server output:\n" << server.captured;
+  ASSERT_EQ(server.ring_dispatched.size(), 2u) << "server output:\n"
+                                               << server.captured;
+  EXPECT_GE(server.ring_dispatched[0], 3) << "ring 0 idle; server output:\n"
+                                          << server.captured;
+  EXPECT_GE(server.ring_dispatched[1], 3) << "ring 1 idle; server output:\n"
+                                          << server.captured;
 }

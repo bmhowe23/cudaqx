@@ -187,11 +187,10 @@ int main() {
   // decoder 0 -> 0b000010 (bit 1); decoder 1 -> 0b101 << 3 (bits 3 and 5).
   constexpr std::int64_t kExpectedPacked = 0b101010;
   bool ok = results.size() == 1 && results[0] == kExpectedPacked;
-  std::printf("corrections packed = 0x%llx (expected 0x%llx) [%s]\n",
-              static_cast<unsigned long long>(results.empty() ? -1
-                                                              : results[0]),
-              static_cast<unsigned long long>(kExpectedPacked),
-              ok ? "OK" : "MISMATCH");
+  std::printf(
+      "corrections packed = 0x%llx (expected 0x%llx) [%s]\n",
+      static_cast<unsigned long long>(results.empty() ? -1 : results[0]),
+      static_cast<unsigned long long>(kExpectedPacked), ok ? "OK" : "MISMATCH");
 
   // Self-verify the RPCs actually traversed the device_call rings (a correct
   // result alone does not prove this -- the direct trampolines would also

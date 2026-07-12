@@ -18,13 +18,14 @@
 #include <thread>
 #include <vector>
 
-// GPU RoCE support is an optional component (cudaq-qec-decoding-server-device-graph)
-// so this core library carries no DOCA / Hololink / CUDA-driver dependencies:
-// those .so's require libcuda.so.1 at load time, which core consumers (unit
-// tests, the CQR plugin) must not impose on driverless machines.  Binaries
-// that want device_graph dispatch link the component WHOLE_ARCHIVE, whose
-// DeviceGraphFactory.cpp provides the strong definition of this factory; anywhere
-// else the weak reference is null and make_transport throws.
+// GPU RoCE support is an optional component
+// (cudaq-qec-decoding-server-device-graph) so this core library carries no DOCA
+// / Hololink / CUDA-driver dependencies: those .so's require libcuda.so.1 at
+// load time, which core consumers (unit tests, the CQR plugin) must not impose
+// on driverless machines.  Binaries that want device_graph dispatch link the
+// component WHOLE_ARCHIVE, whose DeviceGraphFactory.cpp provides the strong
+// definition of this factory; anywhere else the weak reference is null and
+// make_transport throws.
 extern "C" __attribute__((weak)) cudaq::qec::decoding_server::ITransceiver *
 cudaqx_qec_make_device_graph_transceiver();
 
@@ -92,14 +93,16 @@ DecodingServer::DecodingServer(const std::string &config_yaml) {
     const auto &sessions = registry_.sessions();
     if (sessions.size() != 1)
       throw std::runtime_error(
-          "device_graph dispatch currently supports exactly one decoder session; "
+          "device_graph dispatch currently supports exactly one decoder "
+          "session; "
           "found " +
           std::to_string(sessions.size()) +
           ". Multi-decoder device_graph dispatch is deferred.");
     auto *session = sessions.begin()->second.get();
     if (!session->graph_resources)
       throw std::runtime_error(
-          "device_graph dispatch requires a decoder that supports graph dispatch "
+          "device_graph dispatch requires a decoder that supports graph "
+          "dispatch "
           "(supports_graph_dispatch() must return true and "
           "capture_decode_graph() must succeed)");
     if (!raw->launch_device_scheduler(session->graph_resources.get()))

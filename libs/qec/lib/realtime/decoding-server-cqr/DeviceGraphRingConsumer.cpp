@@ -79,9 +79,11 @@ bool populate_device_call(cudaq_function_entry_t &entry, const char *symbol,
 
 } // namespace
 
-DeviceGraphRingConsumer::DeviceGraphRingConsumer(
-    const cudaq_ringbuffer_t &ring, std::size_t num_slots,
-    std::size_t slot_size, int gpu_id, void *raw_graph_resources)
+DeviceGraphRingConsumer::DeviceGraphRingConsumer(const cudaq_ringbuffer_t &ring,
+                                                 std::size_t num_slots,
+                                                 std::size_t slot_size,
+                                                 int gpu_id,
+                                                 void *raw_graph_resources)
     : gpu_id_(gpu_id) {
   auto *graph_res =
       static_cast<cudaq::qec::realtime::graph_resources *>(raw_graph_resources);
@@ -230,8 +232,8 @@ void DeviceGraphRingConsumer::shutdown() {
   // Read the dispatch archive's trigger-path debug state BEFORE signalling
   // shutdown / draining (the drain hangs if a triggered decode graph never
   // completed, and this diagnostic is exactly for that case).
-  using debug_fn_t = cudaError_t (*)(int *, unsigned long long *,
-                                     unsigned long long *);
+  using debug_fn_t =
+      cudaError_t (*)(int *, unsigned long long *, unsigned long long *);
   if (auto get_debug = reinterpret_cast<debug_fn_t>(
           ::dlsym(RTLD_DEFAULT, "cudaq_dispatch_get_trigger_debug"))) {
     int trigger_rc = -1;
@@ -258,11 +260,10 @@ std::uint64_t DeviceGraphRingConsumer::dispatched() const {
   if (!d_stats_)
     return value;
   cudaStream_t stream = nullptr;
-  if (cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking) !=
-      cudaSuccess)
+  if (cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking) != cudaSuccess)
     return value;
-  if (cudaMemcpyAsync(&value, d_stats_, sizeof(value),
-                      cudaMemcpyDeviceToHost, stream) == cudaSuccess)
+  if (cudaMemcpyAsync(&value, d_stats_, sizeof(value), cudaMemcpyDeviceToHost,
+                      stream) == cudaSuccess)
     cudaStreamSynchronize(stream);
   cudaStreamDestroy(stream);
   return value;

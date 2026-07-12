@@ -48,8 +48,8 @@ void parse_endpoint_token(const std::string &info, const char *key, T &out) {
   const std::string prefix = std::string(key) + "=";
   while (in >> token)
     if (token.rfind(prefix, 0) == 0) {
-      out = static_cast<T>(
-          std::stoull(token.substr(prefix.size()), nullptr, 0));
+      out =
+          static_cast<T>(std::stoull(token.substr(prefix.size()), nullptr, 0));
       return;
     }
 }
@@ -102,11 +102,14 @@ DeviceGraphConfig DeviceGraphConfig::from_env() {
 DeviceGraphTransceiver::DeviceGraphTransceiver(const DeviceGraphConfig &config)
     : gpu_id_(config.gpu_id) {
   if (config.device_name.empty())
-    throw std::runtime_error("DeviceGraphTransceiver: QEC_DEVICE_GRAPH_DEVICE not set");
+    throw std::runtime_error(
+        "DeviceGraphTransceiver: QEC_DEVICE_GRAPH_DEVICE not set");
   if (config.peer_ip.empty())
-    throw std::runtime_error("DeviceGraphTransceiver: QEC_DEVICE_GRAPH_PEER_IP not set");
+    throw std::runtime_error(
+        "DeviceGraphTransceiver: QEC_DEVICE_GRAPH_PEER_IP not set");
   if (config.remote_qp == 0)
-    throw std::runtime_error("DeviceGraphTransceiver: QEC_DEVICE_GRAPH_REMOTE_QP not set");
+    throw std::runtime_error(
+        "DeviceGraphTransceiver: QEC_DEVICE_GRAPH_REMOTE_QP not set");
 
   // Derive page_size from frame_size if not overridden, then round up to the
   // 128-byte Hololink granularity.  Mirrors the derivation in
@@ -196,8 +199,7 @@ DeviceGraphTransceiver::DeviceGraphTransceiver(const DeviceGraphConfig &config)
   page_size_ = slot_size;
 
   char info[512] = {0};
-  if (cudaq_bridge_get_endpoint_info(bridge_, info, sizeof(info)) !=
-      CUDAQ_OK) {
+  if (cudaq_bridge_get_endpoint_info(bridge_, info, sizeof(info)) != CUDAQ_OK) {
     cudaq_bridge_destroy(bridge_);
     bridge_ = nullptr;
     throw std::runtime_error(
@@ -215,7 +217,8 @@ DeviceGraphTransceiver::DeviceGraphTransceiver(const DeviceGraphConfig &config)
   if (cudaq_bridge_connect(bridge_) != CUDAQ_OK) {
     cudaq_bridge_destroy(bridge_);
     bridge_ = nullptr;
-    throw std::runtime_error("DeviceGraphTransceiver: provider connect() failed");
+    throw std::runtime_error(
+        "DeviceGraphTransceiver: provider connect() failed");
   }
 
   CUDA_QEC_INFO("DeviceGraphTransceiver: Hololink provider started  device={} "
@@ -279,10 +282,11 @@ RxFrame DeviceGraphTransceiver::recv() {
   return {}; // shutdown sentinel: empty buf causes the recv loop to exit
 }
 
-void DeviceGraphTransceiver::send(const PeerId & /*peer*/, const uint8_t * /*data*/,
-                              size_t /*len*/) {
+void DeviceGraphTransceiver::send(const PeerId & /*peer*/,
+                                  const uint8_t * /*data*/, size_t /*len*/) {
   throw std::logic_error(
-      "DeviceGraphTransceiver::send() must not be called: the CUDAQ device-graph "
+      "DeviceGraphTransceiver::send() must not be called: the CUDAQ "
+      "device-graph "
       "scheduler writes TX responses directly to the Hololink ring buffer");
 }
 

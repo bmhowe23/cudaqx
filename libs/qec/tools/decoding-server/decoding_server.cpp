@@ -69,9 +69,9 @@
 #include "cudaq/realtime/daemon/dispatcher/cudaq_realtime.h"
 
 #ifdef QEC_HAVE_DEVICE_GRAPH_DISPATCH
-// DecodingServer.h (and DeviceGraphTransceiver.h via DecodingServer.cpp) live in
-// the decoding-server-cqr directory, added to include paths by CMakeLists when
-// CUDAQ_QEC_DEVICE_GRAPH_AVAILABLE is true.
+// DecodingServer.h (and DeviceGraphTransceiver.h via DecodingServer.cpp) live
+// in the decoding-server-cqr directory, added to include paths by CMakeLists
+// when CUDAQ_QEC_DEVICE_GRAPH_AVAILABLE is true.
 #include "DecodingServer.h"
 #endif
 
@@ -283,16 +283,16 @@ int main(int argc, char **argv) {
   // ([2a], the HSB flow); any other mix runs the composed per-decoder ring
   // loop, where each decoder's ring gets the consumer its dispatch shape
   // requires (host dispatcher thread, or device-graph scheduler).
-  const bool wants_device_graph = std::any_of(
-      decoder_config.decoders.begin(), decoder_config.decoders.end(),
-      [](const auto &d) {
-        return d.dispatch == config::DecoderDispatch::device_graph;
-      });
-  const bool all_device_graph = std::all_of(
-      decoder_config.decoders.begin(), decoder_config.decoders.end(),
-      [](const auto &d) {
-        return d.dispatch == config::DecoderDispatch::device_graph;
-      });
+  const bool wants_device_graph =
+      std::any_of(decoder_config.decoders.begin(),
+                  decoder_config.decoders.end(), [](const auto &d) {
+                    return d.dispatch == config::DecoderDispatch::device_graph;
+                  });
+  const bool all_device_graph =
+      std::all_of(decoder_config.decoders.begin(),
+                  decoder_config.decoders.end(), [](const auto &d) {
+                    return d.dispatch == config::DecoderDispatch::device_graph;
+                  });
 
   // [2a] device_graph dispatch takes a different shape (device-side
   // scheduler): bypass the CQR DeviceCallService / HOST_CALL dispatcher and
@@ -500,8 +500,7 @@ int main(int argc, char **argv) {
                                          static_cast<int>(ring_argv.size()),
                                          ring_argv.data()) != CUDAQ_OK) {
       std::cerr << "ERROR: failed to load/create transport provider '"
-                << ring_lib << "' for decoder " << ring.decoder_id
-                << std::endl;
+                << ring_lib << "' for decoder " << ring.decoder_id << std::endl;
       teardown_rings();
       return 1;
     }
@@ -599,8 +598,7 @@ int main(int argc, char **argv) {
         return value ? std::atoi(value) : 0;
       }();
       ring.dg_consumer = cudaqx_qec_make_device_graph_ring_consumer(
-          &ringbuffer, ring.num_slots, ring.slot_size, gpu_id,
-          graph_resources);
+          &ringbuffer, ring.num_slots, ring.slot_size, gpu_id, graph_resources);
       if (!ring.dg_consumer) {
         std::cerr << "ERROR: device-graph scheduler launch failed (decoder "
                   << ring.decoder_id << "; see log above)" << std::endl;
@@ -628,8 +626,8 @@ int main(int argc, char **argv) {
             CUDAQ_OK ||
         cudaq_dispatcher_set_ringbuffer(ring.dispatcher, &ringbuffer) !=
             CUDAQ_OK ||
-        cudaq_dispatcher_set_function_table(ring.dispatcher,
-                                            &function_table) != CUDAQ_OK ||
+        cudaq_dispatcher_set_function_table(ring.dispatcher, &function_table) !=
+            CUDAQ_OK ||
         cudaq_dispatcher_set_control(ring.dispatcher, &ring.shutdown_flag,
                                      &ring.dispatched) != CUDAQ_OK ||
         cudaq_dispatcher_start(ring.dispatcher) != CUDAQ_OK) {
