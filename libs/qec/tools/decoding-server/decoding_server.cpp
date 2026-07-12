@@ -113,6 +113,7 @@ namespace config = cudaq::qec::decoding::config;
 struct ServerConfig {
   std::string config_path;
   std::string transport = "udp";
+  bool transport_from_cli = false;
   int timeout_sec = 60;
   // Everything the server itself does not consume, forwarded verbatim to the
   // provider's create() (providers ignore arguments they don't recognize, so
@@ -360,7 +361,13 @@ int main(int argc, char **argv) {
   // identity is known (bound port / QP), so readiness for ALL rings is
   // published in one line before any connect() -- which, for rendezvous-
   // style transports, BLOCKS until the caller dials in.
-  const std::string provider_lib = resolve_provider_lib(cfg.transport);
+  // Process-default provider: an explicit --transport wins; otherwise the
+  // YAML transport section's provider; otherwise the built-in default.
+  const std::string default_provider =
+      (cfg.transport_from_cli || decoder_config.transport.provider.empty())
+          ? cfg.transport
+          : decoder_config.transport.provider;
+  const std::string provider_lib = resolve_provider_lib(default_provider);
   ::setenv("CUDAQ_REALTIME_BRIDGE_LIB", provider_lib.c_str(), /*overwrite=*/1);
 
   std::vector<char *> provider_argv;
@@ -419,24 +426,29 @@ int main(int argc, char **argv) {
     ring.decoder_id = dc.id;
     ring.device_graph = (dc.dispatch == config::DecoderDispatch::device_graph);
 
-    // Per-decoder transport override: "name-or-path [provider args...]".
+    // The wire is deployment config, resolved from the YAML's top-level
+    // `transport:` section (never from decoder entries).  Per-ring
+    // precedence: the section's dispatch-shape override (device_graph
+    // rings) > the section's provider/args > the --transport CLI default;
+    // an explicit --transport on the CLI overrides the section's provider.
     // "hololink" selects the builtin provider slot; any other name/path
     // resolves like --transport does.  NOTE: the bridge loader has one
-    // EXTERNAL library slot per process, so all non-hololink decoders must
-    // agree on the provider LIBRARY (per-decoder args may differ).
-    std::string ring_provider_name = cfg.transport;
-    std::vector<std::string> ring_extra_args;
-    if (!dc.transport.empty()) {
-      std::istringstream in(dc.transport);
-      in >> ring_provider_name;
-      std::string token;
-      while (in >> token)
-        ring_extra_args.push_back(token);
+    // EXTERNAL library slot per process, so all non-hololink rings must
+    // agree on the provider LIBRARY (per-shape args may differ).
+    const auto &transport_section = decoder_config.transport;
+    std::string ring_provider_name = default_provider;
+    std::vector<std::string> ring_extra_args = transport_section.args;
+    if (ring.device_graph) {
+      if (!transport_section.device_graph.provider.empty())
+        ring_provider_name = transport_section.device_graph.provider;
+      ring_extra_args.insert(ring_extra_args.end(),
+                             transport_section.device_graph.args.begin(),
+                             transport_section.device_graph.args.end());
     }
     const bool builtin_hololink = (ring_provider_name == "hololink");
     if (!builtin_hololink) {
       const std::string ring_lib = resolve_provider_lib(ring_provider_name);
-      if (ring_lib != provider_lib && ring_provider_name != cfg.transport) {
+      if (ring_lib != provider_lib) {
         // A different EXTERNAL library than the process default: the loader
         // supports one EXTERNAL lib per process today.
         std::cerr << "ERROR: decoder " << ring.decoder_id

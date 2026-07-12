@@ -192,13 +192,6 @@ struct decoder_config {
   /// VRAM and decoded by a captured CUDA graph (e.g. nv_qldpc_decoder with
   /// RelayBP).
   DecoderDispatch dispatch = DecoderDispatch::host;
-  /// Optional per-decoder transport-provider override for the decoding
-  /// server's one-ring-per-decoder topology: a provider name or /path.so,
-  /// optionally followed by provider arguments (whitespace-separated), e.g.
-  /// "udp --pinned-rings" or "hololink".  Empty = the server's --transport
-  /// default.  A device_graph decoder's provider must give GPU-pollable ring
-  /// memory.
-  std::string transport;
   uint64_t block_size = 0;
   uint64_t syndrome_size = 0;
   std::vector<std::int64_t> H_sparse;
@@ -265,9 +258,49 @@ struct decoder_config {
   from_yaml_str(const std::string &yaml_str);
 };
 
+/// Transport override applied to the rings of one dispatch shape (see
+/// transport_config::device_graph).
+struct transport_shape_override {
+  /// Provider name (e.g. udp, cpu_roce, hololink) or /path/to/lib.so.
+  /// Empty = inherit the section/CLI default.
+  std::string provider;
+  /// Extra provider arguments appended for this shape's rings.
+  std::vector<std::string> args;
+
+  bool operator==(const transport_shape_override &) const = default;
+};
+
+/// Server-level transport section: the WIRE is deployment configuration and
+/// lives OUTSIDE the decoders list.  Transports differ between rings only by
+/// dispatch shape (a device_graph ring must be GPU-pollable), so the only
+/// override is shape-keyed -- decoder entries carry no transport
+/// information.
+///
+///   transport:
+///     provider: udp
+///     args: [--slot-size=256]
+///     device_graph:
+///       provider: udp          # "hololink" on an HSB rig
+///       args: [--pinned-rings]
+///
+/// Precedence per ring: shape override (device_graph rings) > this
+/// section's provider/args > the server's --transport CLI default.  An
+/// explicit --transport on the CLI overrides the section's provider for
+/// one-off experiments.
+struct transport_config {
+  std::string provider;
+  std::vector<std::string> args;
+  transport_shape_override device_graph;
+
+  bool operator==(const transport_config &) const = default;
+};
+
 class multi_decoder_config {
 public:
   std::vector<decoder_config> decoders;
+  /// Optional server-level transport section (empty provider/args = not
+  /// specified; the server's CLI defaults apply).
+  transport_config transport;
 
   bool operator==(const multi_decoder_config &) const = default;
 

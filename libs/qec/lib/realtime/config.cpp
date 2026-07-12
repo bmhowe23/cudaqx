@@ -720,7 +720,6 @@ struct MappingTraits<cudaq::qec::decoding::config::decoder_config> {
     io.mapRequired("type", config.type);
     io.mapOptional("dispatch", config.dispatch,
                    cudaq::qec::decoding::config::DecoderDispatch::host);
-    io.mapOptional("transport", config.transport, std::string());
     io.mapRequired("block_size", config.block_size);
     io.mapRequired("syndrome_size", config.syndrome_size);
     io.mapRequired("H_sparse", config.H_sparse);
@@ -806,12 +805,36 @@ struct MappingTraits<cudaq::qec::decoding::config::decoder_config> {
   }
 };
 
+// transport section mapping traits
+template <>
+struct MappingTraits<cudaq::qec::decoding::config::transport_shape_override> {
+  static void
+  mapping(IO &io,
+          cudaq::qec::decoding::config::transport_shape_override &override_) {
+    io.mapOptional("provider", override_.provider, std::string());
+    io.mapOptional("args", override_.args);
+  }
+};
+
+template <>
+struct MappingTraits<cudaq::qec::decoding::config::transport_config> {
+  static void
+  mapping(IO &io, cudaq::qec::decoding::config::transport_config &transport) {
+    io.mapOptional("provider", transport.provider, std::string());
+    io.mapOptional("args", transport.args);
+    io.mapOptional("device_graph", transport.device_graph,
+                   cudaq::qec::decoding::config::transport_shape_override());
+  }
+};
+
 // multi_decoder_config mapping traits
 template <>
 struct MappingTraits<cudaq::qec::decoding::config::multi_decoder_config> {
   static void
   mapping(IO &io, cudaq::qec::decoding::config::multi_decoder_config &config) {
     io.mapRequired("decoders", config.decoders);
+    io.mapOptional("transport", config.transport,
+                   cudaq::qec::decoding::config::transport_config());
   }
 };
 

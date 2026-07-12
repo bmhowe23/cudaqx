@@ -169,13 +169,37 @@ Supporting pieces: SessionRegistry accepts mixed dispatch shapes (the
 single-transceiver DecodingServer paths still require uniformity via
 required_dispatch()); the CQR plugin exports
 cudaqx_qec_decoding_server_graph_resources(decoder_id) so the server can
-wire the scheduler to a decoder living behind the plugin; decoder YAML
-gains an optional per-decoder `transport: "name-or-path [args...]"`
-override (e.g. `transport: "udp --pinned-rings"`, or `hololink` for the
-builtin provider slot); the udp provider gained --pinned-rings (CUDA
-pinned+mapped ring memory a GPU consumer can poll) backed by a new
-CUDA-free external-rings transceiver API.  An all-device_graph config
-still takes the standalone DecodingServer path (the HSB flow).
+wire the scheduler to a decoder living behind the plugin; the udp provider
+gained --pinned-rings (CUDA pinned+mapped ring memory a GPU consumer can
+poll) backed by a new CUDA-free external-rings transceiver API.  An
+all-device_graph config still takes the standalone DecodingServer path
+(the HSB flow).
+
+The WIRE stays OUTSIDE the decoders list: transports differ between rings
+only by dispatch shape, so the top-level `transport:` section carries a
+shape-keyed override and decoder entries carry no transport information:
+
+```yaml
+transport:                 # server-level deployment config
+  provider: udp
+  args: [--slot-size=256]
+  device_graph:            # applied to dispatch: device_graph rings
+    provider: udp          # "hololink" on an HSB rig
+    args: [--pinned-rings]
+decoders:                  # pure decoding config
+  - id: 0
+    type: pymatching
+    dispatch: host
+    ...
+  - id: 1
+    type: nv-qldpc-decoder
+    dispatch: device_graph
+    ...
+```
+
+Per-ring precedence: shape override > section provider/args > --transport
+CLI default; an explicit --transport overrides the section's provider for
+one-off experiments.
 
 Validated locally: mixed config brings up ring0 (host dispatcher) and
 ring1 (pinned udp), READY publishes both, and the device_graph decoder
