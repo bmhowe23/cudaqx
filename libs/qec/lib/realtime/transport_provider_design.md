@@ -208,7 +208,237 @@ channel/ring, others share device 0's channel.  The builtin channel spec
 accepts per-device overrides too:
 `CUDAQ_DEVICE_CALL_CHANNEL=<default>[,<id>=<channel>...]`.
 
-### 4.3 Dispatch shape vs wire (the two-axis split)
+### 4.3 Deployment cookbook
+
+Complete minimal recipes for the deployment shapes covered by the
+contracts in 4.2.  Each recipe is: YAML config + exact launch line +
+matching caller-side configuration.  All YAML uses only keys the parser
+accepts (top-level `transport:` with `provider:`/`args:`/`device_graph:`;
+per-decoder `dispatch:`; decoder entries carry NO transport key).  The
+3-bit identity pymatching entry stands in wherever the decoder is not the
+point.
+
+**Recipe 1 -- local dev: one host decoder over udp loopback.**
+The udp provider binds an ephemeral port (`--port=0` is the default); the
+caller reads the port from the READY line.
+
+```yaml
+# decoders.yaml
+decoders:
+  - id: 0
+    type: pymatching
+    block_size: 3
+    syndrome_size: 3
+    H_sparse: [0, -1, 1, -1, 2, -1]
+    O_sparse: [0, -1, 1, -1, 2, -1]
+    D_sparse: [0, -1, 1, -1, 2, -1]
+    decoder_custom_args:
+      merge_strategy: smallest_weight
+      error_rate_vec: [0.1, 0.1, 0.1]
+```
+
+```
+decoding_server --config=decoders.yaml
+```
+
+Caller (P = the `port=` value from `QEC_DECODING_SERVER_READY port=<P>`):
+
+```
+--cudaq-device-call=udp udp-host=127.0.0.1 udp-port=<P>
+```
+
+**Recipe 2 -- two host decoders, one udp ring per decoder.**
+Each decoder gets its own ring/port; the READY line carries them as
+`ring0=<P0> ring1=<P1>` (the leading `port=` token is ring 0's).
+
+```yaml
+decoders:
+  - id: 0
+    type: pymatching
+    # ... as above
+  - id: 1
+    type: pymatching
+    # ... as above
+```
+
+```
+decoding_server --config=decoders.yaml
+```
+
+Parse `QEC_DECODING_SERVER_READY port=<P0> ... ring0=<P0> ring1=<P1>`;
+the caller scopes ring 1's endpoint with `<key>.<id>=<value>`:
+
+```
+--cudaq-device-call=udp udp-host=127.0.0.1 udp-port=<P0> udp-port.1=<P1>
+```
+
+**Recipe 3 -- cpu_roce rendezvous on an RDMA rig.**
+The provider listens on a TCP rendezvous port (published as the READY
+port); the RDMA wire itself is negotiated by the QP/rkey exchange.
+
+```yaml
+transport:
+  provider: cpu_roce
+  args: [--device=mlx5_0, --local-ip=10.0.0.2]
+decoders:
+  - id: 0
+    type: pymatching
+    # ... as above
+```
+
+```
+decoding_server --config=decoders.yaml
+```
+
+Caller (P = the READY port = the TCP rendezvous port):
+
+```
+--cudaq-device-call=cpu_roce ib-device=mlx5_0 local-ip=10.0.0.1 \
+  rendezvous-host=10.0.0.2 rendezvous-port=<P>
+```
+
+**Recipe 4 -- cpu_roce hsb_fpga (FPGA peer).**
+The peer is the FPGA, not a cudaq caller: there is no caller-side channel
+config.  The provider's one-shot QP bring-up prints the canonical
+`=== Bridge Ready ===` banner BEFORE the READY line; the FPGA-side flow
+keys off the banner.
+
+```yaml
+transport:
+  provider: cpu_roce
+  args: [--qp_config=hsb_fpga, --device=mlx5_0, --local-ip=10.0.0.2,
+         --peer-ip=10.0.0.3, --remote-qp=0x2,
+         --slot-size=384, --num-slots=64]
+decoders:
+  - id: 0
+    type: pymatching
+    # ... as above
+```
+
+```
+decoding_server --config=decoders.yaml
+```
+
+Caller: none (the FPGA drives the wire directly).
+
+**Recipe 5 -- mixed dispatch locally (host + device_graph, both udp).**
+Decoder 0 dispatches on the CPU, decoder 1 on the GPU device-graph
+scheduler; the shape-keyed override tunes only the device_graph ring.
+The device_graph decoder must be graph-capable (e.g. nv-qldpc-decoder
+with RelayBP) -- pymatching is host-only.
+
+```yaml
+transport:
+  provider: udp
+  device_graph:
+    args: [--pinned-rings]
+decoders:
+  - id: 0
+    type: pymatching
+    # ... as above
+  - id: 1
+    type: nv-qldpc-decoder
+    dispatch: device_graph
+    # block_size/syndrome_size/H_sparse/... per the decoder's code
+```
+
+```
+decoding_server --config=decoders.yaml
+```
+
+Caller: as recipe 2 (`udp-port=<P0> udp-port.1=<P1>` from the READY
+`ring0=`/`ring1=` tokens).
+
+**Recipe 6 -- mixed dispatch on an HSB rig.**
+Same YAML shape, but the device_graph ring rides the hololink provider.
+NOTE: `hololink` selects the builtin provider slot (the loader holds one
+EXTERNAL library per process), so it composes with an external provider
+for the host rings.
+
+```yaml
+transport:
+  provider: udp
+  device_graph:
+    provider: hololink
+decoders:
+  - id: 0
+    type: pymatching
+    # ... as above
+  - id: 1
+    type: nv-qldpc-decoder
+    dispatch: device_graph
+    # ... per the decoder's code
+```
+
+```
+decoding_server --config=decoders.yaml
+```
+
+Caller: host ring as recipe 1; the device_graph ring's peer is the HSB
+wire (configured via the QEC_DEVICE_GRAPH_* env, see 4.4).
+
+**Recipe 7 -- all-device_graph (standalone DecodingServer / HSB flow).**
+When every decoder is `dispatch: device_graph` the server takes the
+standalone DecodingServer path; the READY sentinel is the bare
+`QEC_DECODING_SERVER_READY device_graph` (no port tokens).
+
+```yaml
+decoders:
+  - id: 0
+    type: nv-qldpc-decoder
+    dispatch: device_graph
+    # ... per the decoder's code
+```
+
+```
+decoding_server --config=decoders.yaml
+```
+
+Orchestration waits for `QEC_DECODING_SERVER_READY device_graph`; the
+peer is the HSB wire, no cudaq caller channel.
+
+**Recipe 8 -- partner transport drop-in.**
+A `--transport` value containing '/' is loaded verbatim; unrecognized
+CLI args are forwarded to the provider's create() untouched.
+
+```
+decoding_server --config=decoders.yaml \
+  --transport=/opt/partner/libpartner_bridge.so --lane=3
+```
+
+Or equivalently via the YAML transport section (CLI `--transport` would
+override it):
+
+```yaml
+transport:
+  provider: /opt/partner/libpartner_bridge.so
+  args: [--lane=3]
+decoders:
+  - id: 0
+    type: pymatching
+    # ... as above
+```
+
+Caller: whatever channel the partner wire terminates in (partner-defined).
+
+**Recipe 9 -- in-process, no server (for completeness).**
+No decoding_server, no YAML: the application process runs the dispatch
+loop itself via the builtin channel spec:
+
+```
+CUDAQ_DEVICE_CALL_CHANNEL=host_dispatch
+```
+
+or per-device (decoder 0 host, decoder 1 device):
+
+```
+CUDAQ_DEVICE_CALL_CHANNEL=host_dispatch,1=device_dispatch
+```
+
+See `per_decoder_rings_design.md` for the in-process topology and the
+per-device channel-spec semantics.
+
+### 4.4 Dispatch shape vs wire (the two-axis split)
 
 Per-decoder YAML key `dispatch: host | device_graph` (`DecoderDispatch`)
 names HOW RPCs execute; `--transport` names the wire.  They are orthogonal:
@@ -252,7 +482,7 @@ must use the two-arg form, or an absent key resets the value to the default.
    keep READY/DISPATCHED contracts byte-compatible).
 4. Merge PR 670 (component split + weak factory + CMP0126 fix), then
    refactor GpuRoceTransceiver into DeviceGraphTransceiver as a bridge
-   consumer (4.3), then the dispatch/transport split, then remove aliases.
+   consumer (4.4), then the dispatch/transport split, then remove aliases.
 5. Point the cudaqx build at the new prefix:
    `-DCUDAQ_DIR=<prefix>/lib/cmake/cudaq -DCUDAQ_REALTIME_ROOT=<prefix>`;
    pass `-DCUDAQ_QEC_REALTIME_CUDEVICE_PROPRIETARY_ARCHIVE=<...>.a` to

@@ -8,7 +8,8 @@ device-graph decode firing) tracked in the validation notes.
 Document family:
 - `transport_provider_design.md` -- the WIRE seam: provider ABI and all
   server deployment contracts (CLI, YAML transport section, READY/RING
-  wire lines, caller-side per-ring endpoints).
+  wire lines, caller-side per-ring endpoints).  Its section 4.3 is the
+  deployment cookbook (sample YAML + launch lines per scenario).
 - this file -- the TOPOLOGY: rings, consumers, dispatch shapes, and the
   composed (mixed-dispatch) server.
 - `per_decoder_rings_validation_notes.md` -- the campaign log: what was
