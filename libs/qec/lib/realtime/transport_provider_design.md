@@ -46,12 +46,15 @@ server changes zero lines.
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
 │                    decoding_server (transport-blind)                     │
-│  YAML `dispatch:` picks the ENGINE     --transport picks the WIRE        │
-│   host ─► dispatcher object over       <name>  ► libcudaq-realtime-      │
-│           provider rings (4869 API)              bridge-<name>.so        │
-│   device_graph ─► DecodingServer /     /path.so ► partner library,       │
-│           DeviceGraphTransceiver                 verbatim, zero changes  │
-│  geometry + READY line derived FROM the provider (v2 queries)            │
+│  YAML `dispatch:` picks the ENGINE     YAML `transport:` picks the WIRE  │
+│   (per decoder)                        (per deployment; --transport is   │
+│                                         a fallback, conflict = error)    │
+│  ONE RING PER DECODER, each with its own consumer:                       │
+│   host ─► dispatcher object over        <name>  ► libcudaq-realtime-     │
+│           its provider ring (4869 API)            bridge-<name>.so       │
+│   device_graph ─► DeviceGraphRing-      /path.so ► partner library,      │
+│           Consumer (GPU scheduler)                verbatim, zero changes │
+│  geometry + READY ring tokens derived FROM the providers (v2 queries)    │
 └──────────────────────────────────────────────────────────────────────────┘
      │ links                            │ links (weak factory, WHOLE_ARCHIVE)
 ┌────────────────────┐   ┌────────────────────────────────────────────────┐
