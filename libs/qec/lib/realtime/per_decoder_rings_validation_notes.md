@@ -21,26 +21,54 @@ the architecture and contracts.
   raw RPC datagram probes (hand-built RPCHeader, magic 0x43555152, fnv1a
   ids) round-trip reset_decoder and a full-window enqueue_syndromes with
   status=0 against the device ring.
+- FULL mixed E2E incl. real device-ring decodes: see section 2 (the
+  wedge resolution) -- decode graph fired 12/12 with rc=0 and correct
+  RelayBP corrections.
 - Device-side fire-and-forget graph launch works on this box (see probe
   notes below), native sm_120 SASS and forced-JIT compute_90 alike.
 
-## 2. Open: the decode-graph wedge (locally reproducible)
+## 2. RESOLVED: the decode-graph wedge (2026-07-12, same day)
 
-After a window-completing enqueue triggers the decode graph, the
-scheduler never dispatches again (subsequent RPCs time out; teardown
-drain hangs in cudaStreamSynchronize).  Suspects, in order:
+Root cause: **cooperative-launch co-residency starvation** -- one bug
+class, two instances:
 
-1. The TRIGGERED decode graph's instantiation/upload: device-side
-   fire-and-forget requires the child instantiated with
-   `cudaGraphInstantiateFlagDeviceLaunch` AND uploaded.  Verify what
-   nv-qldpc's `capture_decode_graph` and
-   `cudaq_create_dispatch_graph_regular` do with the triggered exec.
-2. The dispatch graph's tail self-relaunch pattern.
-3. The RelayBP decode graph's own execution on this GPU.
+a. The decode graph was captured with `reserved_sms = 0`
+   (DecodingSession::create called `capture_decode_graph()` with the
+   default), sizing the cooperative grid for EVERY SM.  With the
+   persistent dispatch graph resident on one SM, the fired decode graph
+   could never become fully co-resident and would deadlock at
+   grid.sync() -- the launch silently queues forever, stalling the tail
+   self-relaunch and wedging the scheduler.  FIXED: DecodingSession now
+   captures with `reserved_sms = 1` (override:
+   `QEC_DECODE_GRAPH_RESERVED_SMS`, e.g. higher on rigs where Hololink
+   RX/TX kernels are also resident).
+b. HOST-path nv-qldpc decode launches its own cooperative GPU kernels,
+   also sized without reservation -- with a device-graph scheduler
+   resident (mixed server), the host decode hangs the same way.  A udp
+   proxy trace localized the app wedge to ring0's get_corrections (the
+   HOST ring), not the device ring.  OPEN (plugin-side): plumb SM
+   reservation into the host decode path; until then do not co-locate a
+   host GPU-cooperative decoder with a resident scheduler (use a CPU
+   decoder such as multi_error_lut on host rings in mixed deployments).
 
-First diagnostic step: the dispatch kernel DROPS the device-side
-`cudaGraphLaunch` return code -- surface it (pinned error slot or device
-printf) in cudaq-realtime-dispatch.
+Positive end-to-end proof (WSL2 laptop, two-process, pinned-udp device
+ring): sc4 app, 10 shots at p_spam=0.08, decoder 0 multi_error_lut
+(host ring) + decoder 1 nv-qldpc RelayBP (device ring):
+`trigger debug rc=0 fires=12 tail_relaunches=12`, both rings
+dispatched=72, `decoder[1] corrections=2, logical_errors=0/10`, clean
+teardown.  The rig is no longer required to exercise this path.
+
+Diagnostics added along the way (kept):
+- `cudaq_dispatch_get_trigger_debug()` (cudaq-realtime-dispatch):
+  device-side trigger rc + fire and tail-relaunch counters; async-safe
+  to call while the scheduler is live or wedged.  Healthy signature:
+  rc=0, fires == tail_relaunches.  Logged by DeviceGraphRingConsumer at
+  shutdown.
+- DeviceGraphRingConsumer::dispatched() and the debug reader use async
+  copies on non-blocking streams: a legacy default-stream cudaMemcpy
+  SYNCHRONIZES with the persistent scheduler graph and self-deadlocks
+  (this trap manufactured a fake teardown hang during the
+  investigation).
 
 ## 3. Probe methodology (and the invalid-probe lesson)
 

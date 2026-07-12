@@ -11,6 +11,7 @@
 #include "cudaq/qec/logger.h"
 
 #include <chrono>
+#include <cstdlib>
 #include <cstring>
 #include <stdexcept>
 #include <vector>
@@ -51,7 +52,17 @@ DecodingSession::create(std::unique_ptr<cudaq::qec::decoder> decoder,
   s->dec = std::move(decoder);
 
   if (s->dec->supports_graph_dispatch()) {
-    void *gr = s->dec->capture_decode_graph();
+    // Reserve SMs so the cooperative decode graph can become co-resident
+    // with everything else occupying the GPU when it is fired device-side:
+    // the persistent dispatch graph itself (1 block) plus any transport
+    // kernels.  A cooperative grid sized for ALL SMs deadlocks at
+    // grid.sync() the moment anything else is resident -- the launch
+    // silently queues forever.  Overridable for rigs with more coresident
+    // kernels (e.g. Hololink RX/TX) via QEC_DECODE_GRAPH_RESERVED_SMS.
+    int reserved_sms = 1;
+    if (const char *env = std::getenv("QEC_DECODE_GRAPH_RESERVED_SMS"))
+      reserved_sms = std::atoi(env);
+    void *gr = s->dec->capture_decode_graph(reserved_sms);
     s->graph_resources =
         GraphResourcesPtr(gr, GraphResourcesDeleter{s->dec.get()});
   }

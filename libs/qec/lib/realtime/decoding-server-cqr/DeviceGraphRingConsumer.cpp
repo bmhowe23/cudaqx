@@ -215,14 +215,44 @@ void DeviceGraphRingConsumer::shutdown() {
   if (stopped_)
     return;
   stopped_ = true;
+  // Read the dispatch archive's trigger-path debug state BEFORE signalling
+  // shutdown / draining (the drain hangs if a triggered decode graph never
+  // completed, and this diagnostic is exactly for that case).
+  using debug_fn_t = cudaError_t (*)(int *, unsigned long long *,
+                                     unsigned long long *);
+  if (auto get_debug = reinterpret_cast<debug_fn_t>(
+          ::dlsym(RTLD_DEFAULT, "cudaq_dispatch_get_trigger_debug"))) {
+    int trigger_rc = -1;
+    unsigned long long fires = 0, tails = 0;
+    if (get_debug(&trigger_rc, &fires, &tails) == cudaSuccess)
+      CUDA_QEC_INFO(
+          "DeviceGraphRingConsumer: trigger debug rc={} ({}) fires={} "
+          "tail_relaunches={}",
+          trigger_rc,
+          trigger_rc == -1000
+              ? "never fired"
+              : cudaGetErrorString(static_cast<cudaError_t>(trigger_rc)),
+          fires, tails);
+  }
   if (shutdown_host_)
     __atomic_store_n(shutdown_host_, 1, __ATOMIC_RELEASE);
 }
 
 std::uint64_t DeviceGraphRingConsumer::dispatched() const {
+  // Async copy on a private non-blocking stream: a legacy default-stream
+  // cudaMemcpy would synchronize with the (persistent, possibly wedged)
+  // scheduler graph and deadlock the caller.
   std::uint64_t value = 0;
-  if (d_stats_)
-    cudaMemcpy(&value, d_stats_, sizeof(value), cudaMemcpyDeviceToHost);
+  if (!d_stats_)
+    return value;
+  cudaStream_t stream = nullptr;
+  if (cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking) !=
+      cudaSuccess)
+    return value;
+  if (cudaMemcpyAsync(&value, d_stats_, sizeof(value),
+                      cudaMemcpyDeviceToHost, stream) == cudaSuccess)
+    cudaStreamSynchronize(stream);
+  cudaStreamDestroy(stream);
   return value;
 }
 
