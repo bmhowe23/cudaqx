@@ -205,8 +205,6 @@ suspects, and gotchas: `per_decoder_rings_validation_notes.md`.
   never completes; consider a timed drain + loud abandon.
 - Per-decoder rings over cpu_roce two-process (udp validated; the caller
   scopes rendezvous-port.<id>= identically; needs the RDMA rig).
-- Bridge-loader EXTERNAL slot is one library per process; mixed external
-  providers need the loader keyed by path (upstream).
 - `createDispatchSession(mode, deviceId)` upstream API extension.
 - Fan-in (decoder 1 <- ring 1..k <- QP m): provider-internal QP
   aggregation behind one ring context; `vp_id` in the enqueue_syndromes

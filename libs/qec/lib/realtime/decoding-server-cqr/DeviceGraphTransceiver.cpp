@@ -196,19 +196,23 @@ DeviceGraphTransceiver::DeviceGraphTransceiver(const DeviceGraphConfig &config)
   for (auto &a : args)
     argv.push_back(const_cast<char *>(a.c_str()));
 
-  // Built-in Hololink provider by default; CUDAQ_REALTIME_BRIDGE_LIB selects
-  // a replacement provider library (same mechanism as the decoding server's
+  // A provider is just a library name/path to the loader (cached per
+  // process, keyed by that string).  Default to the hololink GPU-RoCE
+  // provider shipped with cudaq-realtime; CUDAQ_REALTIME_BRIDGE_LIB names a
+  // replacement library (same mechanism as the decoding server's
   // --transport=<path>.so partner drop-in).
-  const auto provider = std::getenv("CUDAQ_REALTIME_BRIDGE_LIB")
-                            ? CUDAQ_PROVIDER_EXTERNAL
-                            : CUDAQ_PROVIDER_HOLOLINK;
-  if (cudaq_bridge_create(&bridge_, provider, static_cast<int>(argv.size()),
-                          argv.data()) != CUDAQ_OK ||
+  const char *env_lib = std::getenv("CUDAQ_REALTIME_BRIDGE_LIB");
+  const std::string provider_lib =
+      env_lib ? env_lib : "libcudaq-realtime-bridge-hololink.so";
+  if (cudaq_bridge_create_from_library(&bridge_, provider_lib.c_str(),
+                                       static_cast<int>(argv.size()),
+                                       argv.data()) != CUDAQ_OK ||
       !bridge_)
     throw std::runtime_error(
         "DeviceGraphTransceiver: bridge provider create failed for device=" +
-        config.device_name + " peer=" + config.peer_ip +
-        " (is libcudaq-realtime-bridge-hololink.so on the loader path, and "
+        config.device_name + " peer=" + config.peer_ip + " (is " +
+        provider_lib +
+        " on the loader path, and "
         "does the IB netdev have an IPv4 address assigned for RoCE v2 GID?)");
 
   // Adopt the DOCA ring buffer GPU VRAM pointers from the provider.

@@ -117,8 +117,13 @@ get_ring_geometry(handle, num_slots*, slot_size*)
 Loader rules (`bridge_interface_api.cpp`): accepts provider versions in
 `[1, CURRENT]`; fields past `disconnect` are read only from v2+; missing
 capability => `CUDAQ_ERR_UNSUPPORTED` (new status value).  Providers load
-via `CUDAQ_PROVIDER_HOLOLINK` (builtin soname) or `CUDAQ_PROVIDER_EXTERNAL`
-+ `CUDAQ_REALTIME_BRIDGE_LIB=<path>`.  Version compatibility is
+via `cudaq_bridge_create_from_library(<name-or-path>)`: libraries are
+cached per process keyed by that string, so any number of distinct
+provider libraries coexist in one process ("hololink" is just the
+provider whose library name is `libcudaq-realtime-bridge-hololink.so`).
+The enum API (`CUDAQ_PROVIDER_HOLOLINK` / `CUDAQ_PROVIDER_EXTERNAL` +
+`CUDAQ_REALTIME_BRIDGE_LIB=<path>`) remains as a convenience wrapper over
+the string-keyed path.  Version compatibility is
 asymmetric BY DESIGN: new core runs old providers; an old core rejects a v2
 provider loudly at load ("expected 1, got 2") -- core and providers upgrade
 together across the v1->v2 boundary.
@@ -153,9 +158,10 @@ decoding_server --config=<decoders.yaml>
 - `--transport` name -> `libcudaq-realtime-bridge-<name>.so` resolved in
   QEC_BRIDGE_PROVIDER_DIR (baked at CMake time: the dir of
   libcudaq-realtime.so); a value containing '/' is loaded verbatim (partner
-  drop-in).  The server setenv's CUDAQ_REALTIME_BRIDGE_LIB and uses the
-  EXTERNAL provider path.  NOTE: the loader holds ONE external library per
-  process; `hololink` selects the builtin provider slot instead.
+  drop-in).  The server passes the resolved library to
+  `cudaq_bridge_create_from_library` per ring; the loader caches libraries
+  per name, so rings may mix provider libraries freely (`hololink`
+  resolves like any other name).
 
 **YAML transport section.**  The wire is deployment configuration and
 lives at the TOP LEVEL of the config file, never inside decoder entries.
@@ -350,10 +356,9 @@ Caller: as recipe 2 (`udp-port=<P0> udp-port.1=<P1>` from the READY
 `ring0=`/`ring1=` tokens).
 
 **Recipe 6 -- mixed dispatch on an HSB rig.**
-Same YAML shape, but the device_graph ring rides the hololink provider.
-NOTE: `hololink` selects the builtin provider slot (the loader holds one
-EXTERNAL library per process), so it composes with an external provider
-for the host rings.
+Same YAML shape, but the device_graph ring rides the hololink provider --
+just another provider library to the string-keyed loader, so it composes
+with any provider on the host rings.
 
 ```yaml
 transport:
@@ -516,8 +521,9 @@ must use the two-arg form, or an absent key resets the value to the default.
   per_decoder_rings_design.md).
 - Provider-internal QP fan-in for one-to-many decoder:QP topologies;
   `vp_id` in the enqueue_syndromes payload for the syndrome mapping table
-  (cudaq-spec decoder_server_runtime.md); bridge-loader EXTERNAL slot keyed
-  by path so one process can mix external provider libraries.
+  (cudaq-spec decoder_server_runtime.md).  (The bridge loader is now keyed
+  by library name/path -- `cudaq_bridge_create_from_library` -- so one
+  process can mix provider libraries; the enum API remains as a wrapper.)
 - Public-surface cleanup in cudaq-realtime: deprecate the raw ring loop,
   graph_launch_engine surface, transport wrapper headers, and hololink
   headers; replace the `cudaq*` version-script wildcard with an explicit

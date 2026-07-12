@@ -54,7 +54,7 @@
 /// dispatcher below; a device_graph decoder routes the whole server through
 /// the CQR DecodingServer, whose DeviceGraphTransceiver runs the
 /// self-relaunching GPU scheduler over the same kind of runtime-loaded
-/// provider (built-in hololink by default; an explicit --transport selects
+/// provider (the hololink library by default; an explicit --transport selects
 /// another).
 
 #include "cudaq/qec/realtime/decoding_config.h"
@@ -136,7 +136,12 @@ bool parse_args(int argc, char **argv, ServerConfig &cfg) {
                    "[provider args, forwarded verbatim: e.g. --port=N "
                    "--num-slots=N --slot-size=N --device=NAME "
                    "--local-ip=ADDR --qp_config=rendezvous|hsb_fpga "
-                   "--peer-ip=ADDR --remote-qp=N --frame-size=N]"
+                   "--peer-ip=ADDR --remote-qp=N --frame-size=N]\n"
+                   "Providers and their args are defined by the installed "
+                   "cudaq-realtime (libcudaq-realtime-bridge-<name>.so); "
+                   "the names and args above are examples, not an "
+                   "exhaustive list -- the installation is the source of "
+                   "truth."
                 << std::endl;
       return false;
     } else if (starts_with(a, "--config="))
@@ -367,8 +372,6 @@ int main(int argc, char **argv) {
       (cfg.transport_from_cli || decoder_config.transport.provider.empty())
           ? cfg.transport
           : decoder_config.transport.provider;
-  const std::string provider_lib = resolve_provider_lib(default_provider);
-  ::setenv("CUDAQ_REALTIME_BRIDGE_LIB", provider_lib.c_str(), /*overwrite=*/1);
 
   std::vector<char *> provider_argv;
   provider_argv.reserve(cfg.provider_args.size());
@@ -431,10 +434,9 @@ int main(int argc, char **argv) {
     // precedence: the section's dispatch-shape override (device_graph
     // rings) > the section's provider/args > the --transport CLI default;
     // an explicit --transport on the CLI overrides the section's provider.
-    // "hololink" selects the builtin provider slot; any other name/path
-    // resolves like --transport does.  NOTE: the bridge loader has one
-    // EXTERNAL library slot per process, so all non-hololink rings must
-    // agree on the provider LIBRARY (per-shape args may differ).
+    // Every provider name/path resolves the same way --transport does; the
+    // bridge loader caches libraries per name, so different rings may load
+    // different provider libraries in one process.
     const auto &transport_section = decoder_config.transport;
     std::string ring_provider_name = default_provider;
     std::vector<std::string> ring_extra_args = transport_section.args;
@@ -445,35 +447,17 @@ int main(int argc, char **argv) {
                              transport_section.device_graph.args.begin(),
                              transport_section.device_graph.args.end());
     }
-    const bool builtin_hololink = (ring_provider_name == "hololink");
-    if (!builtin_hololink) {
-      const std::string ring_lib = resolve_provider_lib(ring_provider_name);
-      if (ring_lib != provider_lib) {
-        // A different EXTERNAL library than the process default: the loader
-        // supports one EXTERNAL lib per process today.
-        std::cerr << "ERROR: decoder " << ring.decoder_id
-                  << " requests external provider '" << ring_lib
-                  << "' but this process already uses '" << provider_lib
-                  << "' (one EXTERNAL provider library per process; use "
-                     "'hololink' for the builtin slot, or align the "
-                     "providers)"
-                  << std::endl;
-        teardown_rings();
-        return 1;
-      }
-    }
+    const std::string ring_lib = resolve_provider_lib(ring_provider_name);
     std::vector<char *> ring_argv = provider_argv;
     for (auto &a : ring_extra_args)
       ring_argv.push_back(a.data());
 
-    if (cudaq_bridge_create(&ring.bridge,
-                            builtin_hololink ? CUDAQ_PROVIDER_HOLOLINK
-                                             : CUDAQ_PROVIDER_EXTERNAL,
-                            static_cast<int>(ring_argv.size()),
-                            ring_argv.data()) != CUDAQ_OK) {
+    if (cudaq_bridge_create_from_library(&ring.bridge, ring_lib.c_str(),
+                                         static_cast<int>(ring_argv.size()),
+                                         ring_argv.data()) != CUDAQ_OK) {
       std::cerr << "ERROR: failed to load/create transport provider '"
-                << (builtin_hololink ? std::string("hololink") : provider_lib)
-                << "' for decoder " << ring.decoder_id << std::endl;
+                << ring_lib << "' for decoder " << ring.decoder_id
+                << std::endl;
       teardown_rings();
       return 1;
     }
