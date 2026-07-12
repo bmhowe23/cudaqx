@@ -160,13 +160,11 @@ std::string resolve_provider_lib(const std::string &transport) {
   return soname;
 }
 
-// Publish the rendezvous endpoint for callers/orchestration.  The line is
-// `QEC_DECODING_SERVER_READY port=<P> <rest>`: the port token is hoisted to
-// the front (test fixtures sscanf "port=%hu" right after the prefix) and the
-// rest of the provider's endpoint description follows verbatim.
-void print_ready(const std::string &endpoint_info) {
+// Split a provider endpoint-info line into its port and the remaining
+// tokens.
+std::uint16_t split_endpoint_info(const std::string &endpoint_info,
+                                  std::string &rest) {
   std::uint16_t port = 0;
-  std::string rest;
   std::istringstream in(endpoint_info);
   std::string token;
   while (in >> token) {
@@ -175,9 +173,7 @@ void print_ready(const std::string &endpoint_info) {
     else
       rest += (rest.empty() ? "" : " ") + token;
   }
-  std::cout << "QEC_DECODING_SERVER_READY port=" << port
-            << (rest.empty() ? "" : " ") << rest << std::endl;
-  std::cout.flush();
+  return port;
 }
 
 } // namespace
@@ -329,10 +325,16 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  // [3] Load the transport provider and bring the endpoint up.  create()
-  // takes the transport to the point where its endpoint identity is known
-  // (bound port / QP), so readiness is published before connect() -- which,
-  // for rendezvous-style transports, BLOCKS until the caller dials in.
+  // [3] Load the transport provider and bring up ONE RING PER DECODER: each
+  // decoder in the YAML gets its own provider instance (own endpoint), its
+  // own ring buffer, and its own dispatcher -- the two-process form of the
+  // one-ring-per-decoder topology (callers route with device_id ==
+  // decoder_id and per-device endpoint args, e.g. udp-port.<id>=<port>).
+  //
+  // create() takes each transport instance to the point where its endpoint
+  // identity is known (bound port / QP), so readiness for ALL rings is
+  // published in one line before any connect() -- which, for rendezvous-
+  // style transports, BLOCKS until the caller dials in.
   const std::string provider_lib = resolve_provider_lib(cfg.transport);
   ::setenv("CUDAQ_REALTIME_BRIDGE_LIB", provider_lib.c_str(), /*overwrite=*/1);
 
@@ -341,96 +343,147 @@ int main(int argc, char **argv) {
   for (auto &a : cfg.provider_args)
     provider_argv.push_back(a.data());
 
-  cudaq_realtime_bridge_handle_t bridge = nullptr;
-  if (cudaq_bridge_create(&bridge, CUDAQ_PROVIDER_EXTERNAL,
-                          static_cast<int>(provider_argv.size()),
-                          provider_argv.data()) != CUDAQ_OK) {
-    std::cerr << "ERROR: failed to load/create transport provider '"
-              << provider_lib << "' (--transport=" << cfg.transport << ")"
-              << std::endl;
-    return 1;
+  struct DecoderRing {
+    std::int64_t decoder_id = 0;
+    cudaq_realtime_bridge_handle_t bridge = nullptr;
+    std::uint32_t num_slots = 0;
+    std::uint32_t slot_size = 0;
+    std::uint16_t port = 0;
+    std::string endpoint_rest; // endpoint info minus the port token
+    int shutdown_flag = 0;
+    std::uint64_t dispatched = 0;
+    cudaq_dispatcher_t *dispatcher = nullptr;
+  };
+  // Sized once up front: set_control hands the dispatcher pointers into
+  // these elements, so their addresses must not move.
+  std::vector<DecoderRing> rings(decoder_config.decoders.size());
+
+  cudaq_dispatch_manager_t *manager = nullptr;
+  const auto teardown_rings = [&]() {
+    for (auto &ring : rings) {
+      if (ring.dispatcher) {
+        cudaq_dispatcher_stop(ring.dispatcher);
+        cudaq_dispatcher_destroy(ring.dispatcher);
+        ring.dispatcher = nullptr;
+      }
+      if (ring.bridge) {
+        cudaq_bridge_disconnect(ring.bridge);
+        cudaq_bridge_destroy(ring.bridge);
+        ring.bridge = nullptr;
+      }
+    }
+    if (manager) {
+      cudaq_dispatch_manager_destroy(manager);
+      manager = nullptr;
+    }
+  };
+
+  for (std::size_t i = 0; i < rings.size(); ++i) {
+    auto &ring = rings[i];
+    ring.decoder_id = decoder_config.decoders[i].id;
+    if (cudaq_bridge_create(&ring.bridge, CUDAQ_PROVIDER_EXTERNAL,
+                            static_cast<int>(provider_argv.size()),
+                            provider_argv.data()) != CUDAQ_OK) {
+      std::cerr << "ERROR: failed to load/create transport provider '"
+                << provider_lib << "' (--transport=" << cfg.transport
+                << ") for decoder " << ring.decoder_id << std::endl;
+      teardown_rings();
+      return 1;
+    }
+    // Dispatcher geometry comes from the provider, not from re-parsed CLI.
+    if (cudaq_bridge_get_ring_geometry(ring.bridge, &ring.num_slots,
+                                       &ring.slot_size) != CUDAQ_OK) {
+      std::cerr << "ERROR: transport provider does not report ring geometry "
+                   "(bridge interface v2 required)"
+                << std::endl;
+      teardown_rings();
+      return 1;
+    }
+    char endpoint_info[512] = {0};
+    if (cudaq_bridge_get_endpoint_info(ring.bridge, endpoint_info,
+                                       sizeof(endpoint_info)) != CUDAQ_OK)
+      std::snprintf(endpoint_info, sizeof(endpoint_info), "transport=%s",
+                    cfg.transport.c_str());
+    ring.port = split_endpoint_info(endpoint_info, ring.endpoint_rest);
   }
 
-  // Dispatcher geometry comes from the provider, not from re-parsed CLI.
-  std::uint32_t num_slots = 0, slot_size = 0;
-  if (cudaq_bridge_get_ring_geometry(bridge, &num_slots, &slot_size) !=
-      CUDAQ_OK) {
-    std::cerr << "ERROR: transport provider does not report ring geometry "
-                 "(bridge interface v2 required)"
-              << std::endl;
-    cudaq_bridge_destroy(bridge);
-    return 1;
+  // One READY line for all rings.  The leading `port=` token is ring 0's
+  // (existing single-ring consumers sscanf it right after the prefix); each
+  // ring additionally publishes `ring<decoder_id>=<port>` for per-device
+  // endpoint wiring on the caller.
+  {
+    std::ostringstream ready;
+    ready << "QEC_DECODING_SERVER_READY port=" << rings[0].port;
+    if (!rings[0].endpoint_rest.empty())
+      ready << ' ' << rings[0].endpoint_rest;
+    for (const auto &ring : rings)
+      ready << " ring" << ring.decoder_id << '=' << ring.port;
+    std::cout << ready.str() << std::endl;
+    std::cout.flush();
   }
 
-  char endpoint_info[512] = {0};
-  if (cudaq_bridge_get_endpoint_info(bridge, endpoint_info,
-                                     sizeof(endpoint_info)) != CUDAQ_OK)
-    std::snprintf(endpoint_info, sizeof(endpoint_info), "transport=%s",
-                  cfg.transport.c_str());
-  print_ready(endpoint_info);
-
-  if (cudaq_bridge_connect(bridge) != CUDAQ_OK) {
-    std::cerr << "ERROR: transport provider connect() failed" << std::endl;
-    cudaq_bridge_destroy(bridge);
-    return 1;
-  }
-
-  cudaq_ringbuffer_t ringbuffer{};
-  if (cudaq_bridge_get_transport_context(bridge, RING_BUFFER, &ringbuffer) !=
-      CUDAQ_OK) {
-    std::cerr << "ERROR: transport provider has no ring-buffer context"
-              << std::endl;
-    cudaq_bridge_destroy(bridge);
-    return 1;
-  }
-
-  // [4] Drive the libcudaq-realtime dispatcher object over the provider's
-  // rings.  The dispatch table is HOST_CALL-only, so the HOST-path ring loop
-  // runs the inline HOST_CALL path (the dispatcher creates no GRAPH_LAUNCH
-  // engine for a table with no graph entries).
-  int dispatcher_shutdown = 0;
-  std::uint64_t packets_dispatched = 0;
-
-  cudaq_dispatcher_config_t dispatch_config{};
-  dispatch_config.num_slots = num_slots;
-  dispatch_config.slot_size = slot_size;
-  dispatch_config.dispatch_path = CUDAQ_DISPATCH_PATH_HOST;
-  dispatch_config.dispatch_mode = CUDAQ_DISPATCH_HOST_CALL;
-  dispatch_config.kernel_type = CUDAQ_KERNEL_REGULAR;
-  dispatch_config.skip_tx_markers = 1;
-
+  // [4] Per ring: connect, adopt the ring context, and drive a
+  // libcudaq-realtime dispatcher object over it.  The dispatch table is
+  // HOST_CALL-only and SHARED by every ring (handlers route by the
+  // payload's decoder_id; a decoder's ring simply only ever carries its own
+  // id).
   cudaq_function_table_t function_table{};
   function_table.entries = table.entries;
   function_table.count = table.count;
 
-  cudaq_dispatch_manager_t *manager = nullptr;
-  cudaq_dispatcher_t *dispatcher = nullptr;
-  if (cudaq_dispatch_manager_create(&manager) != CUDAQ_OK ||
-      cudaq_dispatcher_create(manager, &dispatch_config, &dispatcher) !=
-          CUDAQ_OK ||
-      cudaq_dispatcher_set_ringbuffer(dispatcher, &ringbuffer) != CUDAQ_OK ||
-      cudaq_dispatcher_set_function_table(dispatcher, &function_table) !=
-          CUDAQ_OK ||
-      cudaq_dispatcher_set_control(dispatcher, &dispatcher_shutdown,
-                                   &packets_dispatched) != CUDAQ_OK ||
-      cudaq_dispatcher_start(dispatcher) != CUDAQ_OK) {
-    std::cerr << "ERROR: dispatcher bring-up failed" << std::endl;
-    if (dispatcher)
-      cudaq_dispatcher_destroy(dispatcher);
-    if (manager)
-      cudaq_dispatch_manager_destroy(manager);
-    cudaq_bridge_destroy(bridge);
+  if (cudaq_dispatch_manager_create(&manager) != CUDAQ_OK) {
+    std::cerr << "ERROR: dispatch manager create failed" << std::endl;
+    teardown_rings();
     return 1;
   }
 
-  // Start the provider's I/O loop last, once the dispatcher is polling.
-  if (cudaq_bridge_launch(bridge) != CUDAQ_OK) {
-    std::cerr << "ERROR: transport provider launch() failed" << std::endl;
-    cudaq_dispatcher_stop(dispatcher);
-    cudaq_dispatcher_destroy(dispatcher);
-    cudaq_dispatch_manager_destroy(manager);
-    cudaq_bridge_destroy(bridge);
-    return 1;
+  for (auto &ring : rings) {
+    if (cudaq_bridge_connect(ring.bridge) != CUDAQ_OK) {
+      std::cerr << "ERROR: transport provider connect() failed (decoder "
+                << ring.decoder_id << ")" << std::endl;
+      teardown_rings();
+      return 1;
+    }
+    cudaq_ringbuffer_t ringbuffer{};
+    if (cudaq_bridge_get_transport_context(ring.bridge, RING_BUFFER,
+                                           &ringbuffer) != CUDAQ_OK) {
+      std::cerr << "ERROR: transport provider has no ring-buffer context "
+                   "(decoder "
+                << ring.decoder_id << ")" << std::endl;
+      teardown_rings();
+      return 1;
+    }
+
+    cudaq_dispatcher_config_t dispatch_config{};
+    dispatch_config.num_slots = ring.num_slots;
+    dispatch_config.slot_size = ring.slot_size;
+    dispatch_config.dispatch_path = CUDAQ_DISPATCH_PATH_HOST;
+    dispatch_config.dispatch_mode = CUDAQ_DISPATCH_HOST_CALL;
+    dispatch_config.kernel_type = CUDAQ_KERNEL_REGULAR;
+    dispatch_config.skip_tx_markers = 1;
+
+    if (cudaq_dispatcher_create(manager, &dispatch_config, &ring.dispatcher) !=
+            CUDAQ_OK ||
+        cudaq_dispatcher_set_ringbuffer(ring.dispatcher, &ringbuffer) !=
+            CUDAQ_OK ||
+        cudaq_dispatcher_set_function_table(ring.dispatcher,
+                                            &function_table) != CUDAQ_OK ||
+        cudaq_dispatcher_set_control(ring.dispatcher, &ring.shutdown_flag,
+                                     &ring.dispatched) != CUDAQ_OK ||
+        cudaq_dispatcher_start(ring.dispatcher) != CUDAQ_OK) {
+      std::cerr << "ERROR: dispatcher bring-up failed (decoder "
+                << ring.decoder_id << ")" << std::endl;
+      teardown_rings();
+      return 1;
+    }
+
+    // Start the provider's I/O loop last, once the dispatcher is polling.
+    if (cudaq_bridge_launch(ring.bridge) != CUDAQ_OK) {
+      std::cerr << "ERROR: transport provider launch() failed (decoder "
+                << ring.decoder_id << ")" << std::endl;
+      teardown_rings();
+      return 1;
+    }
   }
 
   // [5] Run until signalled or timed out.
@@ -444,16 +497,18 @@ int main(int argc, char **argv) {
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
   }
 
-  // [6] Orderly shutdown: stop the dispatcher (sets the shutdown flag and
-  // joins the loop thread), then the transport, then the DecodingServer
+  // [6] Orderly shutdown: stop each dispatcher (sets its shutdown flag and
+  // joins its loop thread) and its transport, then the DecodingServer
   // receive loop (a still-joinable static thread would std::terminate).
-  cudaq_dispatcher_stop(dispatcher);
-  cudaq_dispatcher_destroy(dispatcher);
-  cudaq_dispatch_manager_destroy(manager);
-  cudaq_bridge_disconnect(bridge);
-  cudaq_bridge_destroy(bridge);
+  // NOTE: the dispatcher flushes its stats counter when its loop exits, so
+  // the per-ring counts are only valid AFTER teardown (dispatcher_stop joins
+  // the loop thread).  teardown_rings leaves ring.dispatched intact.
+  teardown_rings();
   cudaqx_qec_decoding_server_shutdown();
 
+  for (const auto &ring : rings)
+    std::cout << "QEC_DECODING_SERVER_RING decoder=" << ring.decoder_id
+              << " dispatched=" << ring.dispatched << std::endl;
   std::cout << "QEC_DECODING_SERVER_DISPATCHED count="
             << cudaqx_qec_device_call_dispatch_count() << std::endl;
   // Concurrency evidence for multi-logical-qubit tests: high-water mark of

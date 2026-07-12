@@ -43,6 +43,7 @@
 
 #include <array>
 #include <cstdint>
+#include <map>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -224,18 +225,41 @@ public:
       error = "could not parse server port from: " + ready_line;
       return false;
     }
+    // One-ring-per-decoder servers additionally publish ring<id>=<port>
+    // tokens (one per decoder).
+    {
+      std::istringstream tokens(ready_line);
+      std::string token;
+      while (tokens >> token) {
+        long long id = -1;
+        unsigned ring_port = 0;
+        if (std::sscanf(token.c_str(), "ring%lld=%u", &id, &ring_port) == 2)
+          ring_ports[id] = static_cast<std::uint16_t>(ring_port);
+      }
+    }
     return true;
   }
 
   // Terminate the server and return its dispatched-request count (-1 if the
   // shutdown line never appeared). Also captures the per-decoder-worker
   // concurrency high-water mark into max_concurrent_decoders.
-  std::int64_t stopAndGetDispatchCount() {
+  std::int64_t stopAndGetDispatchCount(int num_rings = 0) {
     if (pid <= 0)
       return -1;
     ::kill(pid, SIGTERM);
     std::string line;
     std::int64_t count = -1;
+    // The per-ring QEC_DECODING_SERVER_RING lines precede the DISPATCHED
+    // line; collect them when the caller expects a multi-ring server.
+    for (int i = 0; i < num_rings; ++i) {
+      if (!readLineWithPrefix("QEC_DECODING_SERVER_RING", 10000, line))
+        break;
+      long long id = -1, dispatched = -1;
+      if (std::sscanf(line.c_str(),
+                      "QEC_DECODING_SERVER_RING decoder=%lld dispatched=%lld",
+                      &id, &dispatched) == 2)
+        ring_dispatched[id] = dispatched;
+    }
     if (readLineWithPrefix("QEC_DECODING_SERVER_DISPATCHED", 10000, line)) {
       long long parsed = -1;
       if (std::sscanf(line.c_str(), "QEC_DECODING_SERVER_DISPATCHED count=%lld",
@@ -271,6 +295,8 @@ public:
   }
 
   std::uint16_t port = 0;
+  std::map<long long, std::uint16_t> ring_ports;
+  std::map<long long, std::int64_t> ring_dispatched;
   std::string captured;
   std::int64_t max_concurrent_decoders = -1;
 
@@ -479,4 +505,77 @@ TEST(DecodingServerTwoProcess, TwoProcessHostDispatchDualDecoders) {
   EXPECT_GE(dispatched, 6) << "server output:\n" << server.captured;
   EXPECT_GE(server.max_concurrent_decoders, 1) << "server output:\n"
                                                << server.captured;
+}
+
+// ---------------------------------------------------------------------------
+// ONE RING PER DECODER, TWO PROCESSES: the server opens one provider
+// instance (one udp endpoint, one ring, one dispatcher) per decoder and
+// publishes ring<id>=<port> tokens on its READY line; the caller wires each
+// decoder's device_call session to its own endpoint via device-scoped
+// channel arguments (udp-port.<id>=).  The per-ring dispatched counts on
+// shutdown prove BOTH rings carried this test's traffic -- the property the
+// shared-ring DualDecoders test cannot show.
+// ---------------------------------------------------------------------------
+
+TEST(DecodingServerTwoProcess, TwoProcessPerDecoderRings) {
+  if (env_or("QEC_DECODING_SERVER_TRANSPORT", "udp") != "udp")
+    GTEST_SKIP() << "per-decoder ring endpoints exercised over udp only";
+
+  const std::string config_path =
+      ::testing::TempDir() + "/decoding_server_per_ring_config.yaml";
+  {
+    std::ofstream config_file(config_path);
+    config_file << "decoders:\n";
+    for (int id = 0; id < 2; ++id) {
+      config_file << "  - id: " << id << "\n"
+                  << "    type: pymatching\n"
+                  << "    block_size: 3\n"
+                  << "    syndrome_size: 3\n"
+                  << "    H_sparse: [0, -1, 1, -1, 2, -1]\n"
+                  << "    O_sparse: [0, -1, 1, -1, 2, -1]\n"
+                  << "    D_sparse: [0, -1, 1, -1, 2, -1]\n"
+                  << "    decoder_custom_args:\n"
+                  << "      merge_strategy: smallest_weight\n"
+                  << "      error_rate_vec: [0.1, 0.1, 0.1]\n";
+    }
+  }
+
+  ServerProcess server;
+  std::string error;
+  ASSERT_TRUE(server.start(config_path, error)) << error;
+  ASSERT_EQ(server.ring_ports.size(), 2u)
+      << "server did not publish one ring endpoint per decoder";
+  ASSERT_NE(server.ring_ports[0], server.ring_ports[1])
+      << "decoders share one endpoint; rings are not per-decoder";
+
+  // Device-scoped endpoints: decoder 0's session dials ring0, decoder 1's
+  // session dials ring1 (device_id == decoder_id in the QEC wrappers).
+  std::vector<std::string> args = {
+      "test_decoding_server", "--cudaq-device-call=udp",
+      "udp-host=127.0.0.1",
+      "udp-port=" + std::to_string(server.ring_ports[0]),
+      "udp-port.1=" + std::to_string(server.ring_ports[1])};
+  std::vector<char *> argv;
+  for (auto &arg : args)
+    argv.push_back(arg.data());
+  argv.push_back(nullptr);
+  int argc = static_cast<int>(args.size());
+  cudaq::realtime::initialize(argc, argv.data());
+  RealtimeGuard realtime_guard{true};
+
+  const auto results = cudaq::run(kRunShots, dual_decoding_server_kernel);
+  ASSERT_EQ(results.size(), kRunShots);
+  EXPECT_EQ(results[0], 3);
+
+  // The decisive assertions: EACH ring dispatched this test's three RPCs
+  // (reset/enqueue/get per decoder) -- traffic was per-ring, not payload-
+  // demuxed over one wire.
+  const std::int64_t dispatched = server.stopAndGetDispatchCount(2);
+  EXPECT_GE(dispatched, 6) << "server output:\n" << server.captured;
+  ASSERT_EQ(server.ring_dispatched.size(), 2u)
+      << "server output:\n" << server.captured;
+  EXPECT_GE(server.ring_dispatched[0], 3)
+      << "ring 0 idle; server output:\n" << server.captured;
+  EXPECT_GE(server.ring_dispatched[1], 3)
+      << "ring 1 idle; server output:\n" << server.captured;
 }

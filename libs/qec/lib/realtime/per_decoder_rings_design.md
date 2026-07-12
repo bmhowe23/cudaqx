@@ -34,10 +34,9 @@ feed one decoder).
    idempotent `initializeServiceForDevice(deviceId)` for an unseen device id
    instead of throwing.  (Eager init only ever covered device 0; a nonzero
    device id previously trapped in lowered code as "illegal execution of
-   unreachable code".)  External (non-builtin) channels keep one endpoint
-   per process: nonzero device ids share device 0's channel
-   (payload-demuxed, the pre-existing semantics); per-device external
-   endpoints are a follow-up.
+   unreachable code".)  External (non-builtin) channels share
+   device 0's channel unless the device has its own scoped endpoint args
+   (see section 5).
 2. **Per-device channel spec.**  `CUDAQ_DEVICE_CALL_CHANNEL` (and
    `--cudaq-device-call[-channel]`) accept `<default>[,<id>=<channel>...]`:
 
@@ -123,14 +122,39 @@ script:
 
 Run: `CUDAQ_DEVICE_CALL_CHANNEL=host_dispatch ./surface_code-5-per-decoder-rings`
 
-## 5. Follow-ups
+## 5. Two-process form (IMPLEMENTED -- this is the product path)
+
+The decoding server opens ONE provider instance per decoder in the YAML:
+one endpoint, one ring, one dispatcher each (the dispatch table is shared;
+handlers still route by payload decoder_id, and a decoder's ring only ever
+carries its own id).  Wire contract:
+
+- READY publishes every ring: `QEC_DECODING_SERVER_READY port=<P0>
+  transport=udp ring0=<P0> ring1=<P1> ...` (leading port token = ring 0,
+  for existing single-ring consumers).
+- Shutdown publishes per-ring proof of traffic:
+  `QEC_DECODING_SERVER_RING decoder=<id> dispatched=<n>` (one line per
+  ring, before the DISPATCHED total).  NOTE: dispatcher stats flush when
+  the loop exits, so counts are sampled after dispatcher_stop.
+- Caller: device-scoped external channel args --
+  `udp-port=<P0> udp-port.1=<P1>` -- give each device_call session its own
+  channel/ring; devices without scoped args share device 0's channel
+  (back-compat).
+
+Validated by DecodingServerTwoProcess.TwoProcessPerDecoderRings: two
+decoders in one server, two udp endpoints, one caller process; asserts the
+kernel decodes correctly AND each ring's dispatched count covers its
+decoder's reset/enqueue/get -- proving traffic was per-ring, not payload-
+demuxed over one wire.  (Fixed en route: cudaq_bridge_create's
+cached-provider path did not register new handles, breaking every second
+bridge instance.)
+
+## 6. Follow-ups
 
 - QEC plugin Gpu-mode session (recipe above) => CPU+GPU rings running
   simultaneously end to end.
-- Per-device EXTERNAL channel endpoints (udp/cpu_roce two-process form):
-  per-device args (`udp-port.<id>=`) or parse the server's multi-endpoint
-  READY line; server side grows the N x (bridge + dispatcher) loop from
-  the transport-provider design doc.
+- Per-decoder rings over cpu_roce two-process (udp validated; cpu_roce
+  needs per-ring rendezvous ports wired the same way).
 - `createDispatchSession(mode, deviceId)` upstream API extension.
 - Fan-in (decoder 1 <- ring 1..k <- QP m): provider-internal QP
   aggregation behind one ring context; `vp_id` in the enqueue_syndromes
