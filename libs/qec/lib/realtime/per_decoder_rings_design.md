@@ -245,11 +245,19 @@ on a WSL2 laptop GPU:
   dispatches again (subsequent RPCs time out; teardown drain hangs).
   Minimal CUDA probe (nvcc -rdc, trigger kernel calling
   cudaGraphLaunch(child, cudaStreamGraphFireAndForget) on an uploaded
-  device-launchable graph): instantiate/upload/sync all report success,
-  the launched graph NEVER RUNS.  Device-side fire-and-forget graph
-  launch silently no-ops on this WSL2 stack -- a platform limitation,
-  not a defect in this design.  (Plain device-launch instantiation and
-  GPU polling of CPU-written pinned memory both probe GOOD.)
+  device-launchable graph) pinpointed it: launching ANY kernel that
+  references device-side cudaGraphLaunch fails with
+  cudaErrorNotSupported ("operation not supported") on this WSL2 stack
+  -- but the error is visible ONLY via cudaGetLastError() immediately
+  after that kernel launch; stream synchronization afterwards reports
+  success, so every higher layer sees a silent wedge.  Device graph
+  launch is unsupported on the Windows driver stack (WSL2 included); a
+  plain kernel in the same -rdc binary runs fine, and CUDA_MODULE_LOADING
+  =EAGER makes no difference.  Platform limitation, not a defect in this
+  design.  (Device-launchable instantiation itself and GPU polling of
+  CPU-written pinned memory both probe GOOD.)  Cheap gating check for
+  any machine: launch a trivial kernel that calls device-side
+  cudaGraphLaunch and test cudaGetLastError()==cudaErrorNotSupported.
 
 Consequence: the decode-graph firing step requires native-Linux GPU (the
 HSB rig, where this mechanism is production-proven).  Everything below
