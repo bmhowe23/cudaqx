@@ -7,6 +7,11 @@ This document is written so the work can be reproduced from scratch by
 reading it: it records the before/after architecture, the API contracts, the
 commit-by-commit change plan, and the validation gates.
 
+Document family: this file owns the WIRE seam (provider ABI + all server
+deployment contracts); `per_decoder_rings_design.md` owns the TOPOLOGY
+(rings, consumers, dispatch shapes, mixed server);
+`per_decoder_rings_validation_notes.md` is the campaign log.
+
 ## 1. Problem
 
 Before this work, `libs/qec/tools/decoding-server/decoding_server.cpp` was a
@@ -136,7 +141,7 @@ Providers implemented (cuda-quantum `realtime/lib/daemon/bridge/`):
   (qp/rkey/buffer_addr/peer_ip) + ring geometry.  Only compiles with
   HSB+DOCA; must be build-verified on the rig.
 
-### 4.2 Decoding server (cudaqx)
+### 4.2 Decoding server deployment contracts (cudaqx)
 
 ```
 decoding_server --config=<decoders.yaml>
@@ -149,18 +154,59 @@ decoding_server --config=<decoders.yaml>
   QEC_BRIDGE_PROVIDER_DIR (baked at CMake time: the dir of
   libcudaq-realtime.so); a value containing '/' is loaded verbatim (partner
   drop-in).  The server setenv's CUDAQ_REALTIME_BRIDGE_LIB and uses the
-  EXTERNAL provider path.
-- Host path flow: CQR plugin session (decoders built BEFORE readiness) ->
-  bridge create -> geometry query -> `QEC_DECODING_SERVER_READY port=<P>
-  <endpoint info>` (port token hoisted first; test fixtures sscanf it) ->
-  connect (may block on peer) -> ring context -> dispatcher object
-  (create/set_ringbuffer/set_function_table/set_control/start;
-  HOST_CALL-only table => no CUDA touched) -> bridge launch -> run ->
-  ordered teardown -> `QEC_DECODING_SERVER_DISPATCHED count=` +
-  `..._MAX_CONCURRENT_DECODERS count=`.
-- Device path: YAML `dispatch: device_graph` on any decoder routes the whole
-  server through the CQR `DecodingServer`; READY sentinel
-  `QEC_DECODING_SERVER_READY device_graph`.
+  EXTERNAL provider path.  NOTE: the loader holds ONE external library per
+  process; `hololink` selects the builtin provider slot instead.
+
+**YAML transport section.**  The wire is deployment configuration and
+lives at the TOP LEVEL of the config file, never inside decoder entries.
+Rings differ by dispatch shape only, so the single override is shape-keyed:
+
+```yaml
+transport:                 # server-level deployment config
+  provider: udp            # name or /path/to/lib.so
+  args: [--slot-size=256]  # appended to forwarded CLI provider args
+  device_graph:            # applied to dispatch: device_graph rings
+    provider: udp          # "hololink" on an HSB rig
+    args: [--pinned-rings]
+decoders: ...              # pure decoding config; no transport keys
+```
+
+Per-ring precedence: shape override > section provider/args >
+`--transport` CLI default; an explicit `--transport` overrides the
+section's provider for one-off experiments.
+
+**Server flow (one ring per decoder).**  CQR plugin session first
+(decoders built BEFORE readiness), then per decoder: bridge create ->
+geometry query; then ONE readiness line for all rings; then per ring:
+connect (may block on peer) -> ring context -> consumer (host dispatcher
+object, or the device-graph scheduler for `dispatch: device_graph`) ->
+bridge launch.  Teardown stops consumers before bridges and samples
+per-ring counters AFTER the consumer stops (dispatcher stats flush on
+loop exit).
+
+**Readiness / shutdown wire lines** (parsed by tests and orchestration;
+changes here are contract changes):
+
+```
+QEC_DECODING_SERVER_READY port=<P0> <ring0 endpoint info> ring0=<P0> ring1=<P1> ...
+QEC_DECODING_SERVER_RING decoder=<id> dispatched=<n>     (one per ring, at shutdown)
+QEC_DECODING_SERVER_DISPATCHED count=<total>
+QEC_DECODING_SERVER_MAX_CONCURRENT_DECODERS count=<n>
+```
+
+The leading `port=` token is ring 0's (single-ring consumers sscanf it
+right after the prefix and keep working; their traffic payload-demuxes
+over ring 0).  An all-device_graph config takes the standalone
+DecodingServer path instead, with sentinel
+`QEC_DECODING_SERVER_READY device_graph`.
+
+**Caller-side per-ring endpoints (CUDA-Q runtime contract).**  External
+channel arguments accept device scoping `<key>.<id>=<value>`, applied to
+device id `<id>` only (overriding the plain key), e.g.
+`udp-port=<P0> udp-port.1=<P1>`; a device with scoped args gets its own
+channel/ring, others share device 0's channel.  The builtin channel spec
+accepts per-device overrides too:
+`CUDAQ_DEVICE_CALL_CHANNEL=<default>[,<id>=<channel>...]`.
 
 ### 4.3 Dispatch shape vs wire (the two-axis split)
 
@@ -235,12 +281,13 @@ must use the two-arg form, or an absent key resets the value to the default.
 - Upstream the interface-v2 commit to cuda-quantum with the version-pairing
   rule called out; propose HOST_CALL handler-context (`host_fn(ctx, ...)`)
   and multi-writer-ring slot discipline for the fan-in topology.
-- Top-level `transport:` YAML section + SIGHUP/RPC session-epoch reload.
-- One ring dataplane per decoder via `cudaq::device_call(device_id ==
-  decoder_id, ...)` (per-device sessions already exist in the cuda-quantum
-  runtime); provider-internal QP fan-in for one-to-many decoder:QP
-  topologies; `vp_id` in the enqueue_syndromes payload for the syndrome
-  mapping table (cudaq-spec decoder_server_runtime.md).
+- SIGHUP/RPC session-epoch reload (the top-level `transport:` YAML section
+  and one-ring-per-decoder are DONE -- see 4.2 and
+  per_decoder_rings_design.md).
+- Provider-internal QP fan-in for one-to-many decoder:QP topologies;
+  `vp_id` in the enqueue_syndromes payload for the syndrome mapping table
+  (cudaq-spec decoder_server_runtime.md); bridge-loader EXTERNAL slot keyed
+  by path so one process can mix external provider libraries.
 - Public-surface cleanup in cudaq-realtime: deprecate the raw ring loop,
   graph_launch_engine surface, transport wrapper headers, and hololink
   headers; replace the `cudaq*` version-script wildcard with an explicit

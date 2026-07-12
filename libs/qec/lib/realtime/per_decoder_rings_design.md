@@ -1,12 +1,18 @@
 # One Ring Buffer (and One Dispatcher) per Decoder
 
-Status: prototype working on branch pair
-`cuda-quantum:bmh/realtime-bridge-providers` +
-`cudaqx:bmh/decoding-server-bridge-670` (2026-07).  Runnable proof:
-`app_examples/surface_code-5-per-decoder-rings` (+ its `-test.sh`).
+Status: implemented and validated (in-process and two-process) on branch
+pair `cuda-quantum:bmh/realtime-bridge-providers` +
+`cudaqx:bmh/decoding-server-bridge-670` (2026-07); one open item (the
+device-graph decode firing) tracked in the validation notes.
 
-Companion to `transport_provider_design.md` (the transport/bridge side of
-the same architecture).
+Document family:
+- `transport_provider_design.md` -- the WIRE seam: provider ABI and all
+  server deployment contracts (CLI, YAML transport section, READY/RING
+  wire lines, caller-side per-ring endpoints).
+- this file -- the TOPOLOGY: rings, consumers, dispatch shapes, and the
+  composed (mixed-dispatch) server.
+- `per_decoder_rings_validation_notes.md` -- the campaign log: what was
+  run and proved, probes, dead ends, and build/runtime gotchas.
 
 ## 1. Topology
 
@@ -125,29 +131,20 @@ Run: `CUDAQ_DEVICE_CALL_CHANNEL=host_dispatch ./surface_code-5-per-decoder-rings
 ## 5. Two-process form (IMPLEMENTED -- this is the product path)
 
 The decoding server opens ONE provider instance per decoder in the YAML:
-one endpoint, one ring, one dispatcher each (the dispatch table is shared;
+one endpoint, one ring, one consumer each.  The dispatch table is shared;
 handlers still route by payload decoder_id, and a decoder's ring only ever
-carries its own id).  Wire contract:
+carries its own id.  The caller wires each decoder's device_call session
+to its ring with device-scoped endpoint args.
 
-- READY publishes every ring: `QEC_DECODING_SERVER_READY port=<P0>
-  transport=udp ring0=<P0> ring1=<P1> ...` (leading port token = ring 0,
-  for existing single-ring consumers).
-- Shutdown publishes per-ring proof of traffic:
-  `QEC_DECODING_SERVER_RING decoder=<id> dispatched=<n>` (one line per
-  ring, before the DISPATCHED total).  NOTE: dispatcher stats flush when
-  the loop exits, so counts are sampled after dispatcher_stop.
-- Caller: device-scoped external channel args --
-  `udp-port=<P0> udp-port.1=<P1>` -- give each device_call session its own
-  channel/ring; devices without scoped args share device 0's channel
-  (back-compat).
+The wire contracts (multi-ring READY tokens, per-ring shutdown counts,
+caller-side `<key>.<id>=` scoped args, back-compat rules) are normative in
+`transport_provider_design.md` section 4.2.
 
 Validated by DecodingServerTwoProcess.TwoProcessPerDecoderRings: two
 decoders in one server, two udp endpoints, one caller process; asserts the
 kernel decodes correctly AND each ring's dispatched count covers its
 decoder's reset/enqueue/get -- proving traffic was per-ring, not payload-
-demuxed over one wire.  (Fixed en route: cudaq_bridge_create's
-cached-provider path did not register new handles, breaking every second
-bridge instance.)
+demuxed over one wire.
 
 ## 6. Mixed-dispatch server (IMPLEMENTED): device_graph + host rings in
 ## one process
@@ -176,104 +173,32 @@ all-device_graph config still takes the standalone DecodingServer path
 (the HSB flow).
 
 The WIRE stays OUTSIDE the decoders list: transports differ between rings
-only by dispatch shape, so the top-level `transport:` section carries a
-shape-keyed override and decoder entries carry no transport information:
+only by dispatch shape, so the top-level `transport:` section carries one
+shape-keyed override (`device_graph:`) and decoder entries carry no
+transport information -- e.g. decoder 0 `dispatch: host` on plain udp
+rings while decoder 1 `dispatch: device_graph` gets `--pinned-rings`
+(local) or the `hololink` provider (rig).  The section's schema and
+precedence rules are normative in `transport_provider_design.md`
+section 4.2.
 
-```yaml
-transport:                 # server-level deployment config
-  provider: udp
-  args: [--slot-size=256]
-  device_graph:            # applied to dispatch: device_graph rings
-    provider: udp          # "hololink" on an HSB rig
-    args: [--pinned-rings]
-decoders:                  # pure decoding config
-  - id: 0
-    type: pymatching
-    dispatch: host
-    ...
-  - id: 1
-    type: nv-qldpc-decoder
-    dispatch: device_graph
-    ...
-```
+## 7. Validation status
 
-Per-ring precedence: shape override > section provider/args > --transport
-CLI default; an explicit --transport overrides the section's provider for
-one-off experiments.
-
-Validated locally: mixed config brings up ring0 (host dispatcher) and
-ring1 (pinned udp), READY publishes both, and the device_graph decoder
-fails loudly at the graph-capture requirement when the decoder cannot
-capture (pymatching), with clean teardown.  Positive decode on the device
-ring needs a graph-capable decoder built against THIS tree's ABI
-(nv-qldpc/RelayBP; the archived plugin from another tree predates the
-decoder_config layout change) -- the remaining step, on the rig or after
-a plugin rebuild.
-
-Hard-won build/runtime gotchas recorded for reproducers:
-
-- nvq++-compiled TUs (cudaqx_add_device_code custom commands) do NOT track
-  header dependencies: after changing decoding_config.h, touch or clean
-  those sources or stale objects pass old-layout structs across the .so
-  boundary (symptom: segfault inside configure_decoders).
-- libcudaq-device-call-runtime.so must NOT re-export the transport-archive
-  symbols (cpu_udp_*): a provider .so carries its own copy and the dynamic
-  linker binds across, a silent ODR violation (fixed upstream-side with
-  --exclude-libs).
-
-## 7. Positive device-ring validation: how far it got, and the platform
-## wall (2026-07-12)
-
-The nv-qldpc plugin + proprietary cudevice archive were rebuilt against
-this tree's ABI (cuda-qx scratch branch bmh/private-device-ring: public
-branch merged into private/main; only binaries plucked back).  With a
-generated 2-decoder RelayBP config (decoder 1: dispatch device_graph;
-transport section device_graph args --pinned-rings), TWO-PROCESS results
-on a WSL2 laptop GPU:
-
-- CONTROL (both decoders host): full sc4 app over two per-decoder udp
-  rings decodes correctly.  Per-decoder rings + new-ABI nv-qldpc host
-  path: VALIDATED two-process.
-- MIXED: server brings up ring0 (host) + ring1 (GPU scheduler over
-  pinned-udp rings) cleanly.  Raw RPC probes against the device ring
-  PROVE the GPU dispatch graph serves DEVICE_CALLs end to end over the
-  wire: reset_decoder and a full-window enqueue_syndromes both
-  round-trip with status=0 (probe: hand-built RPCHeader datagrams,
-  magic 0x43555152, fnv1a function ids).
-- THE WEDGE (diagnosis CORRECTED after rig data): after a window-
-  completing enqueue triggers the decode graph, the scheduler never
-  dispatches again.  An earlier probe blamed the platform (WSL2); that
-  probe was INVALID -- fire-and-forget device graph launch is only legal
-  from a kernel running INSIDE a device-launched graph, and the probe
-  triggered from a plain kernel, which correctly returns
-  cudaErrorNotSupported on every platform (including the rig).  The
-  corrected probe (trigger kernel inside a device-launched parent graph,
-  child uploaded) PASSES on this WSL2 box, both with native sm_120 SASS
-  and with forced-JIT compute_90 PTX.  Artifact arch coverage (GPU is
-  sm_120; plugin/archives carry <= sm_100 SASS + PTX) is therefore NOT
-  the cause either.  The wedge lives in the real pipeline's specifics;
-  next suspects, in order: (a) the decode graph's instantiation flags /
-  upload -- device-side fire-and-forget requires the TRIGGERED graph to
-  be instantiated with cudaGraphInstantiateFlagDeviceLaunch and uploaded;
-  verify what nv-qldpc's capture_decode_graph and
-  cudaq_create_dispatch_graph_regular actually do with the triggered
-  exec; (b) the dispatch graph's tail self-relaunch pattern; (c) the
-  RelayBP decode graph's own execution on this GPU.  The dispatch
-  kernel's device-side cudaGraphLaunch return code is dropped today --
-  surfacing it (device-side printf or an error slot in pinned memory)
-  is the next diagnostic step.  Probe sources preserved in this doc's
-  history; the valid probe is the parent/child two-graph form.
-
-Consequence: the device-graph launch MECHANISM is validated on this box;
-the decode-graph firing failure is a real pipeline bug/incompatibility
-reproducible locally -- which is good news: it can be debugged here
-rather than only on the rig.  Everything below that line is validated.
+Everything above is validated end to end on a WSL2 laptop GPU -- including
+the two-process CONTROL run (two host nv-qldpc rings, rebuilt-ABI plugin,
+correct decode) and the mixed server's GPU dispatch graph serving
+DEVICE_CALLs over pinned-udp rings across processes.  ONE step remains
+open: after a window-completing enqueue triggers the decode graph, the
+scheduler wedges.  The device-graph launch mechanism itself is proven good
+on this box, so the wedge is a real pipeline issue, locally debuggable.
+Full campaign log, probe methodology (including the invalid-probe lesson),
+suspects, and gotchas: `per_decoder_rings_validation_notes.md`.
 
 ## 8. Follow-ups
 
-- Rig run of the mixed config (swap the device_graph override provider to
-  hololink); extend TwoProcessPerDecoderRings to assert the device ring's
-  dispatched count there.
+- Resolve the decode-graph wedge (suspects + first diagnostic step in the
+  validation notes); then extend TwoProcessPerDecoderRings to assert the
+  device ring's dispatched count, locally and on the rig (hololink
+  provider).
 - Bounded shutdown for a wedged decode chain: the consumer's destructor
   drains with cudaStreamSynchronize, which hangs if the triggered graph
   never completes; consider a timed drain + loud abandon.
