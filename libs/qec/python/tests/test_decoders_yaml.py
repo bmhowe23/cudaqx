@@ -244,5 +244,38 @@ def test_sliding_window_decoder():
     check_decoder_creation(multi_config)
 
 
+def test_sliding_window_boundary_syndromes_roundtrip():
+    """
+    Test that a sliding_window's num_boundary_syndromes parameter survives a
+    YAML round trip. This is serialization-only (the boundary-layout decoding
+    behavior is exercised by the direct-decoder tests in test_sliding_window).
+    """
+    multi_config = qec.multi_decoder_config()
+    config = create_test_empty_decoder_config(0)
+    config.type = "sliding_window"
+    config.block_size = 6
+    config.syndrome_size = 4
+
+    H = np.zeros((config.syndrome_size, config.block_size), dtype=np.uint8)
+    config.H_sparse = qec.pcm_to_sparse_vec(H)
+    O = np.zeros((1, config.block_size), dtype=np.uint8)
+    config.O_sparse = qec.pcm_to_sparse_vec(O)
+    config.D_sparse = qec.generate_timelike_sparse_detector_matrix(
+        config.syndrome_size, 2, include_first_round=False)
+
+    config.decoder_custom_args = {
+        "window_size": 1,
+        "step_size": 1,
+        "num_syndromes_per_round": 2,
+        "num_boundary_syndromes": 1,
+        "error_rate_vec": [0.1] * config.block_size,
+        "inner_decoder_name": "single_error_lut",
+    }
+
+    multi_config.decoders = [config]
+
+    check_decoder_yaml_roundtrip(multi_config)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

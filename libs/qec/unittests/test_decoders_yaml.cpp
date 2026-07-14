@@ -590,6 +590,7 @@ TEST(DecoderYAMLTest, SlidingWindowInnerDecoderVariantRoundTrips) {
   single_lut_sw.insert("window_size", std::size_t{1});
   single_lut_sw.insert("step_size", std::size_t{1});
   single_lut_sw.insert("num_syndromes_per_round", std::size_t{2});
+  single_lut_sw.insert("num_boundary_syndromes", std::size_t{1});
   single_lut_sw.insert("error_rate_vec", std::vector<double>(6, 0.1));
   single_lut_sw.insert("inner_decoder_name", "single_error_lut");
   check_roundtrip(single_lut_sw);
@@ -1053,6 +1054,17 @@ decoders:
   EXPECT_THROW(config.validate_custom_args(), std::runtime_error);
 
   args.insert("step_size", std::size_t(2));
+  config.decoder_custom_args = args;
+  EXPECT_NO_THROW(config.validate_custom_args());
+
+  // num_boundary_syndromes must be <= num_syndromes_per_round (the boundary
+  // layers can be narrower than the interior, never wider).
+  args.insert("num_syndromes_per_round", std::size_t(2));
+  args.insert("num_boundary_syndromes", std::size_t(3));
+  config.decoder_custom_args = args;
+  EXPECT_THROW(config.validate_custom_args(), std::runtime_error);
+
+  args.insert("num_boundary_syndromes", std::size_t(2));
   config.decoder_custom_args = args;
   EXPECT_NO_THROW(config.validate_custom_args());
 
