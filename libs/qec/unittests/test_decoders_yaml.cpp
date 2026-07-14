@@ -1135,11 +1135,11 @@ TEST(DecoderYAMLTest, PrepareDecoderParamsSurfacesCudaDeviceId) {
   auto params2 = cudaq::qec::decoding::host::prepare_decoder_params(config2);
   EXPECT_FALSE(params2.contains("cuda_device_id"));
 
-  // trt type: still surfaced on the trt branch.
+  // trt type: still surfaced on the trt branch. prepare_decoder_params only
+  // manipulates the params map (no schema lookup, no filesystem), so empty
+  // custom args exercise the trt path without needing the trt plugin.
   auto config3 = create_test_empty_decoder_config(2);
   config3.type = "trt_decoder";
-  config3.decoder_custom_args =
-      cudaq::qec::decoding::config::trt_decoder_config{};
   config3.cuda_device_id = 1;
   auto params3 = cudaq::qec::decoding::host::prepare_decoder_params(config3);
   ASSERT_TRUE(params3.contains("cuda_device_id"));

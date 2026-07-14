@@ -566,6 +566,8 @@ std::string decoder_config_json_schema() {
       {"type", llvm::json::Object{{"type", "string"}}},
       {"transport",
        llvm::json::Object{{"enum", llvm::json::Array{"cpu_roce", "gpu_roce"}}}},
+      {"cuda_device_id",
+       llvm::json::Object{{"type", "integer"}, {"minimum", 0}}},
       {"block_size", llvm::json::Object{{"type", "integer"}, {"minimum", 0}}},
       {"syndrome_size",
        llvm::json::Object{{"type", "integer"}, {"minimum", 0}}},
