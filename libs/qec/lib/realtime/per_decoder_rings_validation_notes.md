@@ -129,3 +129,30 @@ tree; pluck ONLY binaries (`libcudaq-qec-nv-qldpc-decoder.so`,
   after `cudaq_dispatcher_stop`, never before.
 - Shell hygiene: never `pkill -f <pattern>` where the pattern matches
   your own shell's command string.
+
+## Post-merge revalidation (2026-07-15, origin/main with landed PR 670)
+
+origin/main (15 commits: squashed 670 + #656/#673/#674/#678/#680/#683/#690/
+#691/#692) merged into this branch; main's GpuRoce* fixes ported into the
+DeviceGraph* files, cuda_device_id + session stats adopted, dispatch/
+transport-section schema kept.  Revalidated on this box after rebuilding
+nv-qldpc against the merged tree (#674 virtualized the realtime decoder API
+-- an ABI break; a stale plugin .so manifests as malloc corruption or
+segfaults in ANY test process, since the plugin loader scans the whole
+decoder-plugins directory):
+
+- Two-process suite 6/6 (incl. the transport-section and CLI-conflict
+  tests), DecoderYAMLTest 18/18, per-decoder-rings app test, sc1 inproc-rpc
+  with RelayBP, py-surface_code-1 (python bindings enabled;
+  PYTHONPATH=/usr/local/cudaq:<build>/python), and main's new gpu-required
+  surface_code-4-yaml-mixed-dispatch.
+- Flagship mixed E2E re-passed: trigger rc=0, fires=10 == tail_relaunches,
+  both rings dispatched=60, decoder[1] nv-qldpc corrections=2,
+  logical_errors=0/10.
+- QEC_DECODING_SERVER_STATS (adopted from main) works in the mixed server;
+  note the counters are HOST-session counters, so a device_graph ring
+  reports decodes=0 there -- its evidence is the trigger-debug fires and
+  the RING dispatched line.
+- Reminder that bit twice: nvq++ custom-command TUs do not track header
+  deps; touch the qec sources after decoding_config.h / decoder.h changes
+  or stale objects segfault.
