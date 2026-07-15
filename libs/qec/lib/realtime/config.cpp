@@ -35,8 +35,15 @@ void decoder_config::validate_custom_args() const {
 cudaqx::heterogeneous_map
 decoder_config::decoder_custom_args_to_heterogeneous_map() const {
   auto args = decoder_custom_args.map();
-  if (const auto *schema = find_decoder_schema(type))
+  if (const auto *schema = find_decoder_schema(type)) {
+    // Same normalization on every consumer path: non-schema keys are
+    // warned-and-dropped (they could never round-trip through YAML, so a
+    // local decoder must not see them either) and schema-declared defaults
+    // are materialized. YAML emission serializes this same map, so a config
+    // reaches a local decoder and a remote target identically.
+    drop_non_schema_keys(*schema, args);
     materialize_default_args(*schema, args);
+  }
   return args;
 }
 
@@ -348,7 +355,13 @@ struct MappingTraits<cudaq::qec::decoding::config::decoder_config> {
               "from the emitted YAML.",
               config.type);
         } else {
-          auto args_map = config.decoder_custom_args.map();
+          // Emit the same normalized map the constructor-facing path
+          // produces (non-schema keys dropped, defaults materialized), so a
+          // programmatically built config serializes identically on first
+          // emission and after a YAML round trip -- e.g. a trt config with
+          // only `global_decoder` set gains `global_decoder_params: {}`
+          // here, not just after re-parsing.
+          auto args_map = config.decoder_custom_args_to_heterogeneous_map();
           schema_binding binding{&args_map, schema};
           io.mapRequired("decoder_custom_args", binding);
         }

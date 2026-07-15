@@ -133,6 +133,16 @@ __attribute__((visibility("default"))) void
 materialize_default_args(const decoder_schema &schema,
                          cudaqx::heterogeneous_map &args);
 
+/// Remove (with a warning per key) every key `args` holds that is not in
+/// `schema`, recursing into nested sections whose schemas resolve. Applied by
+/// decoder_config::decoder_custom_args_to_heterogeneous_map() so the map a
+/// local decoder's constructor receives and the map serialized to YAML for a
+/// remote target are the same map -- a non-schema key can never take effect
+/// locally but silently vanish remotely.
+__attribute__((visibility("default"))) void
+drop_non_schema_keys(const decoder_schema &schema,
+                     cudaqx::heterogeneous_map &args);
+
 /// Deep equality over the canonical value kinds stored in custom-args maps
 /// (scalars, double vectors/matrices, and nested maps). Values of other
 /// types compare unequal.

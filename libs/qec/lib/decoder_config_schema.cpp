@@ -9,6 +9,7 @@
 #include "cudaq/qec/decoder_config_schema.h"
 #include "cuda-qx/core/tuple_utils.h"
 #include "cuda-qx/core/type_traits.h"
+#include "cudaq/qec/logger.h"
 #include <any>
 #include <map>
 #include <mutex>
@@ -233,6 +234,54 @@ void materialize_default_args(const decoder_schema &schema,
       args.insert(spec.key, nested);
     }
   }
+}
+
+void drop_non_schema_keys(const decoder_schema &schema,
+                          cudaqx::heterogeneous_map &args) {
+  // Single pass: recurse into nested sections in place (no copies), and note
+  // whether any key at this level is unknown. Only when one is does the map
+  // get rebuilt -- the common all-keys-known case leaves `args` untouched.
+  bool has_unknown = false;
+  for (auto &kv : args) {
+    const param_spec *spec = nullptr;
+    for (const auto &candidate : schema.params) {
+      if (candidate.key == kv.first) {
+        spec = &candidate;
+        break;
+      }
+    }
+    if (!spec) {
+      CUDA_QEC_WARN("Key '{}' is not in the '{}' parameter schema; it is "
+                    "excluded from the decoder parameters and from emitted "
+                    "YAML.",
+                    kv.first, schema.name);
+      has_unknown = true;
+      continue;
+    }
+    const decoder_schema *nested_schema = nullptr;
+    if (spec->kind == param_kind::subschema) {
+      nested_schema = find_decoder_schema(spec->subschema);
+    } else if (spec->kind == param_kind::discriminated &&
+               args.contains(spec->discriminator)) {
+      nested_schema =
+          find_decoder_schema(args.get<std::string>(spec->discriminator));
+    }
+    if (nested_schema)
+      if (auto *nested = std::any_cast<cudaqx::heterogeneous_map>(&kv.second))
+        drop_non_schema_keys(*nested_schema, *nested);
+  }
+  if (!has_unknown)
+    return;
+  cudaqx::heterogeneous_map kept;
+  for (const auto &kv : args) {
+    for (const auto &spec : schema.params) {
+      if (spec.key == kv.first) {
+        kept.insert(kv.first, kv.second);
+        break;
+      }
+    }
+  }
+  args = std::move(kept);
 }
 
 // ---------------------------------------------------------------------------

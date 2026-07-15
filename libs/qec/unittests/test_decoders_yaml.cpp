@@ -1192,3 +1192,50 @@ TEST(DecoderYAMLTest, ValidateCustomArgsChecksValueKinds) {
   config.decoder_custom_args = good;
   EXPECT_NO_THROW(config.validate_custom_args());
 }
+
+TEST(DecoderYAMLTest, TrtFirstEmissionMaterializesGlobalDecoderParams) {
+  if (!is_trt_decoder_schema_available())
+    GTEST_SKIP() << "trt_decoder plugin (and its parameter schema) not built";
+  // A programmatic config with only global_decoder set serializes with the
+  // defaulted empty global_decoder_params on FIRST emission (as the old
+  // typed path did), so emitted YAML is stable across round trips.
+  auto config = create_test_empty_decoder_config(0);
+  config.type = "trt_decoder";
+  cudaqx::heterogeneous_map args;
+  args.insert("global_decoder", std::string("pymatching"));
+  config.decoder_custom_args = args;
+
+  cudaq::qec::decoding::config::multi_decoder_config multi_config;
+  multi_config.decoders.push_back(config);
+  const auto first = multi_config.to_yaml_str(200);
+  EXPECT_NE(first.find("global_decoder_params"), std::string::npos);
+
+  auto round_tripped =
+      cudaq::qec::decoding::config::multi_decoder_config::from_yaml_str(first);
+  EXPECT_EQ(round_tripped.to_yaml_str(200), first);
+}
+
+TEST(DecoderYAMLTest, NonSchemaKeysDroppedFromDecoderParamsAndEmission) {
+  // A key outside the registered schema can never round-trip through YAML,
+  // so the constructor-facing map must not contain it either: local decoders
+  // and remote targets see the same configuration.
+  auto config = create_test_empty_decoder_config(0);
+  config.type = "multi_error_lut";
+  cudaqx::heterogeneous_map args;
+  args.insert("lut_error_depth", 2);
+  args.insert("not_a_real_param", 42);
+  config.decoder_custom_args = args;
+
+  auto params = config.decoder_custom_args_to_heterogeneous_map();
+  EXPECT_TRUE(params.contains("lut_error_depth"));
+  EXPECT_FALSE(params.contains("not_a_real_param"));
+
+  cudaq::qec::decoding::config::multi_decoder_config multi_config;
+  multi_config.decoders.push_back(config);
+  const auto yaml = multi_config.to_yaml_str(200);
+  EXPECT_NE(yaml.find("lut_error_depth"), std::string::npos);
+  EXPECT_EQ(yaml.find("not_a_real_param"), std::string::npos);
+
+  // The stored args are untouched -- only the derived views are filtered.
+  EXPECT_TRUE(config.decoder_custom_args.map().contains("not_a_real_param"));
+}

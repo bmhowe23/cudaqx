@@ -394,6 +394,12 @@ def test_trt_decoder_default_global_params_materialized():
     args = mdc2.decoders[0].decoder_custom_args
     assert args["global_decoder_params"] == {}
 
+    # ... and already on FIRST emission (matching the old typed path), so
+    # emitted YAML is stable across round trips.
+    first = qec_yaml_for(dc)
+    assert "global_decoder_params" in first
+    assert mdc2.to_yaml_str() == first
+
 
 def test_validate_custom_args_checks_value_kinds():
     # A dict assigned before `type` is set takes the generic conversion
@@ -411,6 +417,29 @@ def test_validate_custom_args_checks_value_kinds():
     dc.decoder_custom_args = {"clip_value": 2}
     dc.validate_custom_args()
 
+
+def test_non_schema_keys_dropped_from_emission_and_decoder_params():
+    # A key outside the registered schema cannot round-trip through YAML, so
+    # it is warned-and-dropped from the emitted YAML (and from the map local
+    # decoders receive) rather than taking effect locally but silently
+    # vanishing when the config is serialized for a remote target.
+    dc = qec.decoder_config()
+    dc.id = 0
+    dc.type = "multi_error_lut"
+    dc.block_size = 3
+    dc.syndrome_size = 3
+    dc.H_sparse = [0, -1, 1, -1, 2, -1]
+    dc.decoder_custom_args = {"lut_error_depth": 2, "not_a_real_param": 42}
+
+    yaml_text = qec_yaml_for(dc)
+    assert "lut_error_depth" in yaml_text
+    assert "not_a_real_param" not in yaml_text
+
+    # The stored args are untouched; validate_custom_args still rejects them
+    # for callers who want a hard error instead of the warn-and-drop.
+    assert dc.decoder_custom_args["not_a_real_param"] == 42
+    with pytest.raises(RuntimeError, match="not_a_real_param"):
+        dc.validate_custom_args()
 
 
 @pytest.mark.skipif(
