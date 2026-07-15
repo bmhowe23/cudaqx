@@ -86,14 +86,34 @@ class _deprecated_typed_config:
                 out[key] = _as_plain_value(self._args[key])
         return out
 
+    @classmethod
+    def _param_kinds(cls):
+        # Field name -> schema kind, from the decoder's registered parameter
+        # schema. Lazy: the registry is populated at plugin load, and a miss
+        # is not cached so a schema registered later is still picked up.
+        if not cls.__dict__.get("_kind_cache"):
+            kinds = {}
+            try:
+                from . import decoder_param_schema
+                schema = decoder_param_schema(cls._schema_name)
+                if schema:
+                    kinds = {entry["key"]: entry["kind"] for entry in schema}
+            except Exception:
+                pass
+            cls._kind_cache = kinds
+        return cls._kind_cache
+
     def __setattr__(self, name, value):
         if name not in self._fields:
             raise AttributeError(
                 f"'{type(self).__name__}' object has no attribute '{name}'")
         if value is None:
             self._args.pop(name, None)
-        else:
-            self._args[name] = value
+            return
+        kind = self._param_kinds().get(name)
+        if kind is not None:
+            _check_param_kind(type(self).__name__, name, kind, value)
+        self._args[name] = value
 
     def __getattr__(self, name):
         # Only reached when normal lookup fails, i.e. for unset fields and
@@ -116,6 +136,53 @@ def _as_plain_value(value):
     if isinstance(value, _deprecated_typed_config):
         return value.to_heterogeneous_map()
     return value
+
+
+def _is_number(value):
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _check_param_kind(cls_name, name, kind, value):
+    # Reproduce the TypeErrors the old nanobind setters raised for
+    # clearly-wrong values. Sequence kinds only inspect list/tuple contents,
+    # so array-likes (e.g. numpy) pass through to the conversion layer.
+    def fail(expected):
+        raise TypeError(f"{cls_name}.{name} expects {expected}, got "
+                        f"{type(value).__name__}")
+
+    if kind == "bool":
+        if not isinstance(value, bool):
+            fail("a bool")
+    elif kind == "int32":
+        if not isinstance(value, int) or isinstance(value, bool):
+            fail("an int")
+    elif kind == "uint64":
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            fail("a non-negative int")
+    elif kind == "float64":
+        if not _is_number(value):
+            fail("a float")
+    elif kind == "string":
+        if not isinstance(value, str):
+            fail("a str")
+    elif kind == "float64_vec":
+        if _is_number(value) or isinstance(value, (str, bytes, dict)):
+            fail("a list of floats")
+        if isinstance(value,
+                      (list, tuple)) and not all(_is_number(x) for x in value):
+            fail("a list of floats")
+    elif kind == "float64_matrix":
+        if _is_number(value) or isinstance(value, (str, bytes, dict)):
+            fail("a list of lists of floats")
+        if isinstance(value, (list, tuple)) and not all(
+                isinstance(row,
+                           (list, tuple)) and all(_is_number(x)
+                                                  for x in row)
+                for row in value):
+            fail("a list of lists of floats")
+    elif kind in ("subschema", "discriminated"):
+        if not isinstance(value, (_deprecated_typed_config, dict)):
+            fail("a config object or dict")
 
 
 class srelay_bp_config(_deprecated_typed_config):
@@ -182,11 +249,32 @@ class trt_decoder_config(_deprecated_typed_config):
     def _load_map(self, map):
         params = map.pop("global_decoder_params", None)
         super()._load_map(map)
+        cls = self._global_decoder_classes.get(self._args.get("global_decoder"))
         if params is not None:
-            cls = self._global_decoder_classes.get(
-                self._args.get("global_decoder"))
-            self._args["global_decoder_params"] = cls(params) if cls else dict(
-                params)
+            if cls is None:
+                # Matches the old from_heterogeneous_map: this typed API only
+                # ever recognized pymatching/chromobius global decoders. Use
+                # plain dicts to configure any other registered decoder.
+                raise RuntimeError(
+                    "global_decoder_params does not support global_decoder "
+                    f"'{self._args.get('global_decoder')}'")
+            self._args["global_decoder_params"] = cls(params)
+        elif cls is not None:
+            # The old from_heterogeneous_map materialized a default typed
+            # config for a recognized global_decoder.
+            self._args["global_decoder_params"] = cls()
+
+    def to_heterogeneous_map(self):
+        out = super().to_heterogeneous_map()
+        # The old struct always emitted a (possibly empty) params section for
+        # a recognized global_decoder. The framework's materialize_empty
+        # defaulting produces the same final map either way, but old code may
+        # inspect this map directly.
+        if ("global_decoder_params" not in out and
+                self._args.get("global_decoder")
+                in self._global_decoder_classes):
+            out["global_decoder_params"] = {}
+        return out
 
 
 class sliding_window_config(_deprecated_typed_config):
