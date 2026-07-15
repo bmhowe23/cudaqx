@@ -18,15 +18,20 @@ namespace cudaq::qec::decoding::config {
 namespace {
 
 // Node-based map: pointers returned by find_decoder_schema stay valid across
-// later registrations. Schemas are never erased.
+// later registrations. Schemas are never erased or unregistered -- including
+// when the plugin that registered one is dlclose'd (cleanup_decoder_plugins
+// runs from a library destructor at exit). The registry is intentionally
+// leaked, like get_plugin_handles() and INSTANTIATE_REGISTRY: destroying it
+// at static-destruction time could run std::function (validate hook)
+// destructors whose code lives in an already-unloaded plugin.
 std::map<std::string, decoder_schema> &schema_registry() {
-  static std::map<std::string, decoder_schema> registry;
-  return registry;
+  static auto *registry = new std::map<std::string, decoder_schema>();
+  return *registry;
 }
 
 std::mutex &schema_registry_mutex() {
-  static std::mutex m;
-  return m;
+  static auto *m = new std::mutex();
+  return *m;
 }
 
 } // namespace

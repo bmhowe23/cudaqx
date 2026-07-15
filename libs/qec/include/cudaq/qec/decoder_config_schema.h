@@ -84,11 +84,18 @@ struct decoder_schema {
 /// Register (or replace) a schema. Decoder plugins call this from a static
 /// initializer in the same shared library that registers the decoder itself;
 /// the plugin loader runs before any configuration is parsed.
+///
+/// Schemas are never unregistered or unloaded, by design: registered schemas
+/// (including their validate hooks) stay in the registry for the remainder of
+/// the process, even after the registering plugin is dlclose'd at exit. The
+/// registry is intentionally leaked so no schema destructor can run after its
+/// plugin's code has been unloaded.
 __attribute__((visibility("default"))) void
 register_decoder_schema(decoder_schema schema);
 
 /// Look up a schema by name. Returns nullptr when no schema is registered
-/// under `name`. The returned pointer remains valid for the process lifetime.
+/// under `name`. The returned pointer remains valid for the process lifetime
+/// (schemas are never unregistered; see register_decoder_schema).
 __attribute__((visibility("default"))) const decoder_schema *
 find_decoder_schema(const std::string &name);
 
