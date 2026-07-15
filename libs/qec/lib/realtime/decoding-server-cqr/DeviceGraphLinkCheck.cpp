@@ -22,7 +22,8 @@ struct ITransceiver;
 extern "C" cudaq::qec::decoding_server::ITransceiver *
 cudaqx_qec_make_device_graph_transceiver(int pinned_cuda_device);
 
-using DeviceGraphFactoryFn = cudaq::qec::decoding_server::ITransceiver *(*)(int);
+using DeviceGraphFactoryFn =
+    cudaq::qec::decoding_server::ITransceiver *(*)(int);
 
 static DeviceGraphFactoryFn volatile device_graph_factory =
     &cudaqx_qec_make_device_graph_transceiver;

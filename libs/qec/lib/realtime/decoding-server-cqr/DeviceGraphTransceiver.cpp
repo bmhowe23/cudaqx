@@ -122,19 +122,18 @@ DeviceGraphTransceiver::DeviceGraphTransceiver(const DeviceGraphConfig &config)
     throw std::runtime_error(
         "DeviceGraphTransceiver: ring size overflow for "
         "QEC_DEVICE_GRAPH_FRAME_SIZE/QEC_DEVICE_GRAPH_PAGE_SIZE=" +
-        std::to_string(page_size) + " and QEC_DEVICE_GRAPH_NUM_PAGES=" +
-        std::to_string(config.num_pages));
+        std::to_string(page_size) +
+        " and QEC_DEVICE_GRAPH_NUM_PAGES=" + std::to_string(config.num_pages));
   const size_t ring_bytes = page_size * config.num_pages;
   const long host_page_size = ::sysconf(_SC_PAGESIZE);
   if (host_page_size > 0 &&
       ring_bytes % static_cast<size_t>(host_page_size) != 0)
-    throw std::runtime_error(
-        "DeviceGraphTransceiver: ring buffer size " +
-        std::to_string(ring_bytes) +
-        " bytes is not aligned to host page size " +
-        std::to_string(host_page_size) +
-        " bytes; adjust QEC_DEVICE_GRAPH_NUM_PAGES or "
-        "QEC_DEVICE_GRAPH_PAGE_SIZE");
+    throw std::runtime_error("DeviceGraphTransceiver: ring buffer size " +
+                             std::to_string(ring_bytes) +
+                             " bytes is not aligned to host page size " +
+                             std::to_string(host_page_size) +
+                             " bytes; adjust QEC_DEVICE_GRAPH_NUM_PAGES or "
+                             "QEC_DEVICE_GRAPH_PAGE_SIZE");
 
   // The provider computes frame_size = sizeof(RPCHeader) + payload_size, so
   // hand it the payload remainder of our frame budget.
