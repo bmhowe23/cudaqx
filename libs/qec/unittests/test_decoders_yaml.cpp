@@ -1157,3 +1157,38 @@ TEST(DecoderYAMLTest, PrepareDecoderParamsSurfacesCudaDeviceId) {
   ASSERT_TRUE(params3.contains("cuda_device_id"));
   EXPECT_EQ(params3.get<int>("cuda_device_id"), 1);
 }
+
+TEST(DecoderYAMLTest, ValidateCustomArgsChecksValueKinds) {
+  // A validated map is guaranteed to serialize: every value must be readable
+  // as its schema kind's canonical storage type, not just have a known key.
+  using cudaq::qec::decoding::config::decoder_config;
+
+  decoder_config config;
+  config.type = "nv-qldpc-decoder";
+
+  cudaqx::heterogeneous_map args;
+  args.insert("clip_value", std::string("oops")); // f64 param
+  config.decoder_custom_args = args;
+  try {
+    config.validate_custom_args();
+    FAIL() << "expected kind mismatch to be rejected";
+  } catch (const std::runtime_error &e) {
+    EXPECT_NE(std::string(e.what()).find("clip_value"), std::string::npos);
+    EXPECT_NE(std::string(e.what()).find("float"), std::string::npos);
+  }
+
+  // A std::size_t stored under an f64 param (the generic conversion used
+  // for dicts assigned before `type` is set) is equally unreadable at
+  // emission and must be rejected too.
+  cudaqx::heterogeneous_map generic;
+  generic.insert("clip_value", std::size_t{2});
+  config.decoder_custom_args = generic;
+  EXPECT_THROW(config.validate_custom_args(), std::runtime_error);
+
+  // Canonically-typed values pass.
+  cudaqx::heterogeneous_map good;
+  good.insert("clip_value", 2.0);
+  good.insert("max_iterations", 50);
+  config.decoder_custom_args = good;
+  EXPECT_NO_THROW(config.validate_custom_args());
+}

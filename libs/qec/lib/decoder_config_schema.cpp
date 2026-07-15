@@ -7,6 +7,8 @@
  ******************************************************************************/
 
 #include "cudaq/qec/decoder_config_schema.h"
+#include "cuda-qx/core/tuple_utils.h"
+#include "cuda-qx/core/type_traits.h"
 #include <any>
 #include <map>
 #include <mutex>
@@ -63,6 +65,75 @@ std::vector<std::string> registered_decoder_schema_names() {
 // Schema validation of programmatically built custom-args maps
 // ---------------------------------------------------------------------------
 
+namespace {
+
+// True when `value` would be readable as T by heterogeneous_map::get<T> --
+// i.e. it holds T or one of T's RelatedTypesMap entries (the same tuple
+// get<T> iterates). Pointer-based probing so validation never copies a value.
+template <typename T>
+bool value_readable_as(const std::any &value) {
+  if (std::any_cast<T>(&value))
+    return true;
+  bool readable = false;
+  cudaqx::tuple_for_each(
+      typename cudaqx::RelatedTypesMap<T>::types(), [&](auto &&el) {
+        readable = readable ||
+                   std::any_cast<
+                       std::remove_cv_t<std::remove_reference_t<decltype(el)>>>(
+                       &value);
+      });
+  return readable;
+}
+
+// True when `value` would be readable as `kind`'s canonical storage type.
+bool value_matches_kind(param_kind kind, const std::any &value) {
+  switch (kind) {
+  case param_kind::boolean:
+    return value_readable_as<bool>(value);
+  case param_kind::int32:
+    return value_readable_as<int>(value);
+  case param_kind::uint64:
+    return value_readable_as<std::size_t>(value);
+  case param_kind::f64:
+    return value_readable_as<double>(value);
+  case param_kind::string:
+    return value_readable_as<std::string>(value);
+  case param_kind::f64_vec:
+    return value_readable_as<std::vector<double>>(value);
+  case param_kind::f64_matrix:
+    return value_readable_as<std::vector<std::vector<double>>>(value);
+  case param_kind::subschema:
+  case param_kind::discriminated:
+    return value_readable_as<cudaqx::heterogeneous_map>(value);
+  }
+  return false;
+}
+
+const char *kind_description(param_kind kind) {
+  switch (kind) {
+  case param_kind::boolean:
+    return "boolean";
+  case param_kind::int32:
+    return "32-bit int";
+  case param_kind::uint64:
+    return "non-negative int";
+  case param_kind::f64:
+    return "float";
+  case param_kind::string:
+    return "string";
+  case param_kind::f64_vec:
+    return "list-of-float";
+  case param_kind::f64_matrix:
+    return "list-of-list-of-float";
+  case param_kind::subschema:
+  case param_kind::discriminated:
+    return "mapping";
+  }
+  return "unknown";
+}
+
+} // namespace
+
 void validate_custom_args(const decoder_schema &schema,
                           const cudaqx::heterogeneous_map &args,
                           const std::string &context) {
@@ -77,15 +148,27 @@ void validate_custom_args(const decoder_schema &schema,
     }
     if (!spec)
       throw std::runtime_error("Unknown key '" + key + "' in " + context + ".");
+
+    // Every value must be readable as its kind's canonical storage type;
+    // this is what YAML emission and decoder construction will do with it,
+    // so a map that validates is guaranteed to serialize (round-trip
+    // invariant). Values that arrived through the YAML parser or the typed
+    // Python setter always pass; this catches maps built by other means
+    // (e.g. a Python dict assigned before `type`, stored generically).
+    if (!value_matches_kind(spec->kind, kv.second))
+      throw std::runtime_error(
+          "Key '" + key + "' in " + context + " does not hold a " +
+          kind_description(spec->kind) + " value as its schema kind requires.");
+
     if (spec->kind == param_kind::subschema) {
       const auto *nested_schema = find_decoder_schema(spec->subschema);
       if (!nested_schema)
         throw std::runtime_error("No schema registered under '" +
                                  spec->subschema + "' (needed to validate '" +
                                  key + "').");
-      validate_custom_args(*nested_schema,
-                           args.get<cudaqx::heterogeneous_map>(key),
-                           context + "." + key);
+      validate_custom_args(
+          *nested_schema, *std::any_cast<cudaqx::heterogeneous_map>(&kv.second),
+          context + "." + key);
     } else if (spec->kind == param_kind::discriminated) {
       std::string discriminator_value;
       if (args.contains(spec->discriminator))
@@ -100,9 +183,9 @@ void validate_custom_args(const decoder_schema &schema,
             "'" + key + "' does not support " + spec->discriminator + " '" +
             discriminator_value +
             "': no parameter schema is registered under that name.");
-      validate_custom_args(*nested_schema,
-                           args.get<cudaqx::heterogeneous_map>(key),
-                           context + "." + key);
+      validate_custom_args(
+          *nested_schema, *std::any_cast<cudaqx::heterogeneous_map>(&kv.second),
+          context + "." + key);
     }
   }
   for (const auto &spec : schema.params)

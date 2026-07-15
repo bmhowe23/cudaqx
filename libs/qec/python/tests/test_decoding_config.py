@@ -395,6 +395,24 @@ def test_trt_decoder_default_global_params_materialized():
     assert args["global_decoder_params"] == {}
 
 
+def test_validate_custom_args_checks_value_kinds():
+    # A dict assigned before `type` is set takes the generic conversion
+    # (ints stored as size_t), which an f64 param cannot read back at
+    # emission. validate_custom_args must name the offending key instead of
+    # letting emission fail with a low-context error later.
+    dc = qec.decoder_config()
+    dc.decoder_custom_args = {"clip_value": 2}  # type not set yet
+    dc.type = "nv-qldpc-decoder"
+    with pytest.raises(RuntimeError, match="clip_value"):
+        dc.validate_custom_args()
+
+    # Assigned after `type`, the same dict converts to the schema's declared
+    # types and validates.
+    dc.decoder_custom_args = {"clip_value": 2}
+    dc.validate_custom_args()
+
+
+
 @pytest.mark.skipif(
     trt_schema_missing,
     reason="trt_decoder plugin (and its parameter schema) not available")
