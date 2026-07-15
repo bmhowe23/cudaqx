@@ -122,6 +122,19 @@ decoder_param_schema = qecrt.config.decoder_param_schema
 registered_decoder_schemas = qecrt.config.registered_decoder_schemas
 decoder_config_json_schema = qecrt.config.decoder_config_json_schema
 
+# Deprecated typed decoder-config classes, kept for backward compatibility
+# with the pre-schema API. They warn on construction; new code should assign
+# plain dicts to decoder_config.decoder_custom_args instead.
+from . import _compat
+from ._compat import (nv_qldpc_decoder_config, multi_error_lut_config,
+                      trt_decoder_config, pymatching_config, chromobius_config)
+
+for _compat_cls_name in _compat.__all__:
+    # The classes used to live in the compiled config submodule; keep that
+    # spelling working too (e.g. qec.qecrt.config.sliding_window_config).
+    setattr(qecrt.config, _compat_cls_name, getattr(_compat, _compat_cls_name))
+del _compat_cls_name
+
 stabilizer_grid = qecrt.stabilizer_grid
 role_to_str = qecrt.role_to_str
 sc_orientation = qecrt.sc_orientation

@@ -123,8 +123,23 @@ schema_typed_map_from_dict(const decoder_schema &schema, nb::dict dict) {
 
 cudaqx::heterogeneous_map
 custom_args_map_from_python(const std::string &decoder_type, nb::object value) {
+  std::string schema_name = decoder_type;
+  if (!nb::isinstance<nb::dict>(value) &&
+      nb::hasattr(value, "to_heterogeneous_map")) {
+    // Deprecated typed-config path (the cudaq_qec._compat shims and the
+    // pre-schema classes they replace): the object reduces itself to a dict
+    // of the explicitly-set parameters, and carries the decoder schema name
+    // to convert that dict with, so conversion does not depend on
+    // decoder_config.type having been assigned first.
+    if (nb::hasattr(value, "_schema_name")) {
+      nb::object schema_attr = value.attr("_schema_name");
+      if (nb::isinstance<nb::str>(schema_attr))
+        schema_name = nb::cast<std::string>(schema_attr);
+    }
+    value = value.attr("to_heterogeneous_map")();
+  }
   if (nb::isinstance<nb::dict>(value))
-    if (const auto *schema = find_decoder_schema(decoder_type))
+    if (const auto *schema = find_decoder_schema(schema_name))
       return schema_typed_map_from_dict(*schema, nb::cast<nb::dict>(value));
   return nb::cast<cudaqx::heterogeneous_map>(value);
 }

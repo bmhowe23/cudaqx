@@ -134,6 +134,21 @@ keys follow the schema of the named global decoder).
    to vet a configuration built programmatically before using it. Also
    available on ``multi_decoder_config`` to validate every decoder at once.
 
+Deprecated Typed Configuration Classes
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The typed configuration classes from earlier releases
+(``nv_qldpc_decoder_config``, ``trt_decoder_config``, ``pymatching_config``,
+``chromobius_config``, ``multi_error_lut_config``, and the
+``qecrt.config``-level ``single_error_lut_config``, ``sliding_window_config``,
+and ``srelay_bp_config``) remain available as deprecated compatibility shims.
+They emit a ``DeprecationWarning`` on construction and will be removed in a
+future release; existing code that builds one and passes it to
+``decoder_config.set_decoder_custom_args`` (or assigns it to
+``decoder_config.decoder_custom_args``) continues to work unchanged. Note
+that *reading* ``decoder_custom_args`` now always returns a plain dict, never
+a typed object. New code should assign dicts directly, as shown above.
+
 Configuration Functions
 ^^^^^^^^^^^^^^^^^^^^^^^^
 

@@ -603,5 +603,183 @@ def test_configure_invalid_decoders():
     assert ret != 0
 
 
+# Deprecated typed-config compatibility shims. The classes warn on
+# construction and reduce to the same dicts the schema-driven interface
+# accepts, so old-style and dict-built configs must produce identical YAML.
+
+
+def make_nv_qldpc_decoder_config(id=0):
+    dc = qec.decoder_config()
+    dc.id = id
+    dc.type = "nv-qldpc-decoder"
+    dc.block_size = 10
+    dc.syndrome_size = 3
+    dc.H_sparse = [1, 2, 3, -1, 6, 7, 8, -1, -1]
+    return dc
+
+
+def test_deprecated_typed_configs_warn_on_construction():
+    for cls in (qec.nv_qldpc_decoder_config, qec.multi_error_lut_config,
+                qec.trt_decoder_config, qec.pymatching_config,
+                qec.chromobius_config, qec.qecrt.config.srelay_bp_config,
+                qec.qecrt.config.single_error_lut_config,
+                qec.qecrt.config.sliding_window_config):
+        with pytest.warns(DeprecationWarning):
+            cls()
+
+
+def test_deprecated_config_matches_dict_built_yaml():
+    with pytest.warns(DeprecationWarning):
+        cfg = qec.nv_qldpc_decoder_config()
+    cfg.use_sparsity = True
+    cfg.error_rate = 0.01
+    cfg.max_iterations = 50
+    cfg.bp_seed = -1
+    with pytest.warns(DeprecationWarning):
+        cfg.srelay_config = qec.qecrt.config.srelay_bp_config()
+    cfg.srelay_config.pre_iter = 5
+    cfg.srelay_config.stopping_criterion = "NConv"
+
+    old_style = make_nv_qldpc_decoder_config()
+    old_style.set_decoder_custom_args(cfg)
+
+    new_style = make_nv_qldpc_decoder_config()
+    new_style.decoder_custom_args = {
+        "use_sparsity": True,
+        "error_rate": 0.01,
+        "max_iterations": 50,
+        "bp_seed": -1,
+        "srelay_config": {
+            "pre_iter": 5,
+            "stopping_criterion": "NConv",
+        },
+    }
+
+    assert old_style.to_yaml_str() == new_style.to_yaml_str()
+    assert old_style == new_style
+
+
+def test_deprecated_config_assignable_to_property():
+    with pytest.warns(DeprecationWarning):
+        cfg = qec.pymatching_config()
+    cfg.error_rate_vec = [0.1, 0.2, 0.3]
+    cfg.merge_strategy = "smallest_weight"
+
+    dc = qec.decoder_config()
+    # The shim carries its own schema name, so conversion works even before
+    # dc.type is assigned.
+    dc.decoder_custom_args = cfg
+    dc.type = "pymatching"
+    args = dc.decoder_custom_args
+    assert list(args["error_rate_vec"]) == [0.1, 0.2, 0.3]
+    assert args["merge_strategy"] == "smallest_weight"
+    dc.validate_custom_args()
+
+
+def test_deprecated_config_unset_fields_read_as_none_and_are_omitted():
+    with pytest.warns(DeprecationWarning):
+        cfg = qec.nv_qldpc_decoder_config()
+    assert cfg.max_iterations is None
+    cfg.max_iterations = 50
+    assert cfg.max_iterations == 50
+    cfg.max_iterations = None  # clears, like the old std::optional fields
+    assert cfg.to_heterogeneous_map() == {}
+
+
+def test_deprecated_config_rejects_unknown_attributes():
+    with pytest.warns(DeprecationWarning):
+        cfg = qec.pymatching_config()
+    with pytest.raises(AttributeError):
+        cfg.merge_stratgey = "smallest_weight"
+    with pytest.raises(AttributeError):
+        _ = cfg.merge_stratgey
+
+
+def test_deprecated_sliding_window_inner_params_collapse():
+    with pytest.warns(DeprecationWarning):
+        cfg = qec.qecrt.config.sliding_window_config()
+    cfg.window_size = 3
+    cfg.step_size = 1
+    cfg.error_rate_vec = [0.1, 0.2, 0.3]
+    cfg.inner_decoder_name = "multi_error_lut"
+    with pytest.warns(DeprecationWarning):
+        cfg.multi_error_lut_params = qec.multi_error_lut_config()
+    cfg.multi_error_lut_params.lut_error_depth = 2
+
+    assert cfg.to_heterogeneous_map() == {
+        "window_size": 3,
+        "step_size": 1,
+        "error_rate_vec": [0.1, 0.2, 0.3],
+        "inner_decoder_name": "multi_error_lut",
+        "inner_decoder_params": {
+            "lut_error_depth": 2
+        },
+    }
+
+    dc = qec.decoder_config()
+    dc.id = 0
+    dc.type = "sliding_window"
+    dc.block_size = 3
+    dc.syndrome_size = 3
+    dc.H_sparse = [0, -1, 1, -1, 2, -1]
+    dc.set_decoder_custom_args(cfg)
+    dc.validate_custom_args()
+
+    round_tripped = qec.decoder_config.from_yaml_str(dc.to_yaml_str())
+    args = round_tripped.decoder_custom_args
+    assert args["inner_decoder_params"]["lut_error_depth"] == 2
+
+
+def test_deprecated_trt_config_with_global_decoder_params():
+    with pytest.warns(DeprecationWarning):
+        cfg = qec.trt_decoder_config()
+    cfg.onnx_load_path = "model.onnx"
+    cfg.global_decoder = "pymatching"
+    with pytest.warns(DeprecationWarning):
+        cfg.global_decoder_params = qec.pymatching_config()
+    cfg.global_decoder_params.error_rate_vec = [0.1, 0.2, 0.3]
+
+    assert cfg.to_heterogeneous_map() == {
+        "onnx_load_path": "model.onnx",
+        "global_decoder": "pymatching",
+        "global_decoder_params": {
+            "error_rate_vec": [0.1, 0.2, 0.3]
+        },
+    }
+
+
+def test_deprecated_config_from_heterogeneous_map_round_trip():
+    source = {
+        "window_size": 3,
+        "error_rate_vec": [0.1, 0.2, 0.3],
+        "inner_decoder_name": "multi_error_lut",
+        "inner_decoder_params": {
+            "lut_error_depth": 2
+        },
+    }
+    with pytest.warns(DeprecationWarning):
+        cfg = qec.qecrt.config.sliding_window_config.from_heterogeneous_map(
+            source)
+    assert cfg.window_size == 3
+    assert cfg.inner_decoder_name == "multi_error_lut"
+    assert cfg.multi_error_lut_params.lut_error_depth == 2
+    assert cfg.to_heterogeneous_map() == source
+
+
+def test_deprecated_config_schema_validation_still_applies():
+    with pytest.warns(DeprecationWarning):
+        cfg = qec.qecrt.config.sliding_window_config()
+    cfg.window_size = 2
+    cfg.step_size = 5  # step_size > window_size: schema validate hook rejects
+    cfg.error_rate_vec = [0.1]
+    cfg.inner_decoder_name = "single_error_lut"
+
+    dc = qec.decoder_config()
+    dc.type = "sliding_window"
+    dc.set_decoder_custom_args(cfg)
+    with pytest.raises(RuntimeError, match="step_size"):
+        dc.validate_custom_args()
+
+
 if __name__ == "__main__":
     pytest.main()
