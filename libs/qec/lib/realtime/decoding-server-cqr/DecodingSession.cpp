@@ -7,16 +7,32 @@
  ******************************************************************************/
 
 #include "DecodingSession.h"
+#include "DecodingServer.h"
 #include "RpcWireFormat.h"
+#include "../../hardware_guards.h"
 #include "cudaq/qec/logger.h"
 
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
+#include <future>
 #include <stdexcept>
 #include <vector>
 
 namespace cudaq::qec::decoding_server {
+
+namespace {
+
+void set_graph_capture_device(const cudaq::qec::decoder &decoder) {
+  const int device = resolve_decode_device(decoder.get_cuda_device_id());
+  cudaq::qec::detail_affinity::set_cuda_device_for_decode(device);
+  if (device >= 0)
+    CUDA_QEC_INFO(
+        "DecodingSession::create: set CUDA device {} before graph capture",
+        device);
+}
+
+} // namespace
 
 // Busy high-water mark across all sessions (worker threads increment while
 // executing an item).
@@ -52,6 +68,7 @@ DecodingSession::create(std::unique_ptr<cudaq::qec::decoder> decoder,
   s->dec = std::move(decoder);
 
   if (s->dec->supports_graph_dispatch()) {
+    set_graph_capture_device(*s->dec);
     // Reserve SMs so the cooperative decode graph can become co-resident
     // with everything else occupying the GPU when it is fired device-side:
     // the persistent dispatch graph itself (1 block) plus any transport
@@ -72,7 +89,30 @@ DecodingSession::create(std::unique_ptr<cudaq::qec::decoder> decoder,
 }
 
 void DecodingSession::start_worker() {
-  worker = std::thread([this] { worker_loop(); });
+  // The pin must happen ON the worker thread (CUDA device selection is
+  // thread-local), but a failure is a startup error that belongs to the
+  // caller: hand it back through a promise so load_from_config aborts the
+  // server instead of a worker silently decoding on the wrong device.
+  std::promise<void> pinned;
+  auto pin_result = pinned.get_future();
+  worker = std::thread([this, &pinned] {
+    try {
+      cudaq::qec::detail_affinity::set_cuda_device_for_decode(
+          dec->get_cuda_device_id());
+      pinned.set_value();
+    } catch (...) {
+      pinned.set_exception(std::current_exception());
+      return; // never serve work from a mispinned thread
+    }
+    worker_loop();
+  });
+  try {
+    pin_result.get();
+  } catch (...) {
+    if (worker.joinable())
+      worker.join();
+    throw;
+  }
 }
 
 bool DecodingSession::try_enqueue(WorkItem item) {
@@ -191,6 +231,7 @@ void DecodingSession::on_enqueue(const WorkItem &item) {
         dec->enqueue_syndrome(completed->bits.data(), completed->bits.size());
 
     if (did_decode) {
+      ++decode_count;
       accepted_syndromes = 0;
       shot_state = ShotState::result_ready;
     }

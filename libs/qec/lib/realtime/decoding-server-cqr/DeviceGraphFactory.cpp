@@ -14,10 +14,15 @@
 // reference to this symbol is weak, which does not pull archive members on its
 // own.
 
+#include "DecodingServer.h" // resolve_decode_device (core symbol)
 #include "DeviceGraphTransceiver.h"
 
 extern "C" cudaq::qec::decoding_server::ITransceiver *
-cudaqx_qec_make_device_graph_transceiver() {
+cudaqx_qec_make_device_graph_transceiver(int pinned_cuda_device) {
   using namespace cudaq::qec::decoding_server;
-  return new DeviceGraphTransceiver(DeviceGraphConfig::from_env());
+  // The device-graph GPU is the decoder's cuda_device_id pin; resolve it
+  // here, inside the component, where DeviceGraphConfig is visible.
+  auto cfg = DeviceGraphConfig::from_env();
+  cfg.gpu_id = resolve_decode_device(pinned_cuda_device);
+  return new DeviceGraphTransceiver(cfg);
 }

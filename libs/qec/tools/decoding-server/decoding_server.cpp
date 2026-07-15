@@ -110,6 +110,7 @@ extern "C" __attribute__((weak)) void
 cudaqx_qec_device_graph_ring_consumer_destroy(void *consumer);
 extern "C" std::uint64_t cudaqx_qec_device_call_dispatch_count();
 extern "C" std::uint64_t cudaqx_qec_decoding_server_max_concurrent();
+extern "C" void cudaqx_qec_decoding_server_print_stats();
 extern "C" void cudaqx_qec_decoding_server_shutdown();
 
 namespace {
@@ -664,6 +665,12 @@ int main(int argc, char **argv) {
   // the per-ring counts are only valid AFTER teardown (dispatcher_stop joins
   // the loop thread).  teardown_rings leaves ring.dispatched intact.
   teardown_rings();
+  // The counters are atomics and the per-shot get_corrections cadence means
+  // they are settled by the time a client-driven run reaches shutdown; print
+  // before cudaqx_qec_decoding_server_shutdown() releases the sessions.
+  if (const char *stats = std::getenv("QEC_DECODING_SERVER_STATS");
+      stats && stats[0] != '\0')
+    cudaqx_qec_decoding_server_print_stats();
   cudaqx_qec_decoding_server_shutdown();
 
   for (const auto &ring : rings)

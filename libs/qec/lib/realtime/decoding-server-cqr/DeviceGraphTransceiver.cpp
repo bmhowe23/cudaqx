@@ -19,10 +19,12 @@
 #include <cstring>
 #include <dlfcn.h>
 #include <iostream>
+#include <limits>
 #include <sstream>
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <unistd.h>
 #include <vector>
 
 // CUDAQ device-graph scheduler types (cudaq-realtime-dispatch) and the
@@ -74,10 +76,6 @@ static uint32_t env_u32(const char *name, uint32_t def) {
   const char *v = env_raw(name);
   return v ? static_cast<uint32_t>(std::stoul(v)) : def;
 }
-static int env_int(const char *name, int def) {
-  const char *v = env_raw(name);
-  return v ? std::stoi(v) : def;
-}
 static size_t env_size(const char *name, size_t def) {
   const char *v = env_raw(name);
   return v ? static_cast<size_t>(std::stoull(v)) : def;
@@ -88,7 +86,9 @@ DeviceGraphConfig DeviceGraphConfig::from_env() {
   c.device_name = env_str("DEVICE");
   c.peer_ip = env_str("PEER_IP");
   c.remote_qp = env_u32("REMOTE_QP", 0);
-  c.gpu_id = env_int("GPU_ID", 0);
+  // gpu_id is not read from the environment: the device is the decoder's
+  // cuda_device_id, resolved by resolve_decode_device() at transport
+  // creation.
   c.frame_size = env_size("FRAME_SIZE", 384);
   c.page_size = env_size("PAGE_SIZE", 0); // 0 → derived below
   c.num_pages = env_size("NUM_PAGES", 64);
@@ -116,6 +116,25 @@ DeviceGraphTransceiver::DeviceGraphTransceiver(const DeviceGraphConfig &config)
   // hololink_qldpc_graph_decoder_bridge.cpp (lines 279-282).
   size_t page_size = config.page_size ? config.page_size : config.frame_size;
   page_size = (page_size + 127) & ~static_cast<size_t>(127);
+
+  if (page_size != 0 &&
+      config.num_pages > std::numeric_limits<size_t>::max() / page_size)
+    throw std::runtime_error(
+        "DeviceGraphTransceiver: ring size overflow for "
+        "QEC_DEVICE_GRAPH_FRAME_SIZE/QEC_DEVICE_GRAPH_PAGE_SIZE=" +
+        std::to_string(page_size) + " and QEC_DEVICE_GRAPH_NUM_PAGES=" +
+        std::to_string(config.num_pages));
+  const size_t ring_bytes = page_size * config.num_pages;
+  const long host_page_size = ::sysconf(_SC_PAGESIZE);
+  if (host_page_size > 0 &&
+      ring_bytes % static_cast<size_t>(host_page_size) != 0)
+    throw std::runtime_error(
+        "DeviceGraphTransceiver: ring buffer size " +
+        std::to_string(ring_bytes) +
+        " bytes is not aligned to host page size " +
+        std::to_string(host_page_size) +
+        " bytes; adjust QEC_DEVICE_GRAPH_NUM_PAGES or "
+        "QEC_DEVICE_GRAPH_PAGE_SIZE");
 
   // The provider computes frame_size = sizeof(RPCHeader) + payload_size, so
   // hand it the payload remainder of our frame budget.

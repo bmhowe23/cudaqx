@@ -13,12 +13,13 @@
 
 #include <algorithm>
 #include <fstream>
+#include <iostream>
 #include <iterator>
 #include <stdexcept>
 #include <thread>
 #include <vector>
 
-// GPU RoCE support is an optional component
+// Device-graph dispatch is an optional component
 // (cudaq-qec-decoding-server-device-graph) so this core library carries no DOCA
 // / Hololink / CUDA-driver dependencies: those .so's require libcuda.so.1 at
 // load time, which core consumers (unit tests, the CQR plugin) must not impose
@@ -27,7 +28,7 @@
 // definition of this factory; anywhere else the weak reference is null and
 // make_transport throws.
 extern "C" __attribute__((weak)) cudaq::qec::decoding_server::ITransceiver *
-cudaqx_qec_make_device_graph_transceiver();
+cudaqx_qec_make_device_graph_transceiver(int pinned_cuda_device);
 
 namespace cudaq::qec::decoding_server {
 
@@ -37,13 +38,28 @@ using cudaq::qec::decoding::config::DecoderDispatch;
 // Constructors
 // ---------------------------------------------------------------------------
 
+/// Resolve the CUDA device a decode pipeline runs on from the decoder's
+/// cuda_device_id pin; an unpinned decoder (-1) defaults to device 0. The
+/// device_graph path relies on this to place its rings, dispatch scheduler,
+/// and device-side graph fire on the one GPU the FPGA/NIC is affine to --
+/// CUDA graphs cannot split capture and launch across devices, so the decoder
+/// must be pinned to that device.
+int resolve_decode_device(int decoder_pin) {
+  return decoder_pin >= 0 ? decoder_pin : 0;
+}
+
 std::unique_ptr<ITransceiver>
-DecodingServer::make_transport(DecoderDispatch dispatch) {
+DecodingServer::make_transport(DecoderDispatch dispatch,
+                               int pinned_cuda_device) {
   switch (dispatch) {
   case DecoderDispatch::device_graph:
+    // device_graph lives in the cudaq-qec-decoding-server-device-graph
+    // component, reached through the weak factory.  The device is the
+    // decoder's cuda_device_id pin, resolved inside the factory where the
+    // transceiver config lives; we just thread the pin to it.
     if (cudaqx_qec_make_device_graph_transceiver)
       return std::unique_ptr<ITransceiver>(
-          cudaqx_qec_make_device_graph_transceiver());
+          cudaqx_qec_make_device_graph_transceiver(pinned_cuda_device));
     throw std::runtime_error(
         "device_graph dispatch requested but the device-graph component is "
         "not linked into this binary. Link "
@@ -79,7 +95,15 @@ DecodingServer::DecodingServer(const std::string &config_yaml) {
   register_handlers();
 
   const auto dispatch = registry_.required_dispatch();
-  auto t = make_transport(dispatch);
+  // device_graph must run on the GPU the FPGA/NIC is affine to; when exactly
+  // one session is booting, pass its decoder's cuda_device_id so the factory
+  // can place the transport on that device.
+  const auto &boot_sessions = registry_.sessions();
+  const int pinned_cuda_device =
+      boot_sessions.size() == 1
+          ? boot_sessions.begin()->second->dec->get_cuda_device_id()
+          : -1;
+  auto t = make_transport(dispatch, pinned_cuda_device);
   ITransceiver *raw = t.get();
   owned_transports_.push_back(std::move(t));
   function_transport_[kEnqueueSyndromesFunctionId] = raw;
@@ -118,7 +142,12 @@ DecodingServer::DecodingServer(std::unique_ptr<ITransceiver> transport,
   function_transport_[kEnqueueSyndromesFunctionId] = raw;
   function_transport_[kGetCorrectionsFunctionId] = raw;
   function_transport_[kResetDecoderFunctionId] = raw;
-  init(config_yaml);
+  try {
+    init(config_yaml);
+  } catch (...) {
+    registry_.stop_workers();
+    throw;
+  }
 }
 
 DecodingServer::DecodingServer(
@@ -129,7 +158,14 @@ DecodingServer::DecodingServer(
   function_transport_[kEnqueueSyndromesFunctionId] = raw;
   function_transport_[kGetCorrectionsFunctionId] = raw;
   function_transport_[kResetDecoderFunctionId] = raw;
-  registry_.load_from_config(config, "configure_decoders()");
+  try {
+    registry_.load_from_config(config, "configure_decoders()");
+  } catch (...) {
+    // Members destroy in reverse order (transports before registry); join any
+    // already-started workers while the transports still exist.
+    registry_.stop_workers();
+    throw;
+  }
   register_handlers();
 }
 
@@ -138,7 +174,12 @@ DecodingServer::DecodingServer(std::vector<std::unique_ptr<ITransceiver>> owned,
                                const std::string &config_yaml)
     : owned_transports_(std::move(owned)),
       function_transport_(std::move(function_transport)) {
-  init(config_yaml);
+  try {
+    init(config_yaml);
+  } catch (...) {
+    registry_.stop_workers();
+    throw;
+  }
 }
 
 void *DecodingServer::graph_resources_for(uint64_t decoder_id) const {
@@ -287,6 +328,17 @@ void DecodingServer::run() {
     th.join();
 
   CUDA_QEC_INFO("DecodingServer: all receiver threads exited");
+}
+
+void DecodingServer::print_session_stats() const {
+  for (const auto &[id, session] : registry_.sessions()) {
+    std::cout << "QEC_DECODING_SERVER_DECODER_STATS id=" << id
+              << " decodes=" << session->decode_count.load()
+              << " enqueues=" << session->enqueue_count.load()
+              << " corrections=" << session->get_corrections_count.load()
+              << " resets=" << session->reset_count.load()
+              << " errors=" << session->error_count.load() << std::endl;
+  }
 }
 
 void DecodingServer::stop() {

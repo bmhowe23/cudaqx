@@ -33,14 +33,16 @@ struct cudaq_dispatch_graph_context;
 
 namespace cudaq::qec::decoding_server {
 
-/// Runtime configuration for DeviceGraphTransceiver.  All fields are read from
-/// environment variables so that the server can be reconfigured without a
-/// rebuild.
+/// Runtime configuration for DeviceGraphTransceiver.  Transport fields are
+/// read from environment variables so that the server can be reconfigured
+/// without a rebuild; gpu_id is the exception -- it is the decoder's
+/// cuda_device_id, filled in at transport creation.
 struct DeviceGraphConfig {
   std::string
       device_name;       ///< QEC_DEVICE_GRAPH_DEVICE (IB netdev, e.g. "mlx5_0")
   uint32_t remote_qp{0}; ///< QEC_DEVICE_GRAPH_REMOTE_QP (FPGA/emulator QP)
-  int gpu_id{0};         ///< QEC_DEVICE_GRAPH_GPU_ID
+  int gpu_id{0};         ///< FPGA-affine GPU; set from the decoder's
+                         ///< cuda_device_id by resolve_decode_device()
   size_t frame_size{384}; ///< QEC_DEVICE_GRAPH_FRAME_SIZE (max RPC frame bytes)
   size_t page_size{0};    ///< QEC_DEVICE_GRAPH_PAGE_SIZE (0 → from frame_size)
   size_t num_pages{64};   ///< QEC_DEVICE_GRAPH_NUM_PAGES (ring depth)

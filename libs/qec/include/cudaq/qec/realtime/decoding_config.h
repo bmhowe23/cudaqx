@@ -151,6 +151,7 @@ struct sliding_window_config {
   std::optional<std::size_t> window_size;
   std::optional<std::size_t> step_size;
   std::optional<std::size_t> num_syndromes_per_round;
+  std::optional<std::size_t> num_boundary_syndromes;
   std::optional<bool> straddle_start_round;
   std::optional<bool> straddle_end_round;
   std::vector<double> error_rate_vec;
@@ -192,6 +193,11 @@ struct decoder_config {
   /// VRAM and decoded by a captured CUDA graph (e.g. nv_qldpc_decoder with
   /// RelayBP).
   DecoderDispatch dispatch = DecoderDispatch::host;
+  /// CUDA device this decoder is pinned to at construction (see the
+  /// "cuda_device_id" decoder parameter). Placement knob common to any
+  /// GPU-accelerated decoder, hence at this level rather than inside the
+  /// per-decoder custom args. Unset = unpinned.
+  std::optional<int> cuda_device_id;
   uint64_t block_size = 0;
   uint64_t syndrome_size = 0;
   std::vector<std::int64_t> H_sparse;
