@@ -21,7 +21,8 @@
 #
 # Division of labor (identical to hololink_qldpc_graph_decoder_test.sh):
 #   - decoding_server (--transport=cpu_roce --qp_config=hsb_fpga) owns the
-#     RDMA ring and prints its QP / RKey / Buffer Addr handshake.  It performs
+#     RDMA ring and prints its endpoint line (QEC_DECODING_SERVER_ENDPOINT
+#     qp=... rkey=... buffer_addr=...).  It performs
 #     NO Hololink control-plane traffic.
 #   - hololink_fpga_syndrome_playback is the sole FPGA control-plane writer:
 #     it programs the SIF RDMA target with the server's handshake values,
@@ -974,17 +975,12 @@ extract_hex() {
     echo "$line" | grep -oP '0x[0-9a-fA-F]+' | head -1
 }
 
-extract_decimal() {
-    local line="$1"
-    echo "$line" | awk -F': ' '{print $NF}' | tr -d ' '
-}
-
 # ============================================================================
 # Server + Playback (shared by both modes)
 # ============================================================================
 
 # Start the decoding server against $1=peer_ip $2=remote_qp; scrape its
-# Bridge Ready handshake into SERVER_QP / SERVER_RKEY / SERVER_ADDR.
+# endpoint line into SERVER_QP / SERVER_RKEY / SERVER_ADDR.
 start_server() {
     local peer_ip="$1" remote_qp="$2" server_log="$3"
 
@@ -1057,14 +1053,19 @@ start_server() {
         return 1
     }
 
-    local qp_line rkey_line addr_line
-    qp_line=$(wait_for_pattern "$server_log" "QP Number:" 5 "$SERVER_PID") || return 1
-    rkey_line=$(wait_for_pattern "$server_log" "RKey:" 5 "$SERVER_PID") || return 1
-    addr_line=$(wait_for_pattern "$server_log" "Buffer Addr:" 5 "$SERVER_PID") || return 1
+    # The transceiver publishes the provider's endpoint description verbatim
+    # (one `key=value ...` line); pull the RDMA rendezvous tokens the
+    # playback tool needs out of it.
+    local ep_line
+    ep_line=$(wait_for_pattern "$server_log" "QEC_DECODING_SERVER_ENDPOINT" 5 "$SERVER_PID") || return 1
 
-    SERVER_QP=$(extract_hex "$qp_line")
-    SERVER_RKEY=$(extract_decimal "$rkey_line")
-    SERVER_ADDR=$(extract_hex "$addr_line")
+    SERVER_QP=$(sed -n 's/.*[[:space:]]qp=\([0-9a-fA-FxX]*\).*/\1/p' <<<"$ep_line")
+    SERVER_RKEY=$(sed -n 's/.*[[:space:]]rkey=\([0-9]*\).*/\1/p' <<<"$ep_line")
+    SERVER_ADDR=$(sed -n 's/.*[[:space:]]buffer_addr=\([0-9a-fA-FxX]*\).*/\1/p' <<<"$ep_line")
+    if [[ -z "$SERVER_QP" || -z "$SERVER_RKEY" || -z "$SERVER_ADDR" ]]; then
+        _err "Endpoint line missing qp=/rkey=/buffer_addr= tokens: $ep_line"
+        return 1
+    fi
 
     _info "Server QP:     $SERVER_QP"
     _info "Server RKey:   $SERVER_RKEY"

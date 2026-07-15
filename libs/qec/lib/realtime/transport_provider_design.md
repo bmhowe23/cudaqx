@@ -459,8 +459,20 @@ names HOW RPCs execute; `--transport` names the wire.  They are orthogonal:
   provider itself (hololink by default; the YAML transport section,
   `--transport` fallback, or CUDAQ_REALTIME_BRIDGE_LIB select another),
   REQUIRES v2 geometry+endpoint
-  queries, configures via `QEC_DEVICE_GRAPH_{DEVICE,PEER_IP,REMOTE_QP,
-  FRAME_SIZE,PAGE_SIZE,NUM_PAGES,GPU_ID,RESERVED_SMS}` env, and wires
+  queries, and configures the provider generically: the named env knobs
+  `QEC_DEVICE_GRAPH_{DEVICE,PEER_IP,REMOTE_QP,FRAME_SIZE,PAGE_SIZE,
+  NUM_PAGES}` each become a `--<flag>=` argument ONLY when set (they match
+  the hololink provider's flags); `QEC_DEVICE_GRAPH_PROVIDER_ARGS` (or the
+  YAML transport section's args, which the server forwards through it) is
+  the free-form pass-through for providers with a different argument
+  surface; `--gpu=` is always passed and is the decoder's cuda_device_id
+  (not an env knob); RESERVED_SMS is consumed by DecodingSession.
+  Providers should ignore arguments they do not recognize.  After launch
+  the transceiver publishes the provider's endpoint description VERBATIM
+  as one line -- `QEC_DECODING_SERVER_ENDPOINT <key=value ...>` -- and
+  never parses it; the orchestration layer scrapes whatever rendezvous
+  tokens its wire uses (qp=/rkey=/buffer_addr= for RDMA playback).  It
+  wires
   `cudaq_create/launch/destroy_dispatch_graph_regular` (dlsym) + the
   proprietary populate shims onto the provider's GPU rings.  Lives in the
   `cudaq-qec-decoding-server-device-graph` STATIC component behind PR 670's
@@ -507,7 +519,8 @@ must use the two-arg form, or an absent key resets the value to the default.
 - Negative: `--transport=/nonexistent.so` and `--transport=bogusname` fail
   with the resolved path in the message; device_graph without the hololink
   provider .so fails at provider load with an actionable error; missing
-  QEC_DEVICE_GRAPH_* env fails at config validation.
+  QEC_DEVICE_GRAPH_* env means the flags are simply not passed (the
+  provider applies its own defaults or rejects the bring-up itself).
 - Dependency hygiene: `objdump -p decoding_server | grep NEEDED` shows no
   doca/hololink/ibverbs.
 - Known pre-existing failure (NOT caused by this work):

@@ -328,6 +328,21 @@ int main(int argc, char **argv) {
     if (!dg_provider.empty())
       ::setenv("CUDAQ_REALTIME_BRIDGE_LIB",
                resolve_provider_lib(dg_provider).c_str(), /*overwrite=*/1);
+    // Provider args from the transport section ride the same generic
+    // pass-through the per-ring loop uses: section args first, then the
+    // device_graph shape override's args.  The transceiver forwards them
+    // verbatim after its named knobs (QEC_DEVICE_GRAPH_* env), so a
+    // non-HSB provider is configured entirely from the YAML.
+    {
+      std::string dg_args;
+      for (const auto &a : decoder_config.transport.args)
+        dg_args += (dg_args.empty() ? "" : " ") + a;
+      for (const auto &a : decoder_config.transport.device_graph.args)
+        dg_args += (dg_args.empty() ? "" : " ") + a;
+      if (!dg_args.empty())
+        ::setenv("QEC_DEVICE_GRAPH_PROVIDER_ARGS", dg_args.c_str(),
+                 /*overwrite=*/1);
+    }
     try {
       cudaq::qec::decoding_server::DecodingServer server(cfg.config_path);
       // QP/rkey/buf already printed to stdout by launch_scheduler() so the

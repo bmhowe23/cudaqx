@@ -19,6 +19,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <vector>
 
 #include <cuda_runtime.h>
 
@@ -37,16 +38,28 @@ namespace cudaq::qec::decoding_server {
 /// read from environment variables so that the server can be reconfigured
 /// without a rebuild; gpu_id is the exception -- it is the decoder's
 /// cuda_device_id, filled in at transport creation.
+///
+/// The named fields are OPTIONAL convenience knobs: each becomes a
+/// `--<flag>=` argument to the provider only when its environment variable
+/// is set (they match the built-in hololink provider's flags; an RDMA-style
+/// provider will typically want the same shape).  A provider with a
+/// different argument surface is configured through `extra_args`
+/// (QEC_DEVICE_GRAPH_PROVIDER_ARGS, whitespace-separated tokens forwarded
+/// verbatim -- the same pass-through contract as the decoding server's
+/// provider args).  Providers should ignore arguments they do not
+/// recognize.
 struct DeviceGraphConfig {
   std::string
       device_name;       ///< QEC_DEVICE_GRAPH_DEVICE (IB netdev, e.g. "mlx5_0")
   uint32_t remote_qp{0}; ///< QEC_DEVICE_GRAPH_REMOTE_QP (FPGA/emulator QP)
   int gpu_id{0};         ///< FPGA-affine GPU; set from the decoder's
                          ///< cuda_device_id by resolve_decode_device()
-  size_t frame_size{384}; ///< QEC_DEVICE_GRAPH_FRAME_SIZE (max RPC frame bytes)
-  size_t page_size{0};    ///< QEC_DEVICE_GRAPH_PAGE_SIZE (0 → from frame_size)
-  size_t num_pages{64};   ///< QEC_DEVICE_GRAPH_NUM_PAGES (ring depth)
-  std::string peer_ip;    ///< QEC_DEVICE_GRAPH_PEER_IP (FPGA/emulator IPv4)
+  size_t frame_size{0};  ///< QEC_DEVICE_GRAPH_FRAME_SIZE (max RPC frame bytes)
+  size_t page_size{0};   ///< QEC_DEVICE_GRAPH_PAGE_SIZE (0 → from frame_size)
+  size_t num_pages{0};   ///< QEC_DEVICE_GRAPH_NUM_PAGES (ring depth)
+  std::string peer_ip;   ///< QEC_DEVICE_GRAPH_PEER_IP (FPGA/emulator IPv4)
+  std::vector<std::string>
+      extra_args; ///< QEC_DEVICE_GRAPH_PROVIDER_ARGS, forwarded verbatim
   // (QEC_DEVICE_GRAPH_RESERVED_SMS is consumed by DecodingSession, where the
   // decode graph is captured.)
 
@@ -113,9 +126,11 @@ public:
   /// RDMA target info printed after launch_scheduler() for the orchestration
   /// script (QP number, rkey, buffer address).  Parsed from the provider's
   /// endpoint-info query (bridge interface v2, required).
-  uint32_t qp_number() const { return qp_number_; }
-  uint32_t rkey() const { return rkey_; }
-  uint64_t buffer_addr() const { return buffer_addr_; }
+  /// The provider's one-line `key=value ...` endpoint description
+  /// (bridge interface v2 get_endpoint_info), verbatim.  Whatever the wire's
+  /// rendezvous data is (QP/rkey for RDMA, a port for sockets), it rides
+  /// through here opaquely; this class neither parses nor interprets it.
+  const std::string &endpoint_info() const { return endpoint_info_; }
 
 private:
   cudaq_realtime_bridge_handle_t bridge_{nullptr};
@@ -131,9 +146,7 @@ private:
   size_t page_size_{0};
 
   // RDMA target identity from the provider's endpoint-info query (v2).
-  uint32_t qp_number_{0};
-  uint32_t rkey_{0};
-  uint64_t buffer_addr_{0};
+  std::string endpoint_info_;
 
   // The device-graph scheduler over this transceiver's rings (set by
   // launch_scheduler; owns all scheduler-side CUDA state).

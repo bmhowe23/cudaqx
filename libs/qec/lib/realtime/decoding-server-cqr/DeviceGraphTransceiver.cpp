@@ -38,26 +38,6 @@ namespace cudaq::qec::decoding_server {
 // Internal helpers (same pattern as hololink_qldpc_graph_decoder_bridge.cpp)
 // ---------------------------------------------------------------------------
 
-namespace {
-
-// Parse one `key=` token out of the provider's endpoint-info line (base 0:
-// accepts the provider's 0x-hex qp/buffer_addr and decimal rkey alike).
-// Leaves \p out untouched when the key is absent.
-template <typename T>
-void parse_endpoint_token(const std::string &info, const char *key, T &out) {
-  std::istringstream in(info);
-  std::string token;
-  const std::string prefix = std::string(key) + "=";
-  while (in >> token)
-    if (token.rfind(prefix, 0) == 0) {
-      out =
-          static_cast<T>(std::stoull(token.substr(prefix.size()), nullptr, 0));
-      return;
-    }
-}
-
-} // namespace
-
 // ---------------------------------------------------------------------------
 // DeviceGraphConfig::from_env
 // ---------------------------------------------------------------------------
@@ -89,9 +69,18 @@ DeviceGraphConfig DeviceGraphConfig::from_env() {
   // gpu_id is not read from the environment: the device is the decoder's
   // cuda_device_id, resolved by resolve_decode_device() at transport
   // creation.
-  c.frame_size = env_size("FRAME_SIZE", 384);
-  c.page_size = env_size("PAGE_SIZE", 0); // 0 → derived below
-  c.num_pages = env_size("NUM_PAGES", 64);
+  c.frame_size = env_size("FRAME_SIZE", 0);
+  c.page_size = env_size("PAGE_SIZE", 0); // 0 → derived from frame_size
+  c.num_pages = env_size("NUM_PAGES", 0);
+  // Generic pass-through channel for providers whose argument surface does
+  // not match the named knobs above: whitespace-separated tokens, forwarded
+  // to the provider verbatim (after the named arguments).
+  if (const char *extra = env_raw("PROVIDER_ARGS")) {
+    std::istringstream in(extra);
+    std::string token;
+    while (in >> token)
+      c.extra_args.push_back(token);
+  }
   return c;
 }
 
@@ -224,14 +213,11 @@ DeviceGraphTransceiver::DeviceGraphTransceiver(const DeviceGraphConfig &config)
         "DeviceGraphTransceiver: provider does not report endpoint info "
         "(bridge interface v2 required)");
   }
-  const std::string endpoint_info(info);
-  parse_endpoint_token(endpoint_info, "qp", qp_number_);
-  parse_endpoint_token(endpoint_info, "rkey", rkey_);
-  parse_endpoint_token(endpoint_info, "buffer_addr", buffer_addr_);
+  endpoint_info_ = info;
 
-  // connect(): the provider publishes its QP/RKey/Buffer handshake for the
-  // orchestration script (no wire traffic; the playback tool alone programs
-  // the FPGA control plane).
+  // connect(): the provider finalizes whatever rendezvous its wire needs
+  // (no wire traffic for hololink; the playback tool alone programs the
+  // FPGA control plane).
   if (cudaq_bridge_connect(bridge_) != CUDAQ_OK) {
     cudaq_bridge_destroy(bridge_);
     bridge_ = nullptr;
@@ -239,12 +225,10 @@ DeviceGraphTransceiver::DeviceGraphTransceiver(const DeviceGraphConfig &config)
         "DeviceGraphTransceiver: provider connect() failed");
   }
 
-  CUDA_QEC_INFO("DeviceGraphTransceiver: Hololink provider started  device={} "
-                "peer={} gpu={} pages={} page_size={}  "
-                "QP=0x{:X} rkey={} buf=0x{:X}  "
+  CUDA_QEC_INFO("DeviceGraphTransceiver: provider started  gpu={} pages={} "
+                "page_size={}  endpoint: {}  "
                 "(call launch_scheduler() before run())",
-                config.device_name, config.peer_ip, config.gpu_id, num_pages_,
-                page_size_, qp_number_, rkey_, buffer_addr_);
+                config.gpu_id, num_pages_, page_size_, endpoint_info_);
 }
 
 // ---------------------------------------------------------------------------
@@ -273,17 +257,14 @@ void DeviceGraphTransceiver::launch_scheduler(void *raw_graph_resources) {
         "DeviceGraphTransceiver::launch_scheduler: provider launch() failed");
   }
 
-  CUDA_QEC_INFO("DeviceGraphTransceiver: GPU scheduler launched  "
-                "QP=0x{:X} rkey={} buf=0x{:X}",
-                qp_number_, rkey_, buffer_addr_);
+  CUDA_QEC_INFO("DeviceGraphTransceiver: GPU scheduler launched ({})",
+                endpoint_info_);
 
-  // Print RDMA target info to stdout so the orchestration script can grep it.
-  // Matches the format in hololink_qldpc_graph_decoder_bridge.cpp lines
-  // 441-444.  Values come from the provider's endpoint-info query.
-  std::cout << "QP Number: 0x" << std::hex << qp_number_ << std::dec << "\n"
-            << "RKey: " << rkey_ << "\n"
-            << "Buffer Addr: 0x" << std::hex << buffer_addr_ << std::dec
-            << "\n";
+  // Publish the provider's endpoint description VERBATIM so the
+  // orchestration layer can scrape whatever rendezvous tokens its wire
+  // needs (qp=/rkey=/buffer_addr= for RDMA playback, port= for sockets).
+  // This class does not know or care which tokens are present.
+  std::cout << "QEC_DECODING_SERVER_ENDPOINT " << endpoint_info_ << "\n";
   std::cout.flush();
 }
 
