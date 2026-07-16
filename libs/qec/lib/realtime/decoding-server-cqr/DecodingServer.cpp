@@ -8,44 +8,50 @@
 
 #include "DecodingServer.h"
 #include "CpuRoceTransceiver.h"
-#include "GpuRoceTransceiver.h"
 
 #include "cudaq/qec/logger.h"
 #include "cudaq/qec/realtime/decoding_config.h"
 
 #include <algorithm>
 #include <fstream>
+#include <iostream>
 #include <iterator>
 #include <stdexcept>
 #include <thread>
 #include <vector>
 
+// GPU RoCE support is an optional component (cudaq-qec-decoding-server-gpuroce)
+// so this core library carries no DOCA / Hololink / CUDA-driver dependencies:
+// those .so's require libcuda.so.1 at load time, which core consumers (unit
+// tests, the CQR plugin) must not impose on driverless machines.  Binaries
+// that want the gpu_roce transport link the component WHOLE_ARCHIVE, whose
+// GpuRoceFactory.cpp provides the strong definition of this factory; anywhere
+// else the weak reference is null and make_transport throws.
+extern "C" __attribute__((weak)) cudaq::qec::decoding_server::ITransceiver *
+cudaqx_qec_make_gpu_roce_transceiver(int pinned_cuda_device);
+
 namespace cudaq::qec::decoding_server {
 
 using cudaq::qec::decoding::config::DecoderTransport;
+using cudaq::qec::decoding::rpc::EnqueueRequestPayload;
+using cudaq::qec::decoding::rpc::GetCorrectionsRequestPayload;
+using cudaq::qec::decoding::rpc::kEnqueueSyndromesFunctionId;
+using cudaq::qec::decoding::rpc::kGetCorrectionsFunctionId;
+using cudaq::qec::decoding::rpc::kResetDecoderFunctionId;
+using cudaq::qec::decoding::rpc::ResetRequestPayload;
+using cudaq::realtime::RPCHeader;
 
 // ---------------------------------------------------------------------------
 // Constructors
 // ---------------------------------------------------------------------------
 
-/// gpu_roce runs the whole pipeline -- rings, dispatch scheduler, device-side
-/// graph fire -- on ONE GPU: the one the FPGA/NIC is affine to
-/// (HOLOLINK_GPU_ID). A decoder pinned elsewhere would split graph capture
-/// and graph launch across devices, which CUDA graphs cannot do. Both knobs
-/// name the same topology fact, so they must agree.
-int reconcile_gpu_roce_device(std::optional<int> env_gpu_id, int decoder_pin) {
-  if (env_gpu_id && *env_gpu_id < 0)
-    throw std::runtime_error("HOLOLINK_GPU_ID must be >= 0 (got " +
-                             std::to_string(*env_gpu_id) + ")");
-  if (env_gpu_id && decoder_pin >= 0 && *env_gpu_id != decoder_pin)
-    throw std::runtime_error(
-        "gpu_roce device conflict: HOLOLINK_GPU_ID=" +
-        std::to_string(*env_gpu_id) + " but the decoder is pinned to " +
-        std::to_string(decoder_pin) +
-        " (cuda_device_id). The FPGA-affine GPU and the decoder pin must be "
-        "the same device.");
-  if (env_gpu_id)
-    return *env_gpu_id;
+/// Resolve the CUDA device a decode pipeline runs on from the decoder's
+/// cuda_device_id pin; an unpinned decoder (-1) defaults to device 0. The
+/// gpu_roce path relies on this to place its rings, dispatch scheduler, and
+/// device-side graph fire on the one GPU the FPGA/NIC is affine to -- CUDA
+/// graphs cannot split capture and launch across devices, so the decoder must
+/// be pinned to that device.
+int resolve_decode_device(int decoder_pin) {
   return decoder_pin >= 0 ? decoder_pin : 0;
 }
 
@@ -54,17 +60,17 @@ DecodingServer::make_transport(DecoderTransport transport_type,
                                int pinned_cuda_device) {
   switch (transport_type) {
   case DecoderTransport::gpu_roce:
-#ifdef CUDAQ_GPU_ROCE_AVAILABLE
-  {
-    auto cfg = GpuRoceConfig::from_env();
-    cfg.gpu_id = reconcile_gpu_roce_device(cfg.gpu_id_env, pinned_cuda_device);
-    return std::make_unique<GpuRoceTransceiver>(cfg);
-  }
-#else
+    // gpu_roce lives in the cudaq-qec-decoding-server-gpuroce component,
+    // reached through the weak factory.  The device is the decoder's
+    // cuda_device_id pin, resolved inside the factory where GpuRoceConfig
+    // lives; we just thread the pin to it.
+    if (cudaqx_qec_make_gpu_roce_transceiver)
+      return std::unique_ptr<ITransceiver>(
+          cudaqx_qec_make_gpu_roce_transceiver(pinned_cuda_device));
     throw std::runtime_error(
-        "gpu_roce transport requested but CUDAQ_GPU_ROCE_AVAILABLE is not set. "
-        "Build with HOLOSCAN_SENSOR_BRIDGE_BUILD_DIR and DOCA libs.");
-#endif
+        "gpu_roce transport requested but GPU RoCE support is not linked into "
+        "this binary. Build with HOLOSCAN_SENSOR_BRIDGE_BUILD_DIR and DOCA "
+        "libs, and link cudaq-qec-decoding-server-gpuroce (whole-archive).");
 
   case DecoderTransport::cpu_roce:
     // CpuRoceTransceiver constructor always throws (ibverbs pending).
@@ -91,23 +97,26 @@ DecodingServer::DecodingServer(const std::string &config_yaml) {
   registry_.load_from_config(config, config_yaml);
   register_handlers();
 
+  const auto transport_type = registry_.required_transport();
+  // gpu_roce must run on the GPU the FPGA/NIC is affine to; when exactly one
+  // session is booting, pass its decoder's cuda_device_id so the factory can
+  // place the transport on that device.
   const auto &boot_sessions = registry_.sessions();
   const int pinned_cuda_device =
       boot_sessions.size() == 1
           ? boot_sessions.begin()->second->dec->get_cuda_device_id()
           : -1;
-  auto t = make_transport(registry_.required_transport(), pinned_cuda_device);
+  auto t = make_transport(transport_type, pinned_cuda_device);
   ITransceiver *raw = t.get();
   owned_transports_.push_back(std::move(t));
   function_transport_[kEnqueueSyndromesFunctionId] = raw;
   function_transport_[kGetCorrectionsFunctionId] = raw;
   function_transport_[kResetDecoderFunctionId] = raw;
 
-#ifdef CUDAQ_GPU_ROCE_AVAILABLE
   // For the GPU RoCE path, wire the first (and only) session's decoder graph
   // to the Hololink ring buffer via the CUDAQ device-graph scheduler.
   // Multi-decoder GPU RoCE binding is deferred to a follow-up.
-  if (auto *gpu_trx = dynamic_cast<GpuRoceTransceiver *>(raw)) {
+  if (transport_type == DecoderTransport::gpu_roce) {
     const auto &sessions = registry_.sessions();
     if (sessions.size() != 1)
       throw std::runtime_error(
@@ -121,9 +130,10 @@ DecodingServer::DecodingServer(const std::string &config_yaml) {
           "GPU RoCE requires a decoder that supports graph dispatch "
           "(supports_graph_dispatch() must return true and "
           "capture_decode_graph() must succeed)");
-    gpu_trx->launch_scheduler(session->graph_resources.get());
+    if (!raw->launch_device_scheduler(session->graph_resources.get()))
+      throw std::runtime_error(
+          "gpu_roce transceiver did not provide a device scheduler");
   }
-#endif
 }
 
 DecodingServer::DecodingServer(std::unique_ptr<ITransceiver> transport,
@@ -198,11 +208,12 @@ void DecodingServer::register_handlers() {
   dispatcher_.register_handler(
       kEnqueueSyndromesFunctionId,
       [this](RxFrame frame, ResponseWriter &writer) {
-        if (frame.buf.size() < sizeof(RPCHeader) + sizeof(EnqueuePayload)) {
+        if (frame.buf.size() <
+            sizeof(RPCHeader) + sizeof(EnqueueRequestPayload)) {
           writer.write_error(RpcStatus::BAD_REQUEST);
           return;
         }
-        const auto *req = reinterpret_cast<const EnqueuePayload *>(
+        const auto *req = reinterpret_cast<const EnqueueRequestPayload *>(
             frame.buf.data() + sizeof(RPCHeader));
         const auto *hdr = reinterpret_cast<const RPCHeader *>(frame.buf.data());
 
@@ -228,12 +239,13 @@ void DecodingServer::register_handlers() {
   dispatcher_.register_handler(
       kGetCorrectionsFunctionId, [this](RxFrame frame, ResponseWriter &writer) {
         if (frame.buf.size() <
-            sizeof(RPCHeader) + sizeof(GetCorrectionsPayload)) {
+            sizeof(RPCHeader) + sizeof(GetCorrectionsRequestPayload)) {
           writer.write_error(RpcStatus::BAD_REQUEST);
           return;
         }
-        const auto *req = reinterpret_cast<const GetCorrectionsPayload *>(
-            frame.buf.data() + sizeof(RPCHeader));
+        const auto *req =
+            reinterpret_cast<const GetCorrectionsRequestPayload *>(
+                frame.buf.data() + sizeof(RPCHeader));
         const auto *hdr = reinterpret_cast<const RPCHeader *>(frame.buf.data());
 
         auto &session = registry_.get(static_cast<uint64_t>(req->decoder_id));
@@ -254,11 +266,12 @@ void DecodingServer::register_handlers() {
   // reset_decoder — response sent by the worker thread.
   dispatcher_.register_handler(
       kResetDecoderFunctionId, [this](RxFrame frame, ResponseWriter &writer) {
-        if (frame.buf.size() < sizeof(RPCHeader) + sizeof(ResetPayload)) {
+        if (frame.buf.size() <
+            sizeof(RPCHeader) + sizeof(ResetRequestPayload)) {
           writer.write_error(RpcStatus::BAD_REQUEST);
           return;
         }
-        const auto *req = reinterpret_cast<const ResetPayload *>(
+        const auto *req = reinterpret_cast<const ResetRequestPayload *>(
             frame.buf.data() + sizeof(RPCHeader));
         const auto *hdr = reinterpret_cast<const RPCHeader *>(frame.buf.data());
 
@@ -311,6 +324,17 @@ void DecodingServer::run() {
     th.join();
 
   CUDA_QEC_INFO("DecodingServer: all receiver threads exited");
+}
+
+void DecodingServer::print_session_stats() const {
+  for (const auto &[id, session] : registry_.sessions()) {
+    std::cout << "QEC_DECODING_SERVER_DECODER_STATS id=" << id
+              << " decodes=" << session->decode_count.load()
+              << " enqueues=" << session->enqueue_count.load()
+              << " corrections=" << session->get_corrections_count.load()
+              << " resets=" << session->reset_count.load()
+              << " errors=" << session->error_count.load() << std::endl;
+  }
 }
 
 void DecodingServer::stop() {

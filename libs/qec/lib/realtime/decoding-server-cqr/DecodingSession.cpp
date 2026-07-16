@@ -7,9 +7,10 @@
  ******************************************************************************/
 
 #include "DecodingSession.h"
-#include "RpcWireFormat.h"
+#include "DecodingServer.h"
 #include "../../hardware_guards.h"
 #include "cudaq/qec/logger.h"
+#include "cudaq/qec/realtime/decoder_rpc_wire_format.h"
 
 #include <chrono>
 #include <cstring>
@@ -18,6 +19,31 @@
 #include <vector>
 
 namespace cudaq::qec::decoding_server {
+
+using cudaq::qec::decoding::rpc::bit_packed_bytes;
+using cudaq::qec::decoding::rpc::EnqueueRequestPayload;
+using cudaq::qec::decoding::rpc::GetCorrectionsRequestPayload;
+using cudaq::qec::decoding::rpc::kEnqueueSyndromesFunctionId;
+using cudaq::qec::decoding::rpc::kGetCorrectionsFunctionId;
+using cudaq::qec::decoding::rpc::kMaxSyndromeBits;
+using cudaq::qec::decoding::rpc::kResetDecoderFunctionId;
+using cudaq::qec::decoding::rpc::ResetRequestPayload;
+using cudaq::qec::decoding::rpc::RpcStatus;
+using cudaq::realtime::RPCHeader;
+using cudaq::realtime::RPCResponse;
+
+namespace {
+
+void set_graph_capture_device(const cudaq::qec::decoder &decoder) {
+  const int device = resolve_decode_device(decoder.get_cuda_device_id());
+  cudaq::qec::detail_affinity::set_cuda_device_for_decode(device);
+  if (device >= 0)
+    CUDA_QEC_INFO(
+        "DecodingSession::create: set CUDA device {} before graph capture",
+        device);
+}
+
+} // namespace
 
 // Busy high-water mark across all sessions (worker threads increment while
 // executing an item).
@@ -53,6 +79,7 @@ DecodingSession::create(std::unique_ptr<cudaq::qec::decoder> decoder,
   s->dec = std::move(decoder);
 
   if (s->dec->supports_graph_dispatch()) {
+    set_graph_capture_device(*s->dec);
     void *gr = s->dec->capture_decode_graph();
     s->graph_resources =
         GraphResourcesPtr(gr, GraphResourcesDeleter{s->dec.get()});
@@ -112,7 +139,7 @@ static void send_response(ITransceiver &transport, const PeerId &peer,
                           size_t result_len = 0) {
   std::vector<uint8_t> buf(sizeof(RPCResponse) + result_len);
   auto *hdr = reinterpret_cast<RPCResponse *>(buf.data());
-  hdr->magic = kRPCResponseMagic;
+  hdr->magic = cudaq::realtime::RPC_MAGIC_RESPONSE;
   hdr->status = static_cast<int32_t>(status);
   hdr->result_len = static_cast<uint32_t>(result_len);
   hdr->request_id = request_id;
@@ -137,14 +164,14 @@ void DecodingSession::on_enqueue(const WorkItem &item) {
       shot_state == ShotState::failed)
     return;
 
-  const size_t min_size = sizeof(RPCHeader) + sizeof(EnqueuePayload);
+  const size_t min_size = sizeof(RPCHeader) + sizeof(EnqueueRequestPayload);
   if (item.frame_buf.size() < min_size) {
     ++error_count;
     shot_state = ShotState::failed;
     return; // enqueue_syndromes never sends a response
   }
 
-  const auto *req = reinterpret_cast<const EnqueuePayload *>(
+  const auto *req = reinterpret_cast<const EnqueueRequestPayload *>(
       item.frame_buf.data() + sizeof(RPCHeader));
 
   // enqueue_syndromes is fire-and-forget: the caller already received the
@@ -167,7 +194,7 @@ void DecodingSession::on_enqueue(const WorkItem &item) {
   }
 
   const uint8_t *bit_data =
-      item.frame_buf.data() + sizeof(RPCHeader) + sizeof(EnqueuePayload);
+      item.frame_buf.data() + sizeof(RPCHeader) + sizeof(EnqueueRequestPayload);
 
   // TODO: add byte-packed compat path once compiler lowering PR lands.
   // Unpack bit-packed syndromes to byte-per-bit for the decoder.
@@ -205,6 +232,7 @@ void DecodingSession::on_enqueue(const WorkItem &item) {
         dec->enqueue_syndrome(completed->bits.data(), completed->bits.size());
 
     if (did_decode) {
+      ++decode_count;
       accepted_syndromes = 0;
       shot_state = ShotState::result_ready;
     }
@@ -221,14 +249,14 @@ void DecodingSession::on_get_corrections(const WorkItem &item) {
   ++get_corrections_count;
 
   if (item.frame_buf.size() <
-      sizeof(RPCHeader) + sizeof(GetCorrectionsPayload)) {
+      sizeof(RPCHeader) + sizeof(GetCorrectionsRequestPayload)) {
     ++error_count;
     send_response(*item.response_transport, item.peer, item.request_id,
                   item.ptp_timestamp, RpcStatus::BAD_REQUEST);
     return;
   }
 
-  const auto *req = reinterpret_cast<const GetCorrectionsPayload *>(
+  const auto *req = reinterpret_cast<const GetCorrectionsRequestPayload *>(
       item.frame_buf.data() + sizeof(RPCHeader));
 
   // Spec validation: return_size (the OUT std::vector<bool> length) must be
