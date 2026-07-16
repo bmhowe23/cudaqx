@@ -20,6 +20,7 @@
 #include "cudaq/qec/decoder.h"
 #include "cudaq/qec/experiments.h"
 #include "cudaq/qec/patch.h"
+#include "cudaq/qec/pcm_utils.h"
 
 TEST(QECCodeTester, checkRepetitionNoiseStim) {
 
@@ -590,6 +591,110 @@ void check_matrix_bits(const std::string &name,
       data_ptr++;
     }
   }
+}
+
+// End-to-end realtime decode driven by the decoder_context API,
+// built from a full-basis CSS memory circuit. Steane's boundary is
+// inhomogeneous: only the fixed (Z) stabilizers carry boundary detectors while
+// interior rounds carry both types. The measurement
+// window is streamed as the realtime protocol does (numCols ancilla per round,
+// then the final data readout); the sliding accumulation must fire a decode at
+// exactly the right point -- only once the full window has arrived.
+TEST(QECCodeTester, checkRealtimeDecodeFromMemoryCircuit) {
+  auto steane = cudaq::qec::get_code("steane");
+  const std::size_t nRounds = 3;
+  const std::size_t numCols =
+      steane->get_num_ancilla_z_qubits() + steane->get_num_ancilla_x_qubits();
+  const std::size_t numData = steane->get_num_data_qubits();
+  cudaq::noise_model noise;
+  noise.add_all_qubit_channel("x", cudaq::qec::two_qubit_depolarization(0.05),
+                              1);
+
+  auto ctx = cudaq::qec::decoder_context_from_memory_circuit(
+      *steane, cudaq::qec::operation::prep0, nRounds, noise);
+  auto [dem, m2d, m2o] = ctx.full_component();
+
+  ASSERT_FALSE(m2d.rows.empty());
+  EXPECT_EQ(m2d.rows.size(), dem.num_detectors());
+  ASSERT_EQ(ctx.num_measurements(), nRounds * numCols + numData);
+
+  // Inhomogeneous boundary: single-measurement boundary detectors coexist with
+  // multi-measurement interior/final ones, so m2d rows are not all one shape.
+  std::size_t minRow = m2d.rows[0].size(), maxRow = m2d.rows[0].size();
+  for (const auto &row : m2d.rows) {
+    minRow = std::min(minRow, row.size());
+    maxRow = std::max(maxRow, row.size());
+  }
+  EXPECT_LT(minRow, maxRow);
+
+  // Configure the realtime decoder from the decoder_inputs returned by
+  // full_component().
+  auto decoder =
+      cudaq::qec::get_decoder("single_error_lut", dem.detector_error_matrix);
+  decoder->set_O_sparse(
+      cudaq::qec::pcm_to_sparse_vec(dem.observables_flips_matrix));
+  decoder->set_D_sparse(cudaq::qec::d_sparse(m2d));
+  ASSERT_EQ(decoder->get_num_msyn_per_decode(), m2d.num_measurements);
+
+  // Stream numCols ancilla per round, then the final data readout. The window
+  // must not decode until that last chunk completes it.
+  for (std::size_t r = 0; r < nRounds; ++r)
+    EXPECT_FALSE(
+        decoder->enqueue_syndrome(std::vector<std::uint8_t>(numCols, 0)))
+        << "decoded early after round " << r;
+  EXPECT_TRUE(decoder->enqueue_syndrome(std::vector<std::uint8_t>(numData, 0)));
+
+  // No errors were injected, so every observable correction is trivially zero.
+  for (std::size_t k = 0; k < decoder->get_num_observables(); ++k)
+    EXPECT_EQ(decoder->get_obs_corrections()[k], 0);
+}
+
+namespace {
+bool tensors_equal(const cudaqx::tensor<uint8_t> &a,
+                   const cudaqx::tensor<uint8_t> &b) {
+  if (a.shape() != b.shape())
+    return false;
+  for (std::size_t i = 0; i < a.size(); ++i)
+    if (a.data()[i] != b.data()[i])
+      return false;
+  return true;
+}
+} // namespace
+
+// decoder_context_from_memory_circuit returns a decoder_context;
+// canonicalization is deferred until a component method is called. Verify that
+// full_component() matches dem_from_memory_circuit and that x_component() /
+// z_component() reproduce x_/z_dem_from_memory_circuit and partition the
+// detectors.
+TEST(QECCodeTester, checkDecoderContextAndComponents) {
+  auto steane = cudaq::qec::get_code("steane");
+  const auto prep = cudaq::qec::operation::prep0;
+  const std::size_t nRounds = 3;
+  cudaq::noise_model noise;
+  noise.add_all_qubit_channel("x", cudaq::qec::two_qubit_depolarization(0.05),
+                              1);
+  auto ctx = cudaq::qec::decoder_context_from_memory_circuit(*steane, prep,
+                                                             nRounds, noise);
+  auto dem = cudaq::qec::dem_from_memory_circuit(*steane, prep, nRounds, noise);
+  auto z = cudaq::qec::z_dem_from_memory_circuit(*steane, prep, nRounds, noise);
+  auto x = cudaq::qec::x_dem_from_memory_circuit(*steane, prep, nRounds, noise);
+
+  // full_component() matches the plain entry point.
+  auto [fc_dem, fc_m2d, fc_m2o] = ctx.full_component();
+  EXPECT_TRUE(
+      tensors_equal(fc_dem.detector_error_matrix, dem.detector_error_matrix));
+
+  // x_component() / z_component() reproduce the per-type DEMs and partition
+  // the detectors without re-running dem_from_kernel.
+  auto [zc_dem, zc_m2d, zc_m2o] = ctx.z_component();
+  auto [xc_dem, xc_m2d, xc_m2o] = ctx.x_component();
+  EXPECT_TRUE(
+      tensors_equal(zc_dem.detector_error_matrix, z.detector_error_matrix));
+  EXPECT_TRUE(
+      tensors_equal(xc_dem.detector_error_matrix, x.detector_error_matrix));
+  EXPECT_EQ(zc_dem.num_detectors() + xc_dem.num_detectors(),
+            fc_dem.num_detectors());
+  EXPECT_EQ(zc_m2d.rows.size(), zc_dem.num_detectors());
 }
 
 TEST(QECCodeTester, checkDemFromMemoryCircuit) {

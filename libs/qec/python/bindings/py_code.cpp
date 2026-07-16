@@ -697,6 +697,76 @@ void bindCode(nb::module_ &mod) {
       nb::arg("code"), nb::arg("op"), nb::arg("numShots"), nb::arg("numRounds"),
       nb::arg("noise") = nb::none());
 
+  nb::class_<decoder_context>(qecmod, "DecoderContext",
+                              R"pbdoc(
+      Lazy handle returned by ``decoder_context_from_memory_circuit``.
+
+      Stores the raw circuit analysis. Each *_component method canonicalizes
+      exactly the requested stabilizer type and returns a ``(dem, m2d, m2o)``
+      tuple.
+    )pbdoc")
+      .def_prop_ro("num_measurements", &decoder_context::num_measurements,
+                   "Total number of measurements per shot.")
+      .def(
+          "x_component",
+          [](const decoder_context &h) {
+            auto ctx = h.x_component();
+            return nb::make_tuple(ctx.dem, ctx.m2d.rows, ctx.m2o.rows);
+          },
+          R"pbdoc(
+       Canonicalize X-stabilizer detectors; return (dem, m2d, m2o).
+
+       ``dem`` is the canonicalized DetectorErrorModel, ``m2d`` and ``m2o``
+       are lists of lists of measurement indices.
+    )pbdoc")
+      .def(
+          "z_component",
+          [](const decoder_context &h) {
+            auto ctx = h.z_component();
+            return nb::make_tuple(ctx.dem, ctx.m2d.rows, ctx.m2o.rows);
+          },
+          R"pbdoc(
+       Canonicalize Z-stabilizer detectors; return (dem, m2d, m2o).
+
+       ``dem`` is the canonicalized DetectorErrorModel, ``m2d`` and ``m2o``
+       are lists of lists of measurement indices.
+    )pbdoc")
+      .def(
+          "full_component",
+          [](const decoder_context &h) {
+            auto ctx = h.full_component();
+            return nb::make_tuple(ctx.dem, ctx.m2d.rows, ctx.m2o.rows);
+          },
+          R"pbdoc(
+       Canonicalize both stabilizer types with boundary awareness;
+       return (dem, m2d, m2o).
+
+       ``dem`` is the canonicalized DetectorErrorModel, ``m2d`` and ``m2o``
+       are lists of lists of measurement indices.
+    )pbdoc");
+
+  qecmod.def(
+      "d_sparse",
+      [](const std::vector<std::vector<std::size_t>> &rows) {
+        cudaq::M2DSparseMatrix m2d;
+        m2d.rows = rows;
+        return cudaq::qec::d_sparse(m2d);
+      },
+      R"pbdoc(
+       Flatten a measurement-to-detector map into the -1-terminated sparse
+       vector a realtime decoder config expects for its D_sparse.
+
+       ``m2d`` is a list of lists: ``m2d[d]`` contains the measurement indices
+       whose XOR forms detector ``d``. Each detector's indices are emitted in
+       order, followed by -1.
+
+       This is a standalone helper for consumers who hold an m2d map (e.g.,
+       extracted from a ``decoder_inputs`` returned by a component method)
+       and want to build the D_sparse vector without going through a
+       ``DecoderContext``.
+    )pbdoc",
+      nb::arg("m2d"));
+
   qecmod.def(
       "dem_from_memory_circuit",
       [](code &code, operation op, std::size_t numRounds,
@@ -795,6 +865,41 @@ void bindCode(nb::module_ &mod) {
              nb::arg("code"), nb::arg("op"), nb::arg("numRounds"),
              nb::arg("noise") = nb::none(),
              nb::arg("decompose_errors") = false);
+
+  qecmod.def(
+      "decoder_context_from_memory_circuit",
+      [](code &code, operation op, std::size_t numRounds,
+         std::optional<cudaq::noise_model> noise = std::nullopt,
+         bool decompose_errors = false) {
+        if (!noise)
+          throw std::runtime_error(
+              "decoder_context_from_memory_circuit requires a noise model; "
+              "noise=None is not supported.");
+        return decoder_context_from_memory_circuit(code, op, numRounds, *noise,
+                                                   decompose_errors);
+      },
+      R"pbdoc(
+        Run a memory-circuit analysis and return a lazy DecoderContext handle.
+
+        Executes ``dem_from_kernel`` once and stores the raw result.
+        Canonicalization is deferred: call ``x_component()``,
+        ``z_component()``, or ``full_component()`` on the returned handle to
+        canonicalize exactly the stabilizer type needed.
+
+        Args:
+            code: The code to characterize.
+            op: The initial state preparation operation.
+            numRounds: The number of stabilizer measurement rounds.
+            noise: The noise model to apply to the memory circuit.
+            decompose_errors: If True, hyperedge error mechanisms are decomposed
+                into pairs of two-detector edges by Stim before returning.
+
+        Returns:
+            A DecoderContext handle; call a component method to obtain the
+            canonicalized ``(dem, m2d, m2o)`` tuple.
+      )pbdoc",
+      nb::arg("code"), nb::arg("op"), nb::arg("numRounds"),
+      nb::arg("noise") = nb::none(), nb::arg("decompose_errors") = false);
 
   qecmod.def(
       "sample_code_capacity",
