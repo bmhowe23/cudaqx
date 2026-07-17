@@ -9,8 +9,8 @@
 #ifdef CUDAQ_QEC_DEVICE_GRAPH_AVAILABLE
 
 #include "DeviceGraphTransceiver.h"
-#include "RpcWireFormat.h"
 #include "cudaq/qec/logger.h"
+#include "cudaq/qec/realtime/decoder_rpc_wire_format.h"
 #include "cudaq/qec/realtime/graph_resources.h"
 
 #include <chrono>

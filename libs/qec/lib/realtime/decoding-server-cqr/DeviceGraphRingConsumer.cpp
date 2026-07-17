@@ -9,8 +9,8 @@
 #ifdef CUDAQ_QEC_DEVICE_GRAPH_AVAILABLE
 
 #include "DeviceGraphRingConsumer.h"
-#include "RpcWireFormat.h"
 #include "cudaq/qec/logger.h"
+#include "cudaq/qec/realtime/decoder_rpc_wire_format.h"
 #include "cudaq/qec/realtime/graph_resources.h"
 
 #include <cstring>
@@ -19,6 +19,10 @@
 #include <string>
 
 namespace cudaq::qec::decoding_server {
+
+using cudaq::qec::decoding::rpc::kEnqueueSyndromesFunctionId;
+using cudaq::qec::decoding::rpc::kGetCorrectionsFunctionId;
+using cudaq::qec::decoding::rpc::kResetDecoderFunctionId;
 
 namespace {
 
