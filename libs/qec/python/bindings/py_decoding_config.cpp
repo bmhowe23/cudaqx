@@ -176,8 +176,9 @@ void bindDecodingConfig(nb::module_ &mod) {
       .def_rw("provider", &transport_config::provider)
       .def_rw("args", &transport_config::args)
       .def_rw("device_graph", &transport_config::device_graph)
-      .def("__eq__", [](const transport_config &a,
-                        const transport_config &b) { return a == b; });
+      .def("__eq__", [](const transport_config &a, const transport_config &b) {
+        return a == b;
+      });
 
   // decoder_config
   nb::class_<config::decoder_config>(mod_cfg, "decoder_config")

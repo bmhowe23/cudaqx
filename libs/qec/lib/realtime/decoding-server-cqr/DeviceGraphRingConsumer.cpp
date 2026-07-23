@@ -274,7 +274,8 @@ std::uint64_t DeviceGraphRingConsumer::dispatched() const {
   if (cudaSetDevice(gpu_id_) != cudaSuccess)
     return value;
   cudaStream_t stream = nullptr;
-  if (cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking) == cudaSuccess) {
+  if (cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking) ==
+      cudaSuccess) {
     if (cudaMemcpyAsync(&value, d_stats_, sizeof(value), cudaMemcpyDeviceToHost,
                         stream) == cudaSuccess)
       cudaStreamSynchronize(stream);

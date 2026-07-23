@@ -602,8 +602,7 @@ std::string decoder_config_json_schema() {
       {"id", llvm::json::Object{{"type", "integer"}}},
       {"type", llvm::json::Object{{"type", "string"}}},
       {"dispatch",
-       llvm::json::Object{
-           {"enum", llvm::json::Array{"host", "device_graph"}}}},
+       llvm::json::Object{{"enum", llvm::json::Array{"host", "device_graph"}}}},
       {"cuda_device_id",
        llvm::json::Object{{"type", "integer"}, {"minimum", 0}}},
       {"block_size", llvm::json::Object{{"type", "integer"}, {"minimum", 0}}},
@@ -661,10 +660,10 @@ std::string decoder_config_json_schema() {
            {"properties",
             llvm::json::Object{
                 {"provider", llvm::json::Object{{"type", "string"}}},
-                {"args", llvm::json::Object{
-                             {"type", "array"},
-                             {"items", llvm::json::Object{
-                                           {"type", "string"}}}}}}},
+                {"args",
+                 llvm::json::Object{
+                     {"type", "array"},
+                     {"items", llvm::json::Object{{"type", "string"}}}}}}},
            {"additionalProperties", false}}},
       {"transport_config",
        llvm::json::Object{
@@ -672,10 +671,10 @@ std::string decoder_config_json_schema() {
            {"properties",
             llvm::json::Object{
                 {"provider", llvm::json::Object{{"type", "string"}}},
-                {"args", llvm::json::Object{
-                             {"type", "array"},
-                             {"items", llvm::json::Object{
-                                           {"type", "string"}}}}},
+                {"args",
+                 llvm::json::Object{
+                     {"type", "array"},
+                     {"items", llvm::json::Object{{"type", "string"}}}}},
                 {"device_graph",
                  llvm::json::Object{
                      {"$ref", "#/$defs/transport_shape_override"}}}}},
