@@ -1,16 +1,12 @@
 # Decoding-Server Transport-Provider Design
 
-Status: prototype complete and validated on branch pair
-`cuda-quantum:bmh/realtime-bridge-providers` +
-`cudaqx:bmh/decoding-server-bridge-670` (2026-07).
-This document is written so the work can be reproduced from scratch by
-reading it: it records the before/after architecture, the API contracts, the
-commit-by-commit change plan, and the validation gates.
+Status: implemented and validated.
+This document records the before/after architecture, the API contracts,
+and the validation gates.
 
 Document family: this file owns the WIRE seam (provider ABI + all server
 deployment contracts); `per_decoder_rings_design.md` owns the TOPOLOGY
-(rings, consumers, dispatch shapes, mixed server);
-`per_decoder_rings_validation_notes.md` is the campaign log.
+(rings, consumers, dispatch shapes, mixed server).
 
 ## 1. Problem
 
@@ -26,8 +22,8 @@ catalog of transports with a decoder attached:
   device-graph dispatch engine, so building the gpu_roce path required
   Holoscan-Sensor-Bridge, DOCA, hololink, and libcuda at *link time*.
 - The server hand-rolled a `std::thread` around
-  `cudaq_host_ring_dispatch_loop`, an API surface cuda-quantum PR 4869
-  retires in favor of the dispatcher object.
+  `cudaq_host_ring_dispatch_loop`, an API surface since retired in favor
+  of the dispatcher object.
 - Transport selection had two knobs that had to agree: `--transport` on the
   CLI and a per-decoder `transport: cpu_roce|gpu_roce` YAML key.  When they
   disagreed, a stub transceiver was silently selected and died with an
@@ -51,7 +47,7 @@ server changes zero lines.
 │                                         a fallback, conflict = error)    │
 │  ONE RING PER DECODER, each with its own consumer:                       │
 │   host ─► dispatcher object over        <name>  ► libcudaq-realtime-     │
-│           its provider ring (4869 API)            bridge-<name>.so       │
+│           its provider ring                       bridge-<name>.so       │
 │   device_graph ─► DeviceGraphRing-      /path.so ► partner library,      │
 │           Consumer (GPU scheduler)                verbatim, zero changes │
 │  geometry + READY ring tokens derived FROM the providers (v2 queries)    │
@@ -488,30 +484,7 @@ fallback, no CpuRoceTransceiver stub.  YAML alias parsing note for anyone
 re-adding compatibility keys: a second `mapOptional` onto the same field
 must use the two-arg form, or an absent key resets the value to the default.
 
-## 5. Reproduction plan (what an agent should do)
-
-1. cuda-quantum worktree at PR 4869 head merged with origin/main (merge was
-   clean).  Build realtime + full CUDA-Q to a FRESH prefix (e.g.
-   /usr/local/cudaq-4869) via cudaqx scripts/build_cudaq_with_realtime.sh
-   (CUDAQ_SRC must be a dir literally named `cudaq`).  Verify cudaqx main
-   already contains the CUDA-Q pin bump compatible with 4869 (PR 654/675).
-2. cuda-quantum commits, in order: (a) bridge interface v2 + loader rules +
-   CUDAQ_ERR_UNSUPPORTED + fix caching-before-validation; (b) udp provider
-   (+ reorder lib/ subdirs: cpu_transport before daemon); (c) cpu_roce
-   provider (absorb rendezvous + hsb_fpga from the cudaqx server);
-   (d) hololink provider v2 queries (syntax-check only without HSB/DOCA).
-3. cudaqx branch off main: rewrite the server per 4.2 (drop all transport
-   code + host-dispatch/ibverbs/transport link deps; dispatcher object;
-   keep READY/DISPATCHED contracts byte-compatible).
-4. Merge PR 670 (component split + weak factory + CMP0126 fix), then
-   refactor GpuRoceTransceiver into DeviceGraphTransceiver as a bridge
-   consumer (4.4), then the dispatch/transport split, then remove aliases.
-5. Point the cudaqx build at the new prefix:
-   `-DCUDAQ_DIR=<prefix>/lib/cmake/cudaq -DCUDAQ_REALTIME_ROOT=<prefix>`;
-   pass `-DCUDAQ_QEC_REALTIME_CUDEVICE_PROPRIETARY_ARCHIVE=<...>.a` to
-   enable the device-graph component end to end.
-
-## 6. Validation gates
+## 5. Validation gates
 
 - Two-process udp suite (`test_decoding_server`): 5/5, including dual
   decoders over one ring.
@@ -527,11 +500,11 @@ must use the two-arg form, or an absent key resets the value to the default.
   PyMatchingDeviceCallRealtime.HostDispatch "null dispatch session" fails
   identically on untouched main + the old install.
 
-## 7. Follow-ups (recorded, not done)
+## 6. Follow-ups (recorded, not done)
 
-- Rig validation: build cudaq-realtime-bridge-hololink from the branch
-  (verifies the v2 edits compile against real HSB headers) and run the HSB
-  script end to end.
+- Rig validation: build cudaq-realtime-bridge-hololink (verifies the v2
+  edits compile against real HSB headers) and run the HSB script end to
+  end.
 - Upstream the interface-v2 commit to cuda-quantum with the version-pairing
   rule called out; propose HOST_CALL handler-context (`host_fn(ctx, ...)`)
   and multi-writer-ring slot discipline for the fan-in topology.

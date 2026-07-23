@@ -1,9 +1,6 @@
 # One Ring Buffer (and One Dispatcher) per Decoder
 
-Status: implemented and validated (in-process and two-process) on branch
-pair `cuda-quantum:bmh/realtime-bridge-providers` +
-`cudaqx:bmh/decoding-server-bridge-670` (2026-07); one open item (the
-device-graph decode firing) tracked in the validation notes.
+Status: implemented and validated (in-process and two-process).
 
 Document family:
 - `transport_provider_design.md` -- the WIRE seam: provider ABI and all
@@ -12,8 +9,6 @@ Document family:
   deployment cookbook (sample YAML + launch lines per scenario).
 - this file -- the TOPOLOGY: rings, consumers, dispatch shapes, and the
   composed (mixed-dispatch) server.
-- `per_decoder_rings_validation_notes.md` -- the campaign log: what was
-  run and proved, probes, dead ends, and build/runtime gotchas.
 
 ## 1. Topology
 
@@ -184,22 +179,19 @@ section 4.2.
 
 ## 7. Validation status
 
-Everything above is validated end to end on a WSL2 laptop GPU -- including
-the two-process CONTROL run (two host nv-qldpc rings, rebuilt-ABI plugin,
-correct decode) and the mixed server's GPU dispatch graph serving
-DEVICE_CALLs over pinned-udp rings across processes.  ONE step remains
-open: after a window-completing enqueue triggers the decode graph, the
-scheduler wedges.  The device-graph launch mechanism itself is proven good
-on this box, so the wedge is a real pipeline issue, locally debuggable.
-Full campaign log, probe methodology (including the invalid-probe lesson),
-suspects, and gotchas: `per_decoder_rings_validation_notes.md`.
+Everything above is validated end to end -- including the two-process
+CONTROL run (two host nv-qldpc rings, correct decode) and the mixed
+server's GPU dispatch graph serving DEVICE_CALLs over pinned-udp rings
+across processes, with real device-ring decodes.  The mixed-dispatch flow
+is covered by the gated ctest
+`app_examples.surface_code-4-yaml-mixed-dispatch` (registered when the
+server links the device-graph component; skips without a GPU or the
+nv-qldpc plugin).
 
 ## 8. Follow-ups
 
-- Resolve the decode-graph wedge (suspects + first diagnostic step in the
-  validation notes); then extend TwoProcessPerDecoderRings to assert the
-  device ring's dispatched count, locally and on the rig (hololink
-  provider).
+- Extend TwoProcessPerDecoderRings to assert the device ring's dispatched
+  count, locally and on the rig (hololink provider).
 - Bounded shutdown for a wedged decode chain: the consumer's destructor
   drains with cudaStreamSynchronize, which hangs if the triggered graph
   never completes; consider a timed drain + loud abandon.
