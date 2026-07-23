@@ -66,7 +66,7 @@ struct DeviceGraphConfig {
   static DeviceGraphConfig from_env();
 };
 
-/// GPU RoCE transport and device-graph scheduler for the decoding server.
+/// Device-graph dispatch engine (transport-blind) for the decoding server.
 ///
 /// ## Architecture
 ///
@@ -92,7 +92,7 @@ struct DeviceGraphConfig {
 /// ## Multi-decoder
 ///
 /// Currently limited to a single decoder session (enforced by DecodingServer).
-/// Multi-decoder GPU RoCE with per-session ring binding is deferred.
+/// Multi-decoder device_graph with per-session ring binding is deferred.
 class DeviceGraphTransceiver final : public ITransceiver {
 public:
   explicit DeviceGraphTransceiver(const DeviceGraphConfig &config);

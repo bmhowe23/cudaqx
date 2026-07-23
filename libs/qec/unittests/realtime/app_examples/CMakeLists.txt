@@ -718,9 +718,14 @@ if(TARGET decoding_server
   # Two-process MIXED-DISPATCH test (host LUT ring + device_graph nv-qldpc
   # ring in one server, wire named only by the YAML transport section).
   # Registered only when the server actually links the device-graph
-  # component; the script additionally skips (77) without a CUDA GPU or the
-  # nv-qldpc plugin at runtime.
-  if(TARGET cudaq-qec-realtime-cudevice-proprietary)
+  # component -- the same condition the server link uses in
+  # tools/decoding-server/CMakeLists.txt (device-graph compiled AND the
+  # proprietary cudevice archive present). Gating on the proprietary target
+  # alone would register the test on a box where CUDAQ_QEC_DEVICE_GRAPH_AVAILABLE
+  # is false, so the server cannot do device_graph and the test false-FAILs.
+  # The script additionally skips (77) without a CUDA GPU or the nv-qldpc
+  # plugin at runtime.
+  if(CUDAQ_QEC_DEVICE_GRAPH_AVAILABLE AND TARGET cudaq-qec-realtime-cudevice-proprietary)
     add_test(
       NAME app_examples.surface_code-4-yaml-mixed-dispatch
       COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/surface_code-4-yaml-mixed-dispatch-test.sh
