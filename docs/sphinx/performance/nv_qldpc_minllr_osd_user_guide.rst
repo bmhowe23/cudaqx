@@ -7,11 +7,11 @@
 
 .. _minllr_osd_user_guide:
 
-Improving BP+OSD Decoding With Min-LLR OSD Initialization
-==========================================================
+Using Min-LLR OSD Initialization with BP+OSD
+============================================
 
-Belief propagation followed by ordered-statistics decoding (BP+OSD) is the standard
-post-processor for quantum LDPC codes: when BP fails to converge, OSD sorts the
+Belief propagation followed by ordered-statistics decoding (BP+OSD) is commonly used
+to decode quantum LDPC codes. When BP fails to converge, OSD sorts the
 columns of the parity-check matrix by how likely BP believes each error is, solves
 the syndrome on the most likely columns, and optionally searches low-weight
 alternatives (OSD-CS). The quality of the OSD solution therefore depends on the
@@ -24,8 +24,8 @@ iteration 6 may look unremarkable at iteration 60. The NV-qLDPC decoder's
 ``osd_init_method="min_llr"`` option instead orders columns by the *minimum*
 marginal LLR each column reached over all BP iterations, so a column that was
 confident of an error at *any* point in the trajectory sorts first. The running
-minimum is tracked inside the BP kernel, so it costs no extra memory traffic and
-needs no LLR history buffer.
+minimum is tracked inside the BP kernel and does not require storing the full LLR
+history.
 
 .. code-block:: python
 
@@ -50,40 +50,35 @@ needs no LLR history buffer.
     predicted = [r.result for r in results]
 
 Note the iteration count: ten BP iterations, not the 50-100 that BP+OSD configurations
-usually run. With the min-LLR ordering the BP stage only has to *visit* the right
-columns at some point, not settle on them, and a short trajectory does that. Below we
-compare this configuration (BP10-minLLR+OSD-CS10) against the conventional BP60+OSD-CS10
-on bivariate-bicycle (BB) codes as a function of the physical error rate.
+usually run. Min-LLR ordering can use information encountered before BP converges,
+which permits a shorter BP trajectory. Below we compare this configuration
+(BP10-minLLR+OSD-CS10) against the conventional BP60+OSD-CS10 on bivariate-bicycle
+(BB) codes as a function of the physical error rate.
 
-Why the ordering matters so much: correlated decoding and Y errors
-+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+Column Ordering Importance and Sensitivity
+++++++++++++++++++++++++++++++++++++++++++
 
 A circuit-level DEM that annotates both the X- and Z-type detectors ("joint XYZ", or
-*correlated* decoding) carries strictly more information than one that keeps only the
+*correlated* decoding) retains more information than one that keeps only the
 detectors of the basis being measured ("split X/Z", or *uncorrelated* decoding): a
 Y error on a data qubit is a single, correctly-weighted mechanism in the joint DEM but
 is modeled as two independent X and Z errors in the split DEMs. In practice, however,
 BP+OSD has been observed to decode the *uncorrelated* problem more accurately. The
 Tesseract paper [Aghababaie Beni, Higgott, Shutty, `arXiv:2503.10988
-<https://arxiv.org/abs/2503.10988>`_] benchmarks against uncorrelated BP+OSD for
-exactly this reason, noting that "the uncorrelated variant of BPOSD receives much less
-information about the error model" yet is "significantly more accurate than correlated
-BPOSD", and explains the effect: "Y-type errors can cause trapping sets in BP-based
-decoders when both bases of detectors are annotated" -- every overlapping pair of X and
-Z stabilizers produces a 4-cycle through the Y errors on their shared qubits, and the
-joint DEM also has more low-weight degenerate configurations (an X and a Z error on the
-same qubit are indistinguishable from, and comparable in probability to, a Y error).
-"Both degeneracy and short cycles in the Tanner graph are known to be problematic for
-BP-based decoders."
+<https://arxiv.org/abs/2503.10988>`_] notes that the uncorrelated variant receives
+"much less information about the error model," yet is "significantly more accurate
+than correlated BPOSD." The paper attributes this behavior to trapping sets:
+"Y-type errors can cause trapping sets in BP-based decoders when both bases of
+detectors are annotated." Overlapping X and Z stabilizers introduce short cycles
+through Y errors on their shared qubits, and the joint DEM contains more low-weight
+degenerate configurations. As the authors note, "both degeneracy and short cycles in
+the Tanner graph are known to be problematic for BP-based decoders." These effects can
+prevent BP from converging and make its final marginals a poor basis for OSD ordering.
 
-Trapping sets and degeneracy are precisely the situations in which BP oscillates rather
-than converges, and in which the *final* marginals are a poor summary of what BP
-learned. Ordering OSD by the running-minimum LLR recovers the columns that BP was
-confident about at some point in the trajectory, before the oscillation set in. The
-experiment below shows that with ``min_llr`` the correlated (joint XYZ) BP+OSD decoder
-not only stops losing to the uncorrelated one but beats it, so that -- to our knowledge
-for the first time with BP+OSD -- decoding the fully correlated error model is strictly
-better than decoding the split model.
+Running-minimum LLR ordering preserves information from earlier BP iterations instead
+of relying only on the final marginals. In the experiment below, this change makes the
+correlated decoder at least as accurate as the split decoder across the measured
+physical error rates.
 
 Experiment
 ++++++++++
@@ -163,36 +158,27 @@ Three observations:
    14x-19x for ``[[144,12,12]]`` at ``p`` = 0.002-0.003, despite having strictly more
    information about the noise.
 
-2. **The min-LLR ordering removes the penalty and inverts it** (solid blue below dashed
-   blue). On the joint XYZ DEMs the change from BP60+OSD-CS10 to BP10-minLLR+OSD-CS10
-   lowers the logical error rate by 3.6x at ``p = 0.005``, 11x at 0.003, 25x at 0.002 and
-   36x at 0.001 (2.0e-3 vs 5.5e-5) for ``[[72,12,6]]``, and by 2.4x at ``p = 0.006``, 5x at
-   0.005, 15x at 0.004, 46x at 0.003 (4.5e-2 vs 9.7e-4) and 117x at ``p = 0.002`` (3.5e-3 vs
-   3.0e-5, the latter from 63 failures in 2.1 million shots) for ``[[144,12,12]]``. The gap
-   widens as ``p`` falls because the min-LLR curves keep the steep low-``p`` slope of about
-   5 while the default-ordering curves flatten toward saturation. The correlated min-LLR
-   decoder now beats the uncorrelated one on both codes: by 2.5x-3.6x for ``[[72,12,6]]`` at
-   ``p`` <= 0.002 (5.5e-5 vs 2.0e-4 at ``p = 0.001``) and 1.2x-1.6x at higher rates, and by
-   2.0x at ``p = 0.002`` (3.0e-5 vs 6.0e-5) and 1.3x at ``p = 0.003`` for ``[[144,12,12]]``,
-   with ``p`` >= 0.004 within noise. To our knowledge this is the first BP+OSD
-   configuration for which decoding the full correlated circuit-level model is at least
-   as accurate as decoding the split model at every rate measured, and better wherever
-   the two are resolvable.
+2. **The min-LLR ordering removes this penalty and makes correlated decoding
+   advantageous** (solid blue below dashed blue). On the joint XYZ DEMs, min-LLR ordering
+   reduces the logical error rate increasingly as ``p`` falls, reaching improvements of
+   36x for ``[[72,12,6]]`` and 117x for ``[[144,12,12]]`` at the lowest measured rates.
+   Unlike the default-ordering curves, the min-LLR curves retain a steep low-``p`` slope
+   rather than flattening toward saturation. With min-LLR ordering, correlated decoding
+   is at least as accurate as split decoding at every measured rate and is clearly better
+   where the confidence intervals separate.
 
 3. **On the split X/Z DEMs the ordering matters much less** (dashed blue only modestly
    below dashed orange): 1.2x-1.6x for ``[[72,12,6]]`` and 1.1x-3.1x for ``[[144,12,12]]``,
    largest at the lowest rate. Those DEMs have no Y-induced 4-cycles, so BP oscillates
-   less and the final marginals are already a reasonable ordering. The min-LLR gain is
-   concentrated exactly where the trapping sets are.
+   less and the final marginals are already a reasonable ordering. This is consistent
+   with min-LLR ordering being most useful when short cycles impede BP convergence.
 
 On the iteration count: BP converges on only about 1% of joint-XYZ syndromes within 10
 iterations at these rates (and on well under half even at 60 for ``p`` >= 0.002), so on
-those DEMs the decoder
-is effectively "OSD with a good ordering", and ten iterations are enough to produce
-that ordering. We have not swept the iteration count systematically here; anecdotally,
-comparable results have been seen with as few as five iterations, which suggests the
-useful signal sits in the earliest part of the BP trajectory. The savings are real: six
-times fewer BP iterations than the baseline, at a lower logical error rate.
+those DEMs the decoder relies primarily on OSD, with BP providing the column ordering.
+Ten iterations are sufficient for the configuration evaluated here. Compared with the
+60-iteration baseline, this uses six times fewer BP iterations while achieving a lower
+logical error rate.
 
 See Also
 ++++++++
