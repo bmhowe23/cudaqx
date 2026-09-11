@@ -12,8 +12,15 @@ The second study shows how **relay solution recording** replaces a per-``stop_nc
 sweep of full decode runs with a single recording run plus offline post-processing,
 reproducing every RelayBP-N result exactly from one GPU pass.
 
+The third study shows how **min-LLR OSD initialization** (``osd_init_method="min_llr"``)
+lets a 10-iteration BP+OSD decoder beat a 60-iteration one by up to **~100x** in logical
+error rate on joint-XYZ circuit-level DEMs of bivariate-bicycle codes, and makes
+correlated (joint XYZ) BP+OSD decoding more accurate than uncorrelated (split X/Z)
+decoding.
+
 .. toctree::
    :maxdepth: 1
 
    Improving Relay BP Decoding With Gamma Ensembles <nv_qldpc_gamma_ensemble_user_guide>
    Sweeping Relay BP Stopping Criteria From a Single Run <nv_qldpc_relay_solutions_user_guide>
+   Improving BP+OSD Decoding With Min-LLR OSD Initialization <nv_qldpc_minllr_osd_user_guide>
