@@ -62,18 +62,26 @@ def dem_mats(c):
 
 def make_decoder(H, L, er, arm):
     max_iter, osd_method, osd_order, init = ARMS[arm]
-    return qec.get_decoder("nv-qldpc-decoder", H, error_rate_vec=er,
-                           use_sparsity=True, use_osd=True,
-                           osd_method=osd_method, osd_order=osd_order,
-                           osd_init_method=init, max_iterations=max_iter,
-                           bp_batch_size=2048, O=L)
+    return qec.get_decoder("nv-qldpc-decoder",
+                           H,
+                           error_rate_vec=er,
+                           use_sparsity=True,
+                           use_osd=True,
+                           osd_method=osd_method,
+                           osd_order=osd_order,
+                           osd_init_method=init,
+                           max_iterations=max_iter,
+                           bp_batch_size=2048,
+                           O=L)
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--label", required=True, help="DEM label used in output")
-    ap.add_argument("--circuit", required=True,
-                    help="stim file with literal (0.002) noise, or glob with {p}")
+    ap.add_argument(
+        "--circuit",
+        required=True,
+        help="stim file with literal (0.002) noise, or glob with {p}")
     ap.add_argument("--rates", required=True, help="comma-separated p values")
     ap.add_argument("--arms", default=",".join(ARMS), help="comma-separated")
     ap.add_argument("--batch", type=int, default=10000)
@@ -115,24 +123,35 @@ def main():
                 conv[arm].append(np.array([r.converged for r in res], bool))
                 fails = int(sum(f.sum() for f in flags[arm]))
                 shots = sum(len(f) for f in flags[arm])
-                print(f"{a.label} p={p} {arm}: {fails}/{shots} fails, "
-                      f"{secs[arm]:.0f}s", flush=True)
+                print(
+                    f"{a.label} p={p} {arm}: {fails}/{shots} fails, "
+                    f"{secs[arm]:.0f}s",
+                    flush=True)
                 if fails >= a.stop_fails:
                     active.discard(arm)
         for arm in arms:
             f = np.concatenate(flags[arm])
             cv = np.concatenate(conv[arm])
-            rec = dict(label=a.label, p=float(p), arm=arm, shots=int(len(f)),
-                       fails=int(f.sum()), ler=float(f.mean()),
-                       bp_converged=int(cv.sum()), decode_sec=round(secs[arm], 1),
-                       num_detectors=int(H.shape[0]), num_errors=int(H.shape[1]),
-                       num_observables=int(L.shape[0]), seed=a.seed,
-                       max_shots=a.max_shots, stop_fails=a.stop_fails)
+            rec = dict(label=a.label,
+                       p=float(p),
+                       arm=arm,
+                       shots=int(len(f)),
+                       fails=int(f.sum()),
+                       ler=float(f.mean()),
+                       bp_converged=int(cv.sum()),
+                       decode_sec=round(secs[arm], 1),
+                       num_detectors=int(H.shape[0]),
+                       num_errors=int(H.shape[1]),
+                       num_observables=int(L.shape[0]),
+                       seed=a.seed,
+                       max_shots=a.max_shots,
+                       stop_fails=a.stop_fails)
             with open(jsonl, "a") as fh:
                 fh.write(json.dumps(rec) + "\n")
-            np.savez_compressed(
-                os.path.join(a.out, f"{a.label}_p{p}_{arm}_seed{a.seed}.npz"),
-                fail=f, bp_converged=cv)
+            np.savez_compressed(os.path.join(
+                a.out, f"{a.label}_p{p}_{arm}_seed{a.seed}.npz"),
+                                fail=f,
+                                bp_converged=cv)
         del decoders
 
 
