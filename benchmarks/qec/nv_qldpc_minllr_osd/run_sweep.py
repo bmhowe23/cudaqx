@@ -24,6 +24,11 @@ ARMS = {
     "BP10-minLLR+OSD-CS10": (10, 3, 10, "min_llr"),
     "BP60+OSD-0": (60, 1, 0, "final_llr"),
     "BP10-minLLR+OSD-0": (10, 1, 0, "min_llr"),
+    # matched-iteration controls: each changes only one factor relative to the
+    # two arms above, so the effect of osd_init_method can be separated from
+    # the effect of max_iterations.
+    "BP10+OSD-CS10": (10, 3, 10, "final_llr"),  # BP10, default ordering
+    "BP60-minLLR+OSD-CS10": (60, 3, 10, "min_llr"),  # BP60, min-LLR ordering
 }
 
 

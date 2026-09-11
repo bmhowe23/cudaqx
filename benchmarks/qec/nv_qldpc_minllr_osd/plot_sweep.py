@@ -31,6 +31,12 @@ STYLE = {
         dict(color="#eda100", ls="-", lw=2.0, alpha=1.0, marker="o"),
     "BP10-minLLR+OSD-0":
         dict(color="#1baf7a", ls="-", lw=2.4, alpha=1.0, marker="o"),
+    # matched-iteration controls (dashed, in the hue of the arm sharing their
+    # OSD ordering); plotted only in the controls figure
+    "BP10+OSD-CS10":
+        dict(color="#eb6834", ls="--", lw=1.8, alpha=0.6, marker="s"),
+    "BP60-minLLR+OSD-CS10":
+        dict(color="#2a78d6", ls="--", lw=1.8, alpha=0.6, marker="s"),
 }
 FIGURES = {
     "minllr_osd_cs10_ler": ["BP60+OSD-CS10", "BP10-minLLR+OSD-CS10"],
@@ -197,6 +203,26 @@ for (row_name,
             allp += draw(ax, label, arm, arm)
         finish(ax, f"{TITLES.get(label, label)} -- {row_name}", allp)
     save(fig, axes, fname)
+
+# Figure 1c: matched-iteration controls, one panel per DEM, OSD-CS10 only.
+# Legend order = curve order at low p: BP60 / BP10 default ordering, then
+# BP10 / BP60 min-LLR.
+CTRL = [
+    "BP60+OSD-CS10", "BP10+OSD-CS10", "BP10-minLLR+OSD-CS10",
+    "BP60-minLLR+OSD-CS10"
+]
+if any(a in data[l] for l in labels for a in CTRL[1::2]):
+    fig, axes = plt.subplots(1,
+                             ncol,
+                             figsize=(4.4 * ncol, 4.8),
+                             sharey=True,
+                             squeeze=False)
+    for ax, label in zip(axes[0], labels):
+        allp = []
+        for arm in CTRL:
+            allp += draw(ax, label, arm, arm)
+        finish(ax, f"{TITLES.get(label, label)} -- OSD-CS10", allp)
+    save(fig, axes, "minllr_osd_controls.png")
 
 # Figure 2: correlated (joint XYZ) vs uncorrelated (split X/Z) decoding of the
 # same memory-Z circuit, per code, OSD-CS10 only; one column per code.

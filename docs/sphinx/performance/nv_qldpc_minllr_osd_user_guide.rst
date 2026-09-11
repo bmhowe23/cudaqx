@@ -64,10 +64,10 @@ detectors of the basis being measured ("split X/Z", or *uncorrelated* decoding):
 Y error on a data qubit is a single, correctly-weighted mechanism in the joint DEM but
 is modeled as two independent X and Z errors in the split DEMs. In practice, however,
 BP+OSD has been observed to decode the *uncorrelated* problem more accurately. The
-Tesseract paper [Aghababaie Beni, Higgott, Shutty, `arXiv:2503.10988
-<https://arxiv.org/abs/2503.10988>`_] notes that the uncorrelated variant receives
-"much less information about the error model," yet is "significantly more accurate
-than correlated BPOSD." The paper attributes this behavior to trapping sets:
+Tesseract paper by Beni, Higgott and Shutty
+(`arXiv:2503.10988 <https://arxiv.org/abs/2503.10988>`_) notes that the uncorrelated
+variant receives "much less information about the error model," yet is "significantly
+more accurate than correlated BPOSD". The paper attributes this behavior to trapping sets:
 "Y-type errors can cause trapping sets in BP-based decoders when both bases of
 detectors are annotated." Overlapping X and Z stabilizers introduce short cycles
 through Y errors on their shared qubits, and the joint DEM contains more low-weight
@@ -84,8 +84,9 @@ Experiment
 ++++++++++
 
 The circuits are the bivariate-bicycle memory-Z experiments published with the
-Relay-BP decoder (`github.com/trmue/relay <https://github.com/trmue/relay>`_, in
-``tests/testdata/bicycle_bivariate/``, Apache-2.0): 6 and 12 rounds of syndrome
+Relay-BP decoder (`tests/testdata/bicycle_bivariate
+<https://github.com/trmue/relay/tree/main/tests/testdata/bicycle_bivariate>`_ in the
+`trmue/relay <https://github.com/trmue/relay>`_ repository, Apache-2.0): 6 and 12 rounds of syndrome
 extraction for ``[[72,12,6]]`` and ``[[144,12,12]]`` respectively, under uniform
 circuit-level depolarizing noise with one file per physical error rate. Two kinds of
 circuit-level DEM are built from them:
@@ -97,9 +98,12 @@ circuit-level DEM are built from them:
   detectors of the basis being decoded remain (the ``assets/benchmarks`` files in this
   repository; 2.2k and 8.8k mechanisms respectively).
 
-All arms decode the same sampled syndromes. An arm is stopped once it has observed
-100 logical failures or reached the shot cap; points with zero observed failures are
-shown as their 95% Wilson upper bound.
+Each decoder configuration under test is an *arm* of the experiment (the term comes
+from the benchmark script, whose ``--arms`` option selects them; the two compared here
+are BP60+OSD-CS10 and BP10-minLLR+OSD-CS10, and the matched-iteration controls below
+add two more). All arms decode the same sampled syndromes, so comparisons between arms
+are paired. An arm is stopped once it has observed 100 logical failures or reached the
+shot cap; points with zero observed failures are shown as their 95% Wilson upper bound.
 
 .. list-table:: Decoder and experiment parameters
    :header-rows: 1
@@ -180,9 +184,28 @@ Ten iterations are sufficient for the configuration evaluated here. Compared wit
 60-iteration baseline, this uses six times fewer BP iterations while achieving a lower
 logical error rate.
 
+Controls: Ordering Versus Iteration Count
+++++++++++++++++++++++++++++++++++++++++++
+
+The two arms above differ in both ``max_iterations`` and ``osd_init_method``. To
+attribute the improvement, two matched-iteration controls were run on the same
+syndromes: BP10+OSD-CS10 (10 iterations, default ordering) and BP60-minLLR+OSD-CS10
+(60 iterations, min-LLR ordering). Dashed curves are the controls, drawn in the hue of
+the arm that shares their OSD ordering.
+
+.. image:: ../../../assets/docs/minllr_osd_controls.png
+   :align: center
+   :alt: LER versus physical error rate per DEM, with matched-iteration controls
+
+The results show that min-LLR ordering accounts for nearly all of the accuracy
+improvement. Increasing BP from 10 to 60 iterations without changing the
+ordering has little effect. With min-LLR ordering, the additional iterations
+provide a smaller, code-dependent benefit. Ten iterations therefore offer a
+strong cost-accuracy tradeoff, retaining most of the gain with about one sixth
+of the BP work.
+
 See Also
 ++++++++
 
 * :ref:`Quantum Low-Density Parity-Check Decoder <qldpc_decoder>` -- the nv-qldpc-decoder overview
-* :ref:`Improving Relay BP Decoding With Gamma Ensembles <ensemble_gamma_user_guide>`
 * :ref:`C++ <nv_qldpc_decoder_api_cpp>` and :ref:`Python <nv_qldpc_decoder_api_python>` API reference
